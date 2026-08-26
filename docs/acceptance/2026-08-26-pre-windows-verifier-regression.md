@@ -1,69 +1,64 @@
 # Pre-Windows bundle verifier regression — 2026-08-26
 
-Status: **HARNESS FIX PENDING LOCAL RE-RUN**
+Status: **PASS**
 
 Operator environment:
 
 - Node `v24.19.0`
 - pnpm `11.21.0`
 - DSH `0.1.1-rc.2`
-- tested branch head `676b3d65648d849d9f9aa54020b7121846e8aadc`
+- tested branch head `d7ca6e5cd5bd986223170e8d722ab93ebf01597c`
 
-## Observed result
+## Background
+
+The first hardened-verifier run proved the DSH profile pnpm contract but stopped before Suite lifecycle completion because the exact prerelease Nishi leaf packages were not yet published. Installing the unchanged Suite tarball therefore caused pnpm to resolve leaf versions such as `nishi-dsh-codex@0.1.0-rc.1` from the public registry and fail with `ERR_PNPM_FETCH_404`.
+
+That result was classified as a **prepublish acceptance-harness limitation, not a product release-graph regression**.
+
+The verifier was then extended with explicit `--local-pack-dir` support. The mode keeps the real Suite tarball unchanged and temporarily maps only the eight Nishi leaf names to their local `.tgz` artifacts in the disposable DSH profile workspace. `--dsh-home` also now sets child `DSH_HOME` directly so isolation does not depend on a separate shell export.
+
+## Executed prepublish rerun
 
 `pnpm verify:local`: **PASS**.
 
-The newly hardened profile contract assertions also passed:
+Local artifact family:
+
+- nine tarballs present: **PASS**
+- one unchanged `nishi-dsh-suite-0.1.0-rc.1.tgz`: **PASS**
+- eight Nishi leaf tarballs available for acceptance-only local resolution: **PASS**
+
+DSH profile contract:
 
 - `nodeLinker: hoisted`: **PASS**
 - `autoInstallPeers: false`: **PASS**
-- real `~/.dsh` untouched: **PASS**
-- repository status clean: **PASS**
 
-The standalone `scripts/verify-bundle-install.mjs` lifecycle did not reach install/reinstall/uninstall because the Suite tarball contains the correct publish-time exact dependencies such as `nishi-dsh-codex@0.1.0-rc.1`, while those prerelease leaf packages are not yet published to npm. pnpm therefore attempted registry resolution and returned `ERR_PNPM_FETCH_404`.
+Temporary prepublish overrides:
 
-This is a **prepublish acceptance-harness limitation, not a product release-graph regression**. The packed Suite must retain normal registry version dependencies; rewriting the published artifact to local paths would be incorrect.
+- installed only in the disposable DSH profile: **PASS**
+- Suite tarball itself remained unchanged: **PASS**
+- original DSH-generated `pnpm-workspace.yaml` restored after uninstall: **PASS**
+- no final `overrides:` section remained: **PASS**
 
-## Harness correction
+Bundle lifecycle:
 
-The verifier was updated after this report to support an explicit `--local-pack-dir` prepublish mode.
+- install: **PASS**
+- idempotent reinstall/reconciliation: **PASS**
+- uninstall: **PASS**
 
-In that mode it:
+Final disposable profile:
 
-1. initializes a normal disposable DSH profile;
-2. verifies the DSH-owned profile contract (`nodeLinker: hoisted`, `autoInstallPeers: false`);
-3. temporarily appends pnpm `overrides` mapping only the eight Nishi leaf package names to their local `.tgz` artifacts;
-4. installs the **unchanged real Suite tarball** through `dsh plugin add`;
-5. exercises idempotent reinstall and uninstall;
-6. restores the original DSH-generated `pnpm-workspace.yaml` before final post-uninstall assertions.
+- `nishi-dsh-suite` dependency absent: **PASS**
+- `nishi-dsh-suite` absent from `dsh.profile.bundles`: **PASS**
 
-The verifier also now makes `--dsh-home` set `DSH_HOME` for every child `dsh` process, removing the previous requirement for a separate shell `export DSH_HOME=...` and reducing the risk of accidentally touching the operator's real profile.
+Preservation:
 
-If initial add fails part-way through, cleanup now attempts Suite removal before restoring the acceptance-only workspace override.
+- real `~/.dsh` touched: **no**
+- repository status after execution: **clean**
 
-## Required re-run
+## Result
 
-A fresh local execution is still required before this verifier hardening is marked PASS. Use the current `.artifacts/packs` directory:
+The prepublish standalone-profile bundle verifier is **PASS** at head `d7ca6e5cd5bd986223170e8d722ab93ebf01597c`.
 
-```bash
-TEST_DSH_HOME="$(mktemp -d -t nishi-profile-contract-XXXXXX)"
-
-node scripts/verify-bundle-install.mjs \
-  --profile pre-windows-contract \
-  --suite "$PWD/.artifacts/packs/nishi-dsh-suite-0.1.0-rc.1.tgz" \
-  --local-pack-dir "$PWD/.artifacts/packs" \
-  --dsh-home "$TEST_DSH_HOME"
-```
-
-No separate `export DSH_HOME` should be necessary.
-
-Expected result:
-
-- install: PASS
-- idempotent reinstall: PASS
-- uninstall: PASS
-- DSH profile pnpm contract: PASS throughout
-- temporary local overrides restored after uninstall
-- real `~/.dsh` untouched
+This establishes that the real packed Suite can be installed, reconciled, and removed through a normal disposable DSH `0.1.1-rc.2` profile before public npm publication while preserving the actual publish-time package metadata. Local tarball overrides are acceptance scaffolding only and are fully removed from the profile afterward.
 
 This does not replace the later post-publication registry install acceptance or the still-pending real version-to-version RC update test.
