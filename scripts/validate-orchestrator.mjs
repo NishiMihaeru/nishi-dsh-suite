@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 
-const path = new URL('../presets/orchestrator/agent.cordis.yml', import.meta.url)
+const path = new URL('../packages/suite/presets/orchestrator/agent.cordis.yml', import.meta.url)
 const source = await readFile(path, 'utf8')
 
 function count(pattern) {
