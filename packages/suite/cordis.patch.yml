@@ -1,0 +1,25 @@
+# Nishi DSH Suite runtime composition.
+# Libraries are dependencies of their owning runtime plugins and are not mounted as Cordis rows.
+# Orchestrator preset discovery is intentionally not patched here: DSH 0.1.1-rc.2
+# overwrites third-party agent-presets roots at CLI composition time.
+
+- insert:
+    - id: nishi-project-memory
+      name: 'nishi-dsh-project-memory'
+
+    - id: nishi-codex
+      name: 'nishi-dsh-codex'
+
+    - id: nishi-antigravity
+      name: 'nishi-dsh-antigravity'
+
+    - id: nishi-claude-code
+      name: 'nishi-dsh-claude-code'
+
+    - id: nishi-primary-web-search
+      name: 'nishi-dsh-primary-web-search'
+      config:
+        searchTimeoutMs: 60000
+
+    - id: nishi-usage-limits-host
+      name: 'nishi-dsh-usage-limits-host'
