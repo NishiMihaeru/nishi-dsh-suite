@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -34,6 +34,12 @@ function options(dshHome: string, sourceRoot: string, suiteVersion = 'test-v1') 
   return { dshHome, sourceRoot, suiteVersion }
 }
 
+async function transientPresetEntries(dshHome: string): Promise<string[]> {
+  const userRoot = join(dshHome, '.agent-presets')
+  if (!await exists(userRoot)) return []
+  return (await readdir(userRoot)).filter((name) => name.startsWith('.orchestrator.nishi-'))
+}
+
 test('install creates a managed orchestrator under the DSH user preset root', async (t) => {
   const { root, dshHome, sourceRoot } = await fixture()
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -49,6 +55,7 @@ test('install creates a managed orchestrator under the DSH user preset root', as
     '- id: first\n  name: first-plugin\n',
   )
   assert.equal(await exists(join(result.target, '.nishi-dsh-suite-preset.json')), true)
+  assert.deepEqual(await transientPresetEntries(dshHome), [])
 
   const status = await inspectOrchestratorPreset(options(dshHome, sourceRoot))
   assert.equal(status.state, 'current')
@@ -97,6 +104,7 @@ test('update atomically replaces an unmodified managed preset when package conte
     await readFile(join(updated.target, 'agent.cordis.yml'), 'utf8'),
     '- id: second\n  name: second-plugin\n',
   )
+  assert.deepEqual(await transientPresetEntries(dshHome), [])
 })
 
 test('local edits make the managed preset modified and block update and removal', async (t) => {
@@ -135,4 +143,5 @@ test('remove deletes only the managed orchestrator and preserves sibling user pr
   assert.equal(removed.state, 'absent')
   assert.equal(await exists(installed.target), false)
   assert.equal(await readFile(join(sibling, 'agent.cordis.yml'), 'utf8'), 'personal\n')
+  assert.deepEqual(await transientPresetEntries(dshHome), [])
 })
