@@ -10,7 +10,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { NISHI_DSH_SUITE_VERSION } from './index.js'
@@ -216,8 +216,9 @@ async function stageManagedPreset(options: ResolvedOptions): Promise<string> {
     throw new Error('packaged Orchestrator preset is incomplete')
   }
 
+  // DSH owns the user preset root. Create it when absent, but never chmod an
+  // existing root or otherwise mutate sibling user presets.
   await mkdir(options.userRoot, { recursive: true, mode: 0o700 })
-  await chmod(options.userRoot, 0o700)
 
   const staged = join(options.userRoot, `.${PRESET_ID}.nishi-stage-${randomUUID()}`)
   try {
