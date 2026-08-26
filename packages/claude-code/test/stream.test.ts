@@ -33,6 +33,21 @@ test('terminal success result is a fallback when no assistant text was streamed'
   assert.equal(result.stopReason, 'completed')
 })
 
+test('terminal result stops stream consumption immediately', async () => {
+  async function* terminalThenTrap() {
+    yield JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'done' }] },
+    })
+    yield JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: '' })
+    throw new Error('decoder read past terminal result')
+  }
+
+  const result = await consumeClaudeStream(terminalThenTrap())
+  assert.equal(result.text, 'done')
+  assert.equal(result.stopReason, 'completed')
+})
+
 test('malformed JSON is a safe protocol failure', async () => {
   await assert.rejects(
     consumeClaudeStream(lines(['{ definitely-not-json'])),
