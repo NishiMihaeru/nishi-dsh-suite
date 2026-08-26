@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import {
+  claudeCliArgv,
   claudeQueryOptions,
   consumeClaudeQuery,
   disposeClaudeCodeChild,
@@ -234,4 +235,41 @@ test('cleanup closes the query, terminates the managed tree, waits for exit and 
   assert.equal(closeCalls, 1)
   assert.equal(child.terminateCalls, 1)
   assert.equal(child.waitForExitCalls, 1)
+})
+
+test('direct Claude CLI argv preserves unattended one-shot defaults', () => {
+  assert.deepEqual(
+    claudeCliArgv({
+      executable: '/home/user/.local/bin/claude',
+      model: 'claude-sonnet-5',
+      effort: 'high',
+      permissionMode: 'auto',
+      prompt: 'delegated task',
+    }),
+    [
+      '/home/user/.local/bin/claude',
+      '--print',
+      '--verbose',
+      '--output-format', 'stream-json',
+      '--no-session-persistence',
+      '--model', 'claude-sonnet-5',
+      '--effort', 'high',
+      '--permission-mode', 'auto',
+      'delegated task',
+    ],
+  )
+})
+
+test('bypassPermissions stays an explicit CLI permission mode', () => {
+  const argv = claudeCliArgv({
+    executable: '/usr/bin/claude',
+    model: 'claude-sonnet-5',
+    effort: 'high',
+    permissionMode: 'bypassPermissions',
+    prompt: 'delegated task',
+  })
+
+  const modeIndex = argv.indexOf('--permission-mode')
+  assert.ok(modeIndex >= 0)
+  assert.equal(argv[modeIndex + 1], 'bypassPermissions')
 })
