@@ -4,11 +4,14 @@ on:
   push:
     branches:
       - main
-      - feat/market-migration
   pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deterministic:
@@ -23,6 +26,8 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.21.0 --activate
       - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:release-family
+      - run: pnpm test:orchestrator
       - run: pnpm check
       - run: pnpm test
       - run: pnpm build
