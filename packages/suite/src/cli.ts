@@ -23,11 +23,13 @@ export interface SuiteCliIo {
 }
 
 function writeStdout(io: SuiteCliIo, message: string): void {
-  ;(io.stdout ?? console.log)(message)
+  const writer = io.stdout ?? console.log
+  writer(message)
 }
 
 function writeStderr(io: SuiteCliIo, message: string): void {
-  ;(io.stderr ?? console.error)(message)
+  const writer = io.stderr ?? console.error
+  writer(message)
 }
 
 function managerOptions(io: SuiteCliIo): OrchestratorPresetOptions {
