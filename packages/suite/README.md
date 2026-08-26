@@ -25,14 +25,40 @@ The Suite also installs the official `@deepseek-ai/dsh-authorization@0.1.1-rc.2`
 
 The authorization service is only the DSH service seam required by the Model Accounts/legacy-grant status surface. The Suite does not install vendor clients and does not copy vendor OAuth/session/token databases. Codex, Claude Code, and Antigravity continue to use their vendor-owned local runtimes and authentication state.
 
-## Orchestrator preset
+## Orchestrator preset on DSH 0.1.1-rc.2
 
-The npm package contains the accepted Orchestrator preset under `presets/orchestrator`. Both `preset.yml` and `agent.cordis.yml` are included in the package `files` contract and exported as package subpaths, so the artifact is ready for a supported DSH preset-root seam when one exists.
+The npm package contains the accepted Orchestrator preset under `presets/orchestrator`. Both `preset.yml` and `agent.cordis.yml` are included in the package artifact.
 
-Automatic third-party preset-root discovery is **not enabled by this bundle on DSH 0.1.1-rc.2**. The rc.2 CLI composition overwrites third-party `agent-presets.config.roots` with the shipped preset root at runtime, so adding such a row here would look configured but would not reliably work. The preset remains an upstream-gated acceptance item until DSH exposes a stable bundle seam or fixes that root override.
+DSH rc.2 does not expose a bundle seam that lets a third-party package add its own preset root automatically. DSH does, however, always include the user preset root at `$DSH_HOME/.agent-presets` (default `~/.dsh/.agent-presets`). Until the upstream discovery seam is fixed, Suite provides an explicit managed bridge that copies only its packaged Orchestrator into that supported user root.
 
-No startup copier, service monkeypatch, or mutation of `$DSH_HOME/.agent-presets` is hidden in this package.
+After installing Nishi DSH Suite into the `web` profile through Market, run:
+
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset install
+```
+
+The `dsh plugin` command forwards to pnpm inside the selected DSH profile, so this executes the exact Suite version installed by Market rather than downloading another copy.
+
+Lifecycle commands:
+
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset status
+dsh plugin --profile web exec nishi-dsh-suite preset update
+dsh plugin --profile web exec nishi-dsh-suite preset remove
+```
+
+Run `preset update` after a Suite update. Run `preset remove` **before uninstalling the Suite from Market**, because DSH rc.2 provides no bundle uninstall hook that can safely remove a user-authored preset directory after the package has gone away.
+
+The bridge manages only:
+
+```text
+$DSH_HOME/.agent-presets/orchestrator/
+```
+
+It writes a small ownership marker with SHA-256 file hashes. It refuses to overwrite an unmanaged `orchestrator` directory and refuses to update or remove a managed preset after local edits. Other presets, DSH profiles, sessions, project files, Project Memory, credentials, and vendor-owned state are outside its write boundary.
+
+Automatic one-click preset discovery remains tracked as upstream issue #2. Once DSH exposes a stable third-party preset-root seam, this explicit bridge can be retired without changing the provider packages.
 
 ## Development status
 
-This package is a prerelease migration target. Static composition is present in the public repository; executable install/check/test/build acceptance still requires a regenerated workspace lockfile and an available runner/local environment.
+This package is a prerelease migration target. Static composition and the managed preset bridge are present in the public repository; executable install/check/test/build acceptance still requires a regenerated workspace lockfile and an available runner/local environment.
