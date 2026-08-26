@@ -25,11 +25,11 @@ The Suite does not install vendor clients and does not copy vendor OAuth/session
 
 ## Orchestrator preset
 
-The repository contains the accepted Orchestrator preset under `presets/orchestrator`.
+The npm package contains the accepted Orchestrator preset under `presets/orchestrator`. Both `preset.yml` and `agent.cordis.yml` are included in the package `files` contract and exported as package subpaths, so the artifact is ready for a supported DSH preset-root seam when one exists.
 
 Automatic third-party preset-root discovery is **not enabled by this bundle on DSH 0.1.1-rc.2**. The rc.2 CLI composition overwrites third-party `agent-presets.config.roots` with the shipped preset root at runtime, so adding such a row here would look configured but would not reliably work. The preset remains an upstream-gated acceptance item until DSH exposes a stable bundle seam or fixes that root override.
 
-No startup copier or mutation of `$DSH_HOME/.agent-presets` is hidden in this package.
+No startup copier, service monkeypatch, or mutation of `$DSH_HOME/.agent-presets` is hidden in this package.
 
 ## Development status
 
