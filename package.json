@@ -21,6 +21,7 @@
     "check": "pnpm -r --if-present check",
     "test": "pnpm -r --if-present test",
     "test:orchestrator": "node scripts/validate-orchestrator.mjs",
+    "verify:package-contracts": "node scripts/verify-package-contracts.mjs",
     "verify:release-family": "node scripts/verify-release-family.mjs",
     "check:npm-names": "node scripts/check-npm-names.mjs --require-available",
     "pack:packages": "pnpm -r --if-present pack",
