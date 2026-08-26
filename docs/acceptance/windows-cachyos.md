@@ -1,6 +1,6 @@
 # Fresh Windows + CachyOS acceptance
 
-Status: **CACHYOS CORE RUNTIME + CODEX LIVE PASS / CLAUDE + ANTIGRAVITY + WINDOWS PENDING**
+Status: **CACHYOS CORE + CODEX + USAGE PASS / CLAUDE + ANTIGRAVITY + WINDOWS PENDING**
 
 This is the release gate for Nishi DSH Suite. Windows and CachyOS/Linux are tested as **independent ordinary DSH installations**. No DSH home, session store, vendor credential store, or runtime state is copied between operating systems.
 
@@ -9,6 +9,7 @@ Executed CachyOS evidence:
 - deterministic local verification: `docs/acceptance/2026-08-26-cachyos-local-verification.md`
 - isolated fresh-profile/runtime acceptance: `docs/acceptance/2026-08-26-cachyos-runtime-acceptance.md`
 - Codex primary/subagent/search acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-codex-primary-acceptance.md`
+- remaining live-provider / Usage & Limits acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-remaining-live.md`
 
 The acceptance records are based on executed local reports supplied from the CachyOS test environment; they were not inferred from static repository inspection.
 
@@ -129,6 +130,8 @@ Expected:
 - no Suite component installs a missing vendor client automatically;
 - no direct subscription OAuth flow is started by DSH.
 
+CachyOS Node 24 execution is **PASS** for missing global `codex`, missing `claude`, and missing `agy`. Managed Codex primary remains independent of global PATH; Claude failure is isolated; Antigravity inference/search becomes unavailable while the independent local quota source may remain available if the IDE/App runtime is running.
+
 ## 5. Codex live gates
 
 With official `codex` installed and authenticated:
@@ -153,6 +156,8 @@ With official `claude` installed and authenticated:
 - Project Memory bridge is read-only;
 - usage collection failure is isolated from the rest of the Suite.
 
+CachyOS Node 24 currently reports **BLOCKED_AUTH** because the official Claude Code product is not logged in. The accepted runtime/config path still confirms model `claude-sonnet-5`, effort `high`, permission mode `auto`, and isolated failure behavior. No credential workaround is permitted.
+
 Claude subscription primary login is not part of this release gate.
 
 ## 7. Antigravity live gates
@@ -165,6 +170,8 @@ With official `agy` installed and authenticated:
 - no dangerous permission-skip flag is used;
 - Project Memory bootstrap/read path remains read-only;
 - usage collection failure is isolated.
+
+CachyOS Node 24 currently reports **BLOCKED_RUNTIME_MISSING** for inference/subagent/search because the official `agy` executable is not installed on PATH. No fallback was observed and no dangerous permission bypass is configured. The independent Usage quota source can still be available through the already-running local Antigravity IDE/App language-server seam.
 
 Policy note: support for the official `agy` boundary is technically tested here; this acceptance does not represent the third-party harness integration as Google-approved.
 
@@ -180,7 +187,7 @@ In a temporary project:
 6. verify project files and `.dsh/memory` are unchanged;
 7. reinstall Suite + preset and verify the same project memory is available again.
 
-The Codex child path has passed on CachyOS; the aggregate row remains pending until Claude Code and Antigravity child paths are exercised under the release environment.
+The Codex child path has passed on CachyOS. Memory hashes also remained unchanged throughout the remaining live-provider run, but the aggregate row remains **PENDING** because Claude child inference is blocked on normal product login and Antigravity child inference is blocked on the missing official `agy` runtime.
 
 There is no cross-OS or cross-machine memory synchronization gate.
 
@@ -195,7 +202,7 @@ Verify on DSH Web:
 - Model Accounts does not expose or initiate vendor subscription OAuth;
 - legacy DSH grants, if intentionally staged for the test, can be removed without deleting unrelated API-key records.
 
-The Codex rate-limit source has passed on CachyOS Node 24; the aggregate runtime/UI row remains pending until the remaining provider/UI gates are executed under the release environment.
+CachyOS Node 24 aggregate runtime/UI execution is **PASS**: Codex is available, Claude is isolated in safe `ERROR` while logged out, Antigravity quota is available through the local runtime seam, provider groups remain independent, browser-facing DTO redaction passed, and DSH Web mounted the Usage Limits / Model Accounts surfaces successfully.
 
 ## Acceptance record
 
@@ -210,10 +217,10 @@ Both OS rows must be explicitly recorded before the RC is promoted:
 | real version-to-version update | PENDING | PENDING |
 | uninstall preserves state | PENDING | PASS |
 | Codex primary/subagent/search | PENDING | PASS |
-| Claude Code subagent | PENDING | PENDING |
-| Antigravity primary/subagent/search | PENDING | PENDING |
+| Claude Code subagent | PENDING | BLOCKED_AUTH |
+| Antigravity primary/subagent/search | PENDING | BLOCKED_RUNTIME_MISSING |
 | Project Memory live provider bridge | PENDING | PENDING |
-| Usage & Limits runtime/UI | PENDING | PENDING |
+| Usage & Limits runtime/UI | PENDING | PASS |
 | automatic one-click preset discovery | BLOCKED_UPSTREAM | BLOCKED_UPSTREAM |
 
 A row becomes `PASS` only from an executed gate with captured command/output or an attached acceptance note. Static inspection is not a substitute for a PASS.
