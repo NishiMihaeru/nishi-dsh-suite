@@ -1,235 +1,184 @@
-# Fresh Windows + CachyOS acceptance
+# Windows + CachyOS acceptance matrix
 
-Status: **CACHYOS LIVE RUNTIME PASS / WINDOWS + RELEASE-LEVEL GATES PENDING**
+Status: **CACHYOS LIVE RUNTIME PASS / WINDOWS DEFERRED — NOT TESTED FOR `0.1.0-rc.1`**
 
-This is the release gate for Nishi DSH Suite. Windows and CachyOS/Linux are tested as **independent ordinary DSH installations**. No DSH home, session store, vendor credential store, or runtime state is copied between operating systems.
+Windows and CachyOS/Linux are always independent ordinary DSH installations. No DSH home, session store, vendor credential store, or runtime state is copied between operating systems.
 
-Executed CachyOS evidence:
+For the first Nishi prerelease (`0.1.0-rc.1`) the release scope has been intentionally narrowed to **CachyOS/Linux validated**. Windows acceptance is deferred to a later release cycle and no Windows compatibility claim is made for this RC. A future Windows run must execute the same categories below on Windows; static inspection or Linux results cannot be promoted into a Windows PASS.
+
+## Executed CachyOS evidence
 
 - deterministic local verification: `docs/acceptance/2026-08-26-cachyos-local-verification.md`
 - isolated fresh-profile/runtime acceptance: `docs/acceptance/2026-08-26-cachyos-runtime-acceptance.md`
 - Codex primary/subagent/search acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-codex-primary-acceptance.md`
-- intermediate remaining live-provider / Usage & Limits acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-remaining-live.md`
-- final authenticated Claude + Antigravity live acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-final-live.md`
+- intermediate provider/Usage acceptance: `docs/acceptance/2026-08-26-cachyos-remaining-live.md` (superseded by final live acceptance)
+- final authenticated Claude + Antigravity live acceptance: `docs/acceptance/2026-08-26-cachyos-final-live.md`
+- pre-Windows/source semantics audit: `docs/acceptance/2026-08-26-pre-windows-source-audit.md`
+- prepublish standalone-profile verifier acceptance: `docs/acceptance/2026-08-26-pre-windows-verifier-regression.md`
 
-The acceptance records are based on executed local reports supplied from the CachyOS test environment; they were not inferred from static repository inspection.
+The acceptance records are based on executed local reports from the CachyOS environment; they were not inferred from static repository inspection.
 
-## Preconditions on each OS
+## Baseline contract
 
-- DeepSeek Harness `0.1.1-rc.2` installed normally;
+Validated release baseline:
+
+- DeepSeek Harness `0.1.1-rc.2`;
 - Node.js 24;
-- pnpm 11.21.0 available through Corepack;
-- Suite tarballs produced by `pnpm verify:local`, or the published `nishi-dsh-suite@0.1.0-rc.1` prerelease;
-- official vendor clients installed/authenticated only for live gates that exercise them:
-  - `codex` for Codex;
-  - `claude` for Claude Code;
-  - `agy` for Antigravity.
+- pnpm `11.21.0`;
+- Nishi package family `0.1.0-rc.1`;
+- official vendor product authentication owned by Codex, Claude Code, and `agy`, never copied or replayed by the Suite.
 
 A missing vendor client must make only its integration unavailable/auth-required; it must not prevent DSH/Suite startup.
 
-## 1. Deterministic repository gates
+## Acceptance categories
 
-Run on the exact commit under acceptance:
+### 1. Deterministic repository gate
 
 ```bash
 corepack enable
-pnpm install
+pnpm install --frozen-lockfile
 pnpm verify:local
 ```
 
-`verify:local` covers release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local tarball creation. Record Node, pnpm, DSH, OS, and commit SHA with the results.
-
 CachyOS Node 24 execution: **PASS**.
 
-## 2. Fresh normal profile install
+### 2. Fresh profile lifecycle
 
-Use a disposable profile name unique to the OS, for example:
+The Suite must install into a disposable ordinary DSH profile, reconcile idempotently, and uninstall without modifying preserved session/project/vendor state.
 
-```text
-Windows: nishi-accept-windows
-CachyOS: nishi-accept-cachyos
+Before npm publication, `scripts/verify-bundle-install.mjs --local-pack-dir <packs>` may use acceptance-only profile overrides for the eight unpublished Nishi leaves while installing the unchanged real Suite tarball. The verifier must restore the DSH-generated profile workspace afterward.
+
+CachyOS prepublish install/reinstall/uninstall: **PASS**.
+
+The actual DSH profile contract was machine-checked as:
+
+```yaml
+packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
 ```
 
-Do not point `DSH_HOME` at another machine's or another OS's home.
+### 3. Orchestrator preset bridge
 
-Before running the verifier, prepare preserve paths that must not be mutated by Suite lifecycle operations. At minimum include:
-
-- an unrelated DSH session/history path;
-- a test project's files;
-- the test project's `.dsh/memory` directory after creating a sentinel memory entry;
-- any vendor-owned auth/config path selected for the test, if safe to hash locally.
-
-Then run:
+Required rc.2 behavior:
 
 ```bash
-node scripts/verify-bundle-install.mjs \
-  --profile <fresh-profile> \
-  --suite <suite-tarball-or-npm-spec> \
-  --preserve <unrelated-session-path> \
-  --preserve <test-project-path> \
-  --preserve <vendor-owned-path>
+dsh plugin --profile <profile> exec nishi-dsh-suite preset status
+dsh plugin --profile <profile> exec nishi-dsh-suite preset install
+dsh plugin --profile <profile> exec nishi-dsh-suite preset status
 ```
 
-On PowerShell, pass the same arguments on one line or with PowerShell backtick continuations.
+Expected fresh state: `absent` → `current`.
 
-Expected:
+The bridge must refuse unmanaged/local-edited targets, preserve sibling presets, avoid leftover stage/backup entries, and remove only its managed Orchestrator.
 
-- `nishi-dsh-suite` becomes a direct profile dependency;
-- it appears exactly once in `dsh.profile.bundles`;
-- reinstall/reconciliation is idempotent;
-- uninstall removes only the Suite profile dependency/bundle layer;
-- all preserve hashes remain unchanged.
+CachyOS install/status/idempotence/safety/remove/discovery through the user preset root: **PASS**.
 
-CachyOS fresh-profile install/uninstall execution: **PASS**.
+Native automatic third-party packaged-preset discovery remains `BLOCKED_UPSTREAM` on DSH `0.1.1-rc.2` (issue #2).
 
-When a second RC exists, rerun with `--update-spec <next-suite-spec>` so version-to-version update is exercised rather than only idempotent reinstall.
+### 4. Missing-client isolation
 
-## 3. Orchestrator preset bridge
+With global vendor executables unavailable one at a time:
 
-After installing Suite into the test profile, use that profile's installed binary:
-
-```bash
-dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset status
-dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset install
-dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset status
-```
-
-Expected on a fresh DSH home:
-
-- first status is `absent`;
-- install creates the managed `$DSH_HOME/.agent-presets/orchestrator`;
-- second status is `current`;
-- no `.orchestrator.nishi-stage-*` or `.orchestrator.nishi-backup-*` entry remains after success;
-- an unmanaged pre-existing `orchestrator` is refused;
-- a local edit changes status to `modified` and blocks update/removal;
-- sibling user presets are preserved.
-
-After a real Suite version update:
-
-```bash
-dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset status
-dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset update
-```
-
-Expected: old managed copy reports `outdated`, then becomes `current`.
-
-Before Suite uninstall:
-
-```bash
-dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset remove
-```
-
-Expected: only the managed Orchestrator disappears. Then uninstall Suite and confirm preserve hashes remain unchanged.
-
-CachyOS managed preset install/status/idempotence/remove and discovery through the user preset root: **PASS**.
-
-Automatic one-click Market discovery without this bridge remains the upstream issue #2.
-
-## 4. Startup without vendor clients
-
-On a clean profile with the Suite installed, temporarily make each vendor executable unavailable one at a time and start DSH Web.
-
-Expected:
-
-- DSH Web still starts;
-- Usage & Limits renders safe unavailable/login-required state rather than crashing;
+- DSH Web/Suite still starts;
 - unrelated providers remain usable;
-- no Suite component installs a missing vendor client automatically;
-- no direct subscription OAuth flow is started by DSH.
+- no vendor client is installed automatically;
+- no DSH-managed vendor subscription OAuth starts;
+- no credentials are copied.
 
-CachyOS Node 24 execution is **PASS** for missing global `codex`, missing `claude`, and missing `agy`. Managed Codex primary remains independent of global PATH; Claude failure is isolated; Antigravity inference/search becomes unavailable while the independent local quota source may remain available if the IDE/App runtime is running.
+CachyOS: **PASS** for missing global Codex, Claude, and `agy`. Managed Codex primary remains independent of global Codex PATH.
 
-## 5. Codex live gates
+### 5. Codex live gates
 
-With official Codex product authentication available:
+Required:
 
-- Codex primary route starts and completes a bounded prompt;
-- `subagent_codex` completes a bounded delegated prompt;
-- routed `web_search` works while `DEEPSEEK_API_KEY` is unset;
-- search does not call the stock DeepSeek web provider;
-- Project Memory is readable through the accepted read-only bridge;
-- Codex rate limits populate Usage & Limits without leaking raw auth material.
+- `codex-app-server` primary bounded prompt;
+- `subagent_codex` bounded prompt;
+- Codex-native routed `web_search` with `DEEPSEEK_API_KEY` unset;
+- no DeepSeek/Exa/Perplexity fallback;
+- Project Memory read-only visibility with hash preservation;
+- safe Usage & Limits collection.
 
-CachyOS Node 24 execution for this section: **PASS**, recorded in `docs/acceptance/2026-08-26-cachyos-codex-primary-acceptance.md`.
+CachyOS Node 24: **PASS**.
 
-Known accepted debt: stock Codex may still observe global `AGENTS` behavior that cannot currently be fully suppressed by the DSH provider boundary.
+### 6. Claude Code live gates
 
-## 6. Claude Code live gates
+Required:
 
-With official `claude` installed and authenticated:
+- `subagent_claude_code` bounded prompt;
+- model `claude-sonnet-5`;
+- effort `high`;
+- permission `auto`;
+- Project Memory read-only visibility with hash preservation;
+- usage failure/success isolated from other providers.
 
-- `subagent_claude_code` completes a bounded prompt;
-- default integration behavior remains model `claude-sonnet-5`, effort `high`, permission mode `auto` unless explicitly configured otherwise;
-- Project Memory bridge is read-only;
-- usage collection remains isolated from the rest of the Suite.
+CachyOS with Claude Code `2.1.246`: **PASS**.
 
-CachyOS final Node 24 execution: **PASS**. Claude Code `2.1.246` returned exact `CLAUDE_SUBAGENT_OK`, used model `claude-sonnet-5`, effort `high`, permission `auto`, read the Project Memory sentinel, and left memory hashes unchanged.
+### 7. Antigravity live gates
 
-Claude subscription primary login is not part of this release gate.
+Required:
 
-## 7. Antigravity live gates
+- `antigravity-cli` primary bounded prompt;
+- `subagent_antigravity` bounded prompt;
+- routed `web_search` through official `agy` search boundary;
+- `DEEPSEEK_API_KEY` unset and no fallback;
+- no dangerous permission-skip flags;
+- Project Memory read-only visibility with hash preservation.
 
-With official `agy` installed and authenticated:
+CachyOS with `agy` `1.1.21`: **PASS**.
 
-- Antigravity primary completes a bounded prompt;
-- `subagent_antigravity` completes a bounded delegated prompt;
-- routed `web_search` uses the `agy` search boundary with `DEEPSEEK_API_KEY` unset;
-- no dangerous permission-skip flag is used;
-- Project Memory bootstrap/read path remains read-only;
-- usage collection failure is isolated.
+### 8. Project Memory aggregate
 
-CachyOS final Node 24 execution: **PASS** with `agy` `1.1.21`. Primary returned exact `ANTIGRAVITY_PRIMARY_OK`; subagent returned exact `ANTIGRAVITY_SUBAGENT_OK`; routed `web_search` passed through the confirmed `agy` backend with no DeepSeek/Exa/Perplexity fallback; Project Memory sentinel read and SHA-256 preservation passed; dangerous skip flags were absent.
+Codex, Claude Code, and Antigravity child paths must all read the same project-local sentinel while byte-for-byte SHA-256 hashes remain unchanged.
 
-Policy note: support for the official `agy` boundary is technically tested here; this acceptance does not represent the third-party harness integration as Google-approved.
+CachyOS aggregate: **PASS**.
 
-## 8. Project Memory
+No cross-OS or cross-machine memory synchronization is part of the product or acceptance contract.
 
-In a temporary project:
+### 9. Usage & Limits UI
 
-1. create bootstrap/topic memory through normal DSH memory tools;
-2. verify it is stored under that project;
-3. start Codex, Claude Code, and Antigravity child paths and verify accepted read-only visibility;
-4. remove the managed Orchestrator preset;
-5. uninstall Suite;
-6. verify project files and `.dsh/memory` are unchanged;
-7. reinstall Suite + preset and verify the same project memory is available again.
+Required:
 
-CachyOS aggregate provider bridge: **PASS**. Codex, Claude Code, and Antigravity child paths all read Project Memory successfully under Node 24, with byte-for-byte SHA-256 preservation and no provider-child writes.
+- Codex/Claude/Antigravity groups remain independent;
+- one collector failure cannot hide healthy collectors;
+- browser/RPC projection excludes tokens, cookies, passwords, raw credential records, raw stderr, sensitive local paths, loopback ports, and CSRF material;
+- sidebar and settings projections load;
+- Model Accounts does not initiate vendor subscription OAuth.
 
-There is no cross-OS or cross-machine memory synchronization gate.
+CachyOS aggregate runtime/UI: **PASS**. Final smoke observed all three provider groups AVAILABLE and DSH Web HTTP 200.
 
-## 9. Usage & Limits UI
-
-Verify on DSH Web:
-
-- Codex, Claude, and Antigravity groups render independently;
-- unavailable collectors do not hide healthy collectors;
-- public RPC errors do not contain local stderr, paths, tokens, or raw credential records;
-- compact sidebar state and full settings state agree;
-- Model Accounts does not expose or initiate vendor subscription OAuth;
-- legacy DSH grants, if intentionally staged for the test, can be removed without deleting unrelated API-key records.
-
-CachyOS Node 24 aggregate runtime/UI execution: **PASS**. The fuller redaction/isolation gate passed before final authentication, and the final regression smoke observed Codex `AVAILABLE` with four windows, Claude `AVAILABLE` with two windows, Antigravity `AVAILABLE` with four windows, plus DSH Web HTTP 200.
-
-## Acceptance record
-
-Both OS rows must be explicitly recorded before the RC is promoted:
+## Current acceptance matrix
 
 | Gate | Windows | CachyOS |
 | --- | --- | --- |
-| install/check/test/build/pack | PENDING | PASS |
-| fresh profile install | PENDING | PASS |
-| preset install/status/update/remove | PENDING | PASS |
-| DSH discovers/selects Orchestrator | PENDING | PASS |
-| real version-to-version update | PENDING | PENDING |
-| uninstall preserves state | PENDING | PASS |
-| Codex primary/subagent/search | PENDING | PASS |
-| Claude Code subagent | PENDING | PASS |
-| Antigravity primary/subagent/search | PENDING | PASS |
-| Project Memory live provider bridge | PENDING | PASS |
-| Usage & Limits runtime/UI | PENDING | PASS |
+| install/check/test/build/pack | NOT_TESTED / DEFERRED | PASS |
+| fresh profile install/reinstall/uninstall | NOT_TESTED / DEFERRED | PASS |
+| profile `nodeLinker` / `autoInstallPeers` contract | NOT_TESTED / DEFERRED | PASS |
+| preset install/status/safety/remove | NOT_TESTED / DEFERRED | PASS |
+| DSH discovers/selects Orchestrator | NOT_TESTED / DEFERRED | PASS |
+| uninstall preserves state | NOT_TESTED / DEFERRED | PASS |
+| missing-client isolation | NOT_TESTED / DEFERRED | PASS |
+| Codex primary/subagent/search | NOT_TESTED / DEFERRED | PASS |
+| Claude Code subagent | NOT_TESTED / DEFERRED | PASS |
+| Antigravity primary/subagent/search | NOT_TESTED / DEFERRED | PASS |
+| Project Memory live provider bridge | NOT_TESTED / DEFERRED | PASS |
+| Usage & Limits runtime/UI | NOT_TESTED / DEFERRED | PASS |
 | automatic one-click preset discovery | BLOCKED_UPSTREAM | BLOCKED_UPSTREAM |
+| real version-to-version Nishi update | PENDING FUTURE RC | PENDING FUTURE RC |
 
-CachyOS live runtime is complete. Remaining project-level blockers are independent Windows acceptance, a real version-to-version update after a second RC exists, GitHub Actions billing, and upstream DSH rc.2 one-click preset discovery issue #2.
+## Release interpretation
 
-A row becomes `PASS` only from an executed gate with captured command/output or an attached acceptance note. Static inspection is not a substitute for a PASS.
+`0.1.0-rc.1` may be published as a **Linux/CachyOS-validated prerelease** once the remaining publication gates in `docs/release/prerelease.md` pass. Windows is not a blocker for that deliberately narrower claim because it is explicitly excluded from the RC's validated platform scope.
+
+Do not later rewrite `NOT_TESTED / DEFERRED` as PASS without an executed Windows acceptance run.
+
+The remaining project-level constraints after this scope decision are:
+
+- fresh npm package-name availability immediately before first publish;
+- explicit npm prerelease publication and post-publish registry smoke;
+- GitHub Actions `BLOCKED_BILLING` (no hosted-CI PASS claimed);
+- upstream DSH rc.2 preset-discovery issue #2;
+- future real version-to-version update acceptance once a second intentional Nishi prerelease exists;
+- Market eligibility/submission after its repository-age/topic/publication requirements are met.
