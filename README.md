@@ -25,7 +25,7 @@ Normal installation is through DSH plugin reconciliation; there is no portable D
 
 CachyOS/Linux has completed the full Node 24 live-runtime acceptance for the current prerelease. Windows is intentionally **not tested for `0.1.0-rc.1`** and no Windows compatibility claim is made for this prerelease. Project Memory stays inside each project checkout and is not transported by the Suite.
 
-The nine-package prerelease family `0.1.0-rc.1` is now published to npm. The intended prerelease channel is `next`; post-publication dist-tag cleanup and the registry-only DSH install smoke remain release follow-up gates before Market submission. See `docs/release/prerelease.md` for the exact current release state.
+The nine-package prerelease family `0.1.0-rc.1` is published to npm. The documented prerelease channel is `next`, and exact-version installs are supported. Because these are newly created npm packages, the registry also attached `latest` to the first published version and rejected attempts to remove that bootstrap tag; this does **not** represent a stable-release claim. See `docs/release/prerelease.md` for the recorded registry behavior and current release state.
 
 ## Authentication boundary
 
