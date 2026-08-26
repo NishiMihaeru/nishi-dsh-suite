@@ -1,0 +1,94 @@
+{
+  "name": "nishi-dsh-usage-limits-host",
+  "version": "0.1.0-rc.1",
+  "description": "Host-lifetime usage limits service and public RPC/UI bridge for Nishi DSH Suite",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "files": ["lib/**/*.js", "lib/**/*.d.ts", "lib/**/*.css", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./client": { "types": "./lib/client.d.ts", "default": "./lib/client.js" },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NishiMihaeru/nishi-dsh-suite.git",
+    "directory": "packages/usage-limits-host"
+  },
+  "homepage": "https://github.com/NishiMihaeru/nishi-dsh-suite#readme",
+  "bugs": { "url": "https://github.com/NishiMihaeru/nishi-dsh-suite/issues" },
+  "scripts": {
+    "build": "tsdown",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "pack": "npm pack",
+    "test": "tsx --import ./test/register-css.mjs --test test/*.test.ts",
+    "test:e2e": "tsx --import ./test/register-css.mjs --test test/e2e/*.test.ts",
+    "test:live": "tsx --import ./test/register-css.mjs --test test/live/*.test.ts",
+    "test:live:antigravity": "tsx --import ./test/register-css.mjs --test test/live/antigravity-local-usage-live.test.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-authorization": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-host-apiproxy": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-subprocess": "0.1.1-rc.2",
+    "nishi-dsh-codex-usage-source": "0.1.0-rc.1",
+    "nishi-dsh-usage-limits": "0.1.0-rc.1",
+    "nishi-dsh-claude-code": "0.1.0-rc.1",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-authorization": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-locale": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-test-runtime": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-host-apiproxy": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
+    "@deepseek-ai/dsh-subprocess": "0.1.1-rc.2",
+    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.1",
+    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.1",
+    "nishi-dsh-claude-code": "workspace:0.1.0-rc.1",
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "24.13.3",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
+    "@types/use-sync-external-store": "^0.0.6",
+    "jsdom": "^30.0.1",
+    "lightningcss": "1.33.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tsdown": "^0.22.14",
+    "tsx": "4.23.1",
+    "typescript": "5.9.2",
+    "use-sync-external-store": "1.2.0"
+  },
+  "license": "MIT"
+}
