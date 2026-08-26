@@ -10,6 +10,16 @@ Target release: `0.1.0-rc.2`
 
 The Suite already treats vendor authentication and vendor product state as owned by the official clients. Installing a second product runtime inside the DSH profile is therefore both wasteful and inconsistent with the intended product boundary.
 
+A fresh operator check on the target CachyOS host found:
+
+```text
+codex  -> not present on PATH
+claude -> /home/acedia/.local/bin/claude
+agy    -> /home/acedia/.local/bin/agy
+```
+
+Therefore `0.1.0-rc.1` was supplying the only Codex executable available to DSH. `0.1.0-rc.2` intentionally changes that boundary: Codex becomes an external prerequisite just like Claude Code and Antigravity, and the Suite will no longer supply a hidden package-local Codex runtime.
+
 ## Goals
 
 1. `nishi-dsh-suite@0.1.0-rc.2` must not install vendor product binaries for Codex, Claude Code, or Antigravity.
@@ -20,15 +30,41 @@ The Suite already treats vendor authentication and vendor product state as owned
 6. Vendor authentication, sessions, config, keyrings, cookies, OAuth state, and homes remain vendor-owned and are never copied or modified by the Suite.
 7. The release must include a real registry/profile upgrade acceptance from `0.1.0-rc.1` to `0.1.0-rc.2`.
 8. Cleanup instructions must remove Suite-created duplicate/profile artifacts and temporary package caches without removing the user's global vendor CLIs or authentication state.
+9. CachyOS live acceptance for `0.1.0-rc.2` requires the official Codex CLI to be installed externally before Codex checks are run.
 
 ## Non-goals
 
-- Do not install, update, downgrade, or manage `codex`, `claude`, or `agy`.
+- Do not install, update, downgrade, or manage `codex`, `claude`, or `agy` from the Suite.
 - Do not add a custom vendor downloader.
 - Do not copy or migrate vendor credentials.
 - Do not alter the user's global vendor installation.
+- Do not silently restore the package-local Codex fallback from `0.1.0-rc.1`.
 - Do not change the Project Memory ownership model.
 - Do not claim Windows validation for `0.1.0-rc.2` unless Windows acceptance is run separately.
+
+## External vendor prerequisites
+
+The Suite documents vendor clients as external prerequisites instead of npm runtime dependencies.
+
+For Codex on Linux, the preferred operator installation is OpenAI's official standalone installer:
+
+```bash
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+OpenAI also supports `npm install -g @openai/codex`, but the standalone installer is preferred for this Suite because it installs the host-appropriate Codex executable without making the DSH profile own the npm Codex dependency graph.
+
+After installation, the operator must be able to resolve:
+
+```text
+codex
+claude
+agy
+```
+
+from the same `PATH` used to launch DSH. Vendor login remains a separate vendor-owned step.
+
+The Suite itself never runs these installation commands automatically.
 
 ## Runtime executable resolution
 
@@ -56,13 +92,15 @@ The existing App Server protocol implementation remains owned by `nishi-dsh-code
 - invoke the discovered executable directly with the existing policy arguments and `app-server --stdio`;
 - retain the existing DSH-owned subprocess lifecycle, JSON-RPC transport, history replay, attachments, dynamic tools, Project Memory behavior, search routing, permission policy, and safe diagnostics.
 
-The plugin must not silently fall back to a bundled Codex package. If `codex` is unavailable, Codex primary/subagent registration must fail closed for that integration only with a stable missing-client diagnostic.
+The plugin must not silently fall back to a bundled Codex package. If `codex` is unavailable, Codex primary/subagent registration must fail closed for that integration only with a stable missing-client diagnostic that tells the operator to install the official Codex CLI or set `DSH_CODEX_EXECUTABLE`.
 
 ## Codex usage source
 
 `packages/codex-usage-source` must also stop depending on `@openai/codex`.
 
 It must use the same Codex executable resolver and launch the installed `codex app-server --stdio` for `account/rateLimits/read`. The existing bounded timeout, scrubbed environment, no-model-thread behavior, and graceful disposal remain unchanged.
+
+If Codex is unavailable, the usage collector returns its existing safe unavailable state and does not cause Suite startup failure.
 
 ## Claude Code subagent
 
@@ -107,15 +145,18 @@ Publication order remains leaves first and Suite last under the `next` dist-tag.
 
 On CachyOS/Linux with Node 24 and DSH `0.1.1-rc.2`:
 
-1. create an isolated ordinary DSH profile;
-2. install `nishi-dsh-suite@0.1.0-rc.1` from npm;
-3. install the managed Orchestrator preset and verify `current`;
-4. upgrade the registry package to `nishi-dsh-suite@0.1.0-rc.2`;
-5. run `preset update` and verify `current`;
-6. assert all nine Nishi packages resolve to exactly `0.1.0-rc.2`;
-7. assert the profile graph contains no Nishi-owned dependency on the forbidden vendor runtime packages above;
-8. run representative Codex, Claude Code, Antigravity, Project Memory, routed search, and Usage & Limits live checks using the already installed vendor clients;
-9. remove the preset, uninstall the Suite, and verify unrelated DSH/vendor state remains intact.
+1. ensure official `codex`, `claude`, and `agy` executables are already present on the DSH launch `PATH`;
+2. create an isolated ordinary DSH profile;
+3. install `nishi-dsh-suite@0.1.0-rc.1` from npm;
+4. install the managed Orchestrator preset and verify `current`;
+5. upgrade the registry package to `nishi-dsh-suite@0.1.0-rc.2`;
+6. run `preset update` and verify `current`;
+7. assert all nine Nishi packages resolve to exactly `0.1.0-rc.2`;
+8. assert the profile graph contains no Nishi-owned dependency on the forbidden vendor runtime packages above;
+9. run representative Codex, Claude Code, Antigravity, Project Memory, routed search, and Usage & Limits live checks using the already installed vendor clients;
+10. remove the preset, uninstall the Suite, and verify unrelated DSH/vendor state remains intact.
+
+A separate missing-Codex acceptance must start DSH without `codex` on `PATH` and prove only Codex primary/subagent/usage become unavailable while Claude Code, Antigravity, Project Memory, and the host remain usable.
 
 ## Cleanup of rc.1 duplicate artifacts
 
@@ -126,6 +167,8 @@ For disposable smoke profiles, removing the disposable `DSH_HOME` is sufficient 
 The smoke also used `/tmp/.pnpm-store/v11` as a temporary content-addressable store. If it exists and the user confirms it is only the temporary smoke store, it may be removed as cache cleanup. This does not affect global vendor CLIs.
 
 For a real DSH profile that has `0.1.0-rc.1` installed, do not manually delete nested `node_modules` entries. Upgrade to `0.1.0-rc.2` or remove `nishi-dsh-suite` through `dsh plugin`; allow pnpm reconciliation to prune the old Codex/Claude runtime closure. Then verify the profile lockfile and dependency listing no longer contain the forbidden vendor packages.
+
+Because the target host currently has no external `codex`, do not remove a working real-profile `0.1.0-rc.1` Codex closure until the official external Codex CLI has been installed and verified. This avoids intentionally breaking Codex between cleanup and the `rc.2` upgrade.
 
 ## Tests
 
@@ -138,6 +181,7 @@ Required deterministic coverage:
 - package-contract tests rejecting forbidden vendor runtime dependencies/prefixes;
 - pack-manifest tests proving all nine packages are `0.1.0-rc.2` and packed manifests contain no forbidden vendor runtime dependencies;
 - fresh-profile registry install acceptance proving unrelated platform binaries are absent;
-- real `rc.1 -> rc.2` registry upgrade acceptance on CachyOS/Linux.
+- real `rc.1 -> rc.2` registry upgrade acceptance on CachyOS/Linux;
+- missing-Codex isolation acceptance proving Suite startup and non-Codex integrations remain healthy.
 
 GitHub Actions remain `BLOCKED_BILLING`; do not claim hosted CI PASS until jobs can actually run.
