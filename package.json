@@ -1,0 +1,25 @@
+{
+  "name": "nishi-dsh-suite-workspace",
+  "description": "Public modular DSH Market distribution for Nishi DSH Suite",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NishiMihaeru/nishi-dsh-suite.git"
+  },
+  "homepage": "https://github.com/NishiMihaeru/nishi-dsh-suite#readme",
+  "bugs": {
+    "url": "https://github.com/NishiMihaeru/nishi-dsh-suite/issues"
+  },
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "check": "pnpm -r --if-present check",
+    "test": "pnpm -r --if-present test",
+    "pack:packages": "pnpm -r --if-present pack"
+  }
+}
