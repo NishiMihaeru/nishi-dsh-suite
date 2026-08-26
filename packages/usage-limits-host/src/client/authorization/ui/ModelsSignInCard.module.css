@@ -1,0 +1,200 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+  transition: border-color 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--dsw-alias-border-l1, transparent);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.titleArea {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.providerName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--dsw-alias-border-l3, transparent);
+}
+
+.badgeConnected {
+  color: var(--dsw-alias-state-success-primary, inherit);
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+}
+
+.badgeWaiting {
+  color: var(--dsw-alias-state-warn-label, inherit);
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+}
+
+.badgeAuthorizing {
+  color: var(--dsw-alias-interactive-primary, inherit);
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+}
+
+.badgeAvailable {
+  color: var(--dsw-alias-label-secondary, inherit);
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+}
+
+.badgeError {
+  color: var(--dsw-alias-state-error-primary, inherit);
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+}
+
+.badgeNotConfigured {
+  color: var(--dsw-alias-label-tertiary, inherit);
+  background: var(--dsw-alias-bg-layer-2, transparent);
+}
+
+.description {
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary, inherit);
+  line-height: 1.4;
+}
+
+.instructionBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, transparent);
+  border: 1px solid var(--dsw-alias-border-l3, transparent);
+}
+
+.codeRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--dsw-alias-bg-layer-3, transparent);
+  border: 1px solid var(--dsw-alias-border-l3, transparent);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--dsw-alias-interactive-primary, inherit);
+}
+
+.promptForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.promptInput,
+.promptSelect {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-3, transparent);
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.promptInput:focus,
+.promptSelect:focus {
+  border-color: var(--dsw-alias-interactive-primary, transparent);
+}
+
+.buttonRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton,
+.linkButton {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.primaryButton {
+  padding: 6px 14px;
+  background: var(--dsw-alias-interactive-primary, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+  border: 1px solid var(--dsw-alias-border-l1, transparent);
+  font-weight: 500;
+}
+
+.primaryButton:hover { opacity: 0.9; }
+.primaryButton:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.secondaryButton {
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+}
+
+.secondaryButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.dangerButton {
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary, inherit);
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+}
+
+.dangerButton:hover { background: var(--dsw-alias-interactive-bg-hover, transparent); }
+
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+  color: var(--dsw-alias-interactive-primary, inherit);
+  text-decoration: none;
+  font-weight: 500;
+  border: 1px solid var(--dsw-alias-border-l3, transparent);
+}
+
+.linkButton:hover { opacity: 0.8; }
+
+.errorBanner {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+  border: 1px solid var(--dsw-alias-border-l3, transparent);
+  color: var(--dsw-alias-state-error-primary, inherit);
+  font-size: 12px;
+}
