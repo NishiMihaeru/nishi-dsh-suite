@@ -152,7 +152,7 @@ Verify on DSH Web:
 
 Run `pnpm test:orchestrator` on both systems.
 
-Then verify actual preset discovery separately. DSH `0.1.1-rc.2` does not currently provide a reliable third-party Market bundle seam for adding a preset root, so automatic Market discovery of `presets/orchestrator` remains an **upstream blocker** until proven on the exact DSH build or a stable seam is added upstream.
+Then verify actual preset discovery separately. The npm Suite artifact contains the preset under `packages/suite/presets/orchestrator`, but DSH `0.1.1-rc.2` does not currently provide a reliable third-party Market bundle seam for adding that package directory as a preset root. Automatic Market discovery therefore remains an **upstream blocker** until proven on the exact DSH build or a stable seam is added upstream.
 
 Do not copy the preset into `$DSH_HOME/.agent-presets` as a hidden installer workaround for acceptance.
 
