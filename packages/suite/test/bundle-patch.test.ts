@@ -6,6 +6,7 @@ import { parse } from 'yaml'
 const patchUrl = new URL('../cordis.patch.yml', import.meta.url)
 
 const expectedRows = new Map([
+  ['nishi-authorization', '@deepseek-ai/dsh-authorization'],
   ['nishi-project-memory', 'nishi-dsh-project-memory'],
   ['nishi-codex', 'nishi-dsh-codex'],
   ['nishi-antigravity', 'nishi-dsh-antigravity'],
