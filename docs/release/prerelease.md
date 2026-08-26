@@ -2,7 +2,7 @@
 
 Target release train: `0.1.0-rc.1`.
 
-Status: **PUBLISHED / REGISTRY SMOKE PENDING**.
+Status: **PUBLISHED / REGISTRY SMOKE PASS / MARKET PENDING**.
 
 Release scope for this RC: **CachyOS/Linux validated; Windows not tested and not claimed**.
 
@@ -23,7 +23,7 @@ Immediately before publication:
 - npm package-name probe: `all-unscoped-names-available 9`;
 - npm operator authentication: `npm whoami` -> `nishimihaeru`.
 
-All nine packages are now visible from the public npm registry at exactly `0.1.0-rc.1`:
+All nine packages are visible from the public npm registry at exactly `0.1.0-rc.1`:
 
 1. `nishi-dsh-codex`
 2. `nishi-dsh-antigravity`
@@ -35,7 +35,7 @@ All nine packages are now visible from the public npm registry at exactly `0.1.0
 8. `nishi-dsh-usage-limits-host`
 9. `nishi-dsh-suite`
 
-The intended prerelease install channel is `next`.
+The documented prerelease install channel is `next`; exact-version installs are also supported.
 
 ## npm bootstrap `latest` behavior
 
@@ -45,17 +45,45 @@ The first public verification of `nishi-dsh-suite` reported:
 { next: '0.1.0-rc.1', latest: '0.1.0-rc.1' }
 ```
 
-Attempts to remove `latest` from the newly created packages completed npm's normal browser authentication flow but the public registry rejected each DELETE with `E400 Bad Request`.
+Authenticated attempts to remove `latest` from the newly created packages completed npm's normal browser-auth flow but the public registry rejected each DELETE with `E400 Bad Request`.
 
-This is treated as npm registry bootstrap behavior for a newly created package whose first published version is a prerelease, not as a stable-channel declaration by this project. Do not keep retrying `npm dist-tag rm ... latest` and do not unpublish the version.
+This is recorded as npm registry first-version/bootstrap state, not as a stable-release declaration by this project. Do not keep retrying `npm dist-tag rm ... latest` and do not unpublish the version merely to change that state.
 
 Project policy for `0.1.0-rc.1`:
 
 - `next` is the documented prerelease channel;
-- exact-version installs are also supported;
+- exact-version installs are supported;
 - `latest -> 0.1.0-rc.1` is recorded as unavoidable first-version registry state;
 - no stable-release claim is made from that tag;
 - a future stable release may intentionally take ownership of `latest`.
+
+## Registry-only smoke — PASS
+
+A fresh disposable DSH `0.1.1-rc.2` home/profile installed only:
+
+```bash
+dsh plugin --profile nishi-registry-smoke add nishi-dsh-suite@0.1.0-rc.1
+```
+
+No local tarball paths or local pnpm overrides were used.
+
+Executed result:
+
+- Suite resolved from the public npm tarball: PASS;
+- all eight Nishi leaf packages resolved at exactly `0.1.0-rc.1`: PASS;
+- `@deepseek-ai/dsh-authorization` and `@deepseek-ai/dsh-sdk-protocol` were `0.1.1-rc.2`: PASS;
+- managed Codex packages were `0.147.0`: PASS;
+- Claude Agent SDK was `0.3.220`: PASS;
+- no old nested `@deepseek-ai/*@0.1.0-rc.*` graph appeared in the captured profile listing: PASS;
+- `preset install`: PASS;
+- `preset status`: `current`;
+- `preset remove`: PASS / status `absent`;
+- normal DSH Suite removal completed without a DSH error: PASS;
+- real `~/.dsh` was not used.
+
+Detailed evidence: `docs/acceptance/2026-08-27-registry-smoke.md`.
+
+During preset reconciliation/removal, pnpm attempted downloads for several optional Codex/Claude platform artifacts that do not match the host architecture and emitted retry warnings before completing successfully. This is currently a non-blocking dependency-resolution/download UX observation, not a registry-smoke failure.
 
 ## Historical hard gates
 
@@ -76,45 +104,6 @@ Windows is deliberately deferred for `0.1.0-rc.1`. Do not describe this RC as Wi
 
 GitHub Actions are currently blocked before execution by an account billing lock. This RC relies on the recorded local Node 24 acceptance and must not claim a hosted-CI PASS.
 
-## Package-name rule
-
-The fresh first-publication check passed for all nine unscoped names. The approved scoped fallback was therefore not used.
-
-Never mix scoped and unscoped package families in a future train.
-
-## Publish order
-
-The first RC was published leaves-first and Suite-last. Future prereleases should retain dependency order and publish with an explicit prerelease dist-tag.
-
-## Post-publish registry smoke
-
-Create a fresh disposable ordinary DSH `0.1.1-rc.2` profile and install **only** the Market-facing registry package by exact prerelease version:
-
-```bash
-dsh plugin --profile nishi-registry-smoke add nishi-dsh-suite@0.1.0-rc.1
-```
-
-No local overrides or local tarball paths are allowed in this smoke.
-
-Then:
-
-```bash
-dsh plugin --profile nishi-registry-smoke exec nishi-dsh-suite preset install
-dsh plugin --profile nishi-registry-smoke exec nishi-dsh-suite preset status
-```
-
-Confirm:
-
-- registry resolution installs all eight leaf packages at exactly `0.1.0-rc.1`;
-- no nested old `@deepseek-ai/*@0.1.0-rc.*` graph appears;
-- `nishi-dsh-suite` appears once in `dsh.profile.bundles`;
-- preset status becomes `current`;
-- DSH starts and the Suite composes normally;
-- remove the preset before uninstalling the Suite;
-- uninstall leaves unrelated state untouched.
-
-This registry smoke is required before Market submission.
-
 ## Future version-to-version gate
 
 A real version-to-version update cannot be exercised until a second intentional Nishi prerelease exists. Same-version reinstall is accepted but is not equivalent to an update.
@@ -133,18 +122,17 @@ The Market app consumes the curated `awesome-dsh-plugin/awesome-dsh-plugin` regi
 - repository topic `dsh-plugin`;
 - an accurate, non-marketing description.
 
-This repository was created at `2026-08-26T00:15:47Z`, so the age gate becomes eligible after `2026-08-27T00:15:47Z`. Do not submit the Market PR before that time.
+This repository was created at `2026-08-26T00:15:47Z`, so the age gate becomes eligible after `2026-08-27T00:15:47Z`.
 
-Before Market submission:
+The npm publication and registry-only smoke gates are complete. Remaining Market preparation:
 
-1. complete the registry smoke above;
-2. add GitHub repository topic `dsh-plugin`;
-3. verify the repo is older than one day at submission time;
-4. submit one monorepo entry pointing to `https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite`;
-5. keep the description factual and state the actual prerelease/platform scope.
+1. add GitHub repository topic `dsh-plugin`;
+2. verify the repo is older than one day at submission time;
+3. submit one monorepo entry pointing to `https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite`;
+4. keep the description factual and state the actual prerelease/platform scope.
 
 Automatic packaged-preset discovery remains blocked upstream on DSH `0.1.1-rc.2` (issue #2); the explicit managed preset bridge is the accepted workaround and must not be described as one-click native preset discovery.
 
 ## Rollback
 
-Do not unpublish a version merely because an acceptance issue is found after release. Prefer fixing forward with the next prerelease. If the RC is unsafe to install, remove/change the prerelease dist-tag according to npm policy and document the affected version.
+Do not unpublish a version merely because an acceptance issue is found after release. Prefer fixing forward with the next prerelease. If the RC is unsafe to install, change the prerelease channel or document the affected version according to npm policy rather than rewriting publication history.
