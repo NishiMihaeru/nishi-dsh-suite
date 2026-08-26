@@ -2,15 +2,17 @@
 
 Nishi DSH Suite is a public, modular extension suite for DeepSeek Harness distributed through the standard DSH plugin/bundle mechanism.
 
-The first release is being migrated from the accepted private implementation. The target Suite includes:
+The first release is being migrated from the accepted private implementation. Provider/runtime ownership is intentionally split into independent packages:
 
-- Codex primary and subagent integration;
-- Antigravity primary and subagent integration through official `agy`;
-- Claude Code subagent integration;
-- primary-routed `web_search` for Codex and Antigravity;
+- `nishi-dsh-codex` — Codex primary bridge, managed Codex runtime, and `codex` subagent;
+- `nishi-dsh-antigravity` — Antigravity primary/subagent integration through official `agy`;
+- `nishi-dsh-claude-code` — Claude Code subagent integration;
+- `nishi-dsh-primary-web-search` — the single primary-routed `web_search` tool for Codex and Antigravity;
 - project-scoped Shared Project Memory;
 - Usage Limits runtime/UI sources;
 - an Orchestrator preset with fixed delegation tools.
+
+The provider packages expose backend seams but do not duplicate the model-facing `web_search` registration.
 
 ## Distribution model
 
