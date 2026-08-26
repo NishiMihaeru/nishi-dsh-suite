@@ -1,5 +1,5 @@
 /**
- * Managed Codex subagent provider and package-local primary runtime bridge.
+ * Codex subagent provider and external primary runtime bridge.
  *
  * Upstream Reference:
  * deepseek-ai/deepseek-harness@0.1.1-rc.2 (SHA b150a551b8d465e31e418e1b2eaf5e79bbb7d28e)
@@ -30,6 +30,7 @@ import {
   createCodexSubagentMemory,
   type ProjectMemoryServiceLike,
 } from './memory.js'
+import { resolveCodexExecutable } from './resolver.js'
 import {
   CODEX_PERMISSION_MODES,
   DEFAULT_CODEX_PERMISSION_MODE,
@@ -54,7 +55,6 @@ const DEFAULT_PROVIDER_NAME = 'codex'
 
 export interface Config {
   providerName?: string
-  executable?: string
   env?: Record<string, string>
   permissionMode?: CodexPermissionMode
   disposeGraceMs?: number
@@ -67,7 +67,6 @@ export interface Config {
 
 export const Config: Schema<Config> = Schema.object({
   providerName: Schema.string().default(DEFAULT_PROVIDER_NAME),
-  executable: Schema.string().default('codex'),
   env: Schema.dict(Schema.string()).default({}),
   permissionMode: Schema.union([...CODEX_PERMISSION_MODES]).default(DEFAULT_CODEX_PERMISSION_MODE),
   disposeGraceMs: Schema.number().default(DEFAULT_DISPOSE_GRACE_MS),
@@ -77,6 +76,11 @@ export const Config: Schema<Config> = Schema.object({
   stderrMaxBytes: Schema.number().default(16_384),
   modelPageSize: Schema.number().default(100),
 })
+
+function externalCodexCommand(env: Record<string, string>): string {
+  const override = env.DSH_CODEX_EXECUTABLE?.trim() || process.env.DSH_CODEX_EXECUTABLE?.trim()
+  return override && override.length > 0 ? override : 'codex'
+}
 
 class CodexProvider implements SubagentProvider {
   readonly capabilities = NO_START_CAPABILITIES
@@ -104,6 +108,9 @@ class CodexProvider implements SubagentProvider {
       }
       throw codexStartupFailure(error)
     }
+    const executable = resolveCodexExecutable({
+      env: { ...process.env, ...this.config.env },
+    }).executable
     const projectMemory = await createCodexSubagentMemory(
       (this.ctx as any).projectMemory as ProjectMemoryServiceLike,
       cwd,
@@ -111,6 +118,7 @@ class CodexProvider implements SubagentProvider {
     )
     return startCodexRun(request, {
       cwd,
+      executable,
       permissionMode: this.config.permissionMode,
       env: this.config.env,
       disposeGraceMs: this.config.disposeGraceMs,
@@ -125,11 +133,10 @@ class CodexProvider implements SubagentProvider {
   }
 }
 
-/** Register the managed Codex subagent and package-local Codex primary bridge. */
+/** Register the Codex subagent and external Codex primary bridge. */
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
   const config: Required<Config> = {
     providerName: rawConfig.providerName ?? DEFAULT_PROVIDER_NAME,
-    executable: rawConfig.executable ?? 'codex',
     env: rawConfig.env ?? {},
     permissionMode: rawConfig.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     disposeGraceMs: rawConfig.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS,
@@ -153,7 +160,7 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
   ctx.subagents.registerProvider(new CodexProvider(config.providerName, ctx, config))
   await installCodexPrimaryHistoryBridge(ctx)
   applyCodexPrimary(ctx, {
-    executable: config.executable,
+    executable: externalCodexCommand(config.env),
     env: config.env,
     modelCacheMs: config.modelCacheMs,
     catalogTimeoutMs: config.catalogTimeoutMs,
