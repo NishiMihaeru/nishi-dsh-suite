@@ -27,38 +27,34 @@ The authorization service is only the DSH service seam required by the Model Acc
 
 ## Orchestrator preset on DSH 0.1.1-rc.2
 
-The npm package contains the accepted Orchestrator preset under `presets/orchestrator`. Both `preset.yml` and `agent.cordis.yml` are included in the package artifact.
+The npm package contains the accepted Orchestrator preset under `presets/orchestrator`. Both `preset.yml` and `agent.cordis.yml` are included in the package `files` contract and exported as package subpaths.
 
-DSH rc.2 does not expose a bundle seam that lets a third-party package add its own preset root automatically. DSH does, however, always include the user preset root at `$DSH_HOME/.agent-presets` (default `~/.dsh/.agent-presets`). Until the upstream discovery seam is fixed, Suite provides an explicit managed bridge that copies only its packaged Orchestrator into that supported user root.
-
-After installing Nishi DSH Suite into the `web` profile through Market, run:
+DSH rc.2 includes `$DSH_HOME/.agent-presets` (default `~/.dsh/.agent-presets`) as its supported user preset root, but its launcher overwrites third-party bundle-contributed preset roots. Until upstream issue #2 is resolved, install the packaged preset explicitly after installing the Suite:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install
+dsh plugin --profile web exec nishi-dsh-suite preset status
 ```
 
-The `dsh plugin` command forwards to pnpm inside the selected DSH profile, so this executes the exact Suite version installed by Market rather than downloading another copy.
-
-Lifecycle commands:
+After updating the Suite, refresh the managed copy with:
 
 ```bash
-dsh plugin --profile web exec nishi-dsh-suite preset status
 dsh plugin --profile web exec nishi-dsh-suite preset update
+```
+
+Before removing the Suite from the profile, remove its managed user preset while the package is still present:
+
+```bash
 dsh plugin --profile web exec nishi-dsh-suite preset remove
+dsh plugin --profile web remove nishi-dsh-suite
 ```
 
-Run `preset update` after a Suite update. Run `preset remove` **before uninstalling the Suite from Market**, because DSH rc.2 provides no bundle uninstall hook that can safely remove a user-authored preset directory after the package has gone away.
+The bridge's only persistent managed directory is `$DSH_HOME/.agent-presets/orchestrator`. Install/update use transient `.orchestrator.nishi-stage-*` and `.orchestrator.nishi-backup-*` sibling directories under the same user preset root for atomic replacement and clean them after the operation. The bridge stores a Suite ownership marker plus SHA-256 hashes and refuses to overwrite an unmanaged `orchestrator` or to update/remove one after local edits. It does not modify DSH profiles, sessions, Project Memory, or vendor credential stores.
 
-The bridge manages only:
+The command is invoked through `dsh plugin --profile <profile> exec` rather than `npx`/`pnpm dlx`, so the executable comes from the exact Suite version installed in that DSH profile.
 
-```text
-$DSH_HOME/.agent-presets/orchestrator/
-```
-
-It writes a small ownership marker with SHA-256 file hashes. It refuses to overwrite an unmanaged `orchestrator` directory and refuses to update or remove a managed preset after local edits. Other presets, DSH profiles, sessions, project files, Project Memory, credentials, and vendor-owned state are outside its write boundary.
-
-Automatic one-click preset discovery remains tracked as upstream issue #2. Once DSH exposes a stable third-party preset-root seam, this explicit bridge can be retired without changing the provider packages.
+Automatic one-click discovery remains the upstream limitation; the explicit bridge is the supported temporary rc.2 path.
 
 ## Development status
 
-This package is a prerelease migration target. Static composition and the managed preset bridge are present in the public repository; executable install/check/test/build acceptance still requires a regenerated workspace lockfile and an available runner/local environment.
+This package is a prerelease migration target. Static composition and the managed preset bridge are present in the public repository; executable install/check/test/build/preset acceptance still requires a regenerated workspace lockfile and an available local/hosted runner.
