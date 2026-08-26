@@ -1,30 +1,54 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { claudeQueryOptions } from '../src/run.js'
+import {
+  CLAUDE_MEMORY_ALLOWED_TOOL,
+  claudeMemoryMcpConfig,
+  startClaudeMemoryMcpBridge,
+} from '../src/memory.js'
 
-test('Claude query options expose only the DSH read-only memory MCP capability', () => {
-  const mcpServer = { type: 'sdk', name: 'dsh-memory', instance: {} } as any
-  const options = claudeQueryOptions(
-    {
-      cwd: '/workspace',
-      env: {},
-      permissionMode: 'auto',
-      disposeGraceMs: 3000,
-      spawn: () => {
-        throw new Error('not used')
-      },
-      projectMemory: {
-        bootstrap: '# DSH Project Context',
-        mcpServer,
-        allowedTool: 'mcp__dsh-memory__memory_read',
-      },
-    } as any,
-    new AbortController(),
-    () => {},
-    () => {},
-  ) as any
+test('Claude memory MCP config contains only the ephemeral DSH read-only server', () => {
+  const json = claudeMemoryMcpConfig(
+    'http://127.0.0.1:45678/mcp',
+    'ephemeral-token',
+  )
+  const parsed = JSON.parse(json)
 
-  assert.deepEqual(options.mcpServers, { 'dsh-memory': mcpServer })
-  assert.deepEqual(options.allowedTools, ['mcp__dsh-memory__memory_read'])
-  assert.doesNotMatch(JSON.stringify(options.mcpServers), /memory_write|memory_edit/)
+  assert.deepEqual(parsed, {
+    mcpServers: {
+      'dsh-memory': {
+        type: 'http',
+        url: 'http://127.0.0.1:45678/mcp',
+        headers: {
+          Authorization: 'Bearer ephemeral-token',
+        },
+      },
+    },
+  })
+  assert.doesNotMatch(json, /memory_write|memory_edit/)
+})
+
+test('Claude memory MCP bridge binds loopback and closes without touching vendor config', async () => {
+  const context = {
+    projectRoot: '/workspace',
+    renderedBootstrap: '# context',
+    async readTopic(topic: string) {
+      return { topic, exists: true, content: `content:${topic}` }
+    },
+  }
+
+  const bridge = await startClaudeMemoryMcpBridge(context as any)
+  try {
+    assert.match(bridge.url, /^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
+    assert.equal(bridge.allowedTool, CLAUDE_MEMORY_ALLOWED_TOOL)
+    assert.ok(bridge.token.length >= 32)
+
+    const config = JSON.parse(bridge.mcpConfig)
+    assert.equal(config.mcpServers['dsh-memory'].url, bridge.url)
+    assert.equal(
+      config.mcpServers['dsh-memory'].headers.Authorization,
+      `Bearer ${bridge.token}`,
+    )
+  } finally {
+    await bridge.close()
+  }
 })
