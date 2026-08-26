@@ -39,13 +39,15 @@ dsh plugin --profile web exec nishi-dsh-suite preset remove
 
 `dsh plugin` forwards to pnpm inside the selected profile, so the binary comes from the Suite version actually installed by Market.
 
-The bridge write boundary is exactly:
+The bridge's only persistent managed directory is:
 
 ```text
 $DSH_HOME/.agent-presets/orchestrator/
 ```
 
-It stores `.nishi-dsh-suite-preset.json` with the Suite version and SHA-256 hashes of every managed preset file. It refuses to overwrite an existing unmanaged `orchestrator`, and it refuses update/removal after local edits. Staging occurs in the same user-preset root and replacement is performed by rename with rollback so an update does not intentionally expose a partially copied preset.
+Install/update may use transient `.orchestrator.nishi-stage-*` and `.orchestrator.nishi-backup-*` sibling directories under `$DSH_HOME/.agent-presets` so replacement can be performed by rename with rollback. Successful operations remove those transient directories.
+
+The managed Orchestrator stores `.nishi-dsh-suite-preset.json` with the Suite version and SHA-256 hashes of every managed preset file. The bridge refuses to overwrite an existing unmanaged `orchestrator`, and it refuses update/removal after local edits. It does not chmod an existing user preset root.
 
 No profile dependencies, sessions, project files, Project Memory, DSH credentials, or vendor-owned state are modified by the bridge.
 
@@ -66,10 +68,10 @@ Tracking issue: #2.
 On both Windows and CachyOS, after installing the exact Suite build under test:
 
 1. `preset status` reports `absent` on a fresh DSH home.
-2. `preset install` creates only `.agent-presets/orchestrator` and `status` becomes `current`.
+2. `preset install` creates the managed Orchestrator and leaves no transient staging/backup directories after success; `status` becomes `current`.
 3. DSH lists and can select the Orchestrator preset.
 4. A second `preset install` is idempotent.
-5. Updating Suite followed by `preset status` reports `outdated`; `preset update` makes it `current`.
+5. Updating Suite followed by `preset status` reports `outdated`; `preset update` makes it `current` and leaves no transient staging/backup directories.
 6. A deliberate local edit makes status `modified`, and both `update` and `remove` refuse to destroy the edit.
 7. An unmanaged pre-existing `orchestrator` directory is never overwritten.
 8. `preset remove` removes only the managed Orchestrator and preserves sibling user presets.
