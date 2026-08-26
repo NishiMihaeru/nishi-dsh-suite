@@ -23,9 +23,9 @@ The Suite is split into independently owned runtime packages:
 
 Normal installation is through DSH plugin reconciliation; there is no portable DSH home, custom runtime installer, cross-machine session sync, or cross-OS state migration.
 
-CachyOS/Linux has completed the full Node 24 live-runtime acceptance for the current prerelease candidate. Windows is intentionally **not tested for `0.1.0-rc.1`** and no Windows compatibility claim is made for this prerelease. Project Memory stays inside each project checkout and is not transported by the Suite.
+CachyOS/Linux has completed the full Node 24 live-runtime acceptance for the current prerelease. Windows is intentionally **not tested for `0.1.0-rc.1`** and no Windows compatibility claim is made for this prerelease. Project Memory stays inside each project checkout and is not transported by the Suite.
 
-The prerelease family is currently `0.1.0-rc.1`. It is **not published yet**. Publication is gated by the deterministic build/test/pack checks, the completed CachyOS acceptance, a fresh npm-name availability check immediately before publication, and the post-publish registry smoke described in `docs/release/prerelease.md`.
+The nine-package prerelease family `0.1.0-rc.1` is now published to npm. The intended prerelease channel is `next`; post-publication dist-tag cleanup and the registry-only DSH install smoke remain release follow-up gates before Market submission. See `docs/release/prerelease.md` for the exact current release state.
 
 ## Authentication boundary
 
@@ -79,7 +79,7 @@ pnpm verify:local
 
 `pnpm verify:local` runs release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local package creation.
 
-The current branch has passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Claude Code, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates also pass on CachyOS.
+The accepted source passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Claude Code, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates also pass on CachyOS.
 
 GitHub-hosted Actions are currently unavailable because jobs are blocked before execution by an account billing lock; no hosted-CI PASS is claimed.
 
