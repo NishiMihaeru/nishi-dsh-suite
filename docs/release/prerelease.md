@@ -2,7 +2,7 @@
 
 Target release train: `0.1.0-rc.1`.
 
-Status: **PUBLISHED / DIST-TAG CORRECTION + REGISTRY SMOKE PENDING**.
+Status: **PUBLISHED / REGISTRY SMOKE PENDING**.
 
 Release scope for this RC: **CachyOS/Linux validated; Windows not tested and not claimed**.
 
@@ -35,9 +35,9 @@ All nine packages are now visible from the public npm registry at exactly `0.1.0
 8. `nishi-dsh-usage-limits-host`
 9. `nishi-dsh-suite`
 
-The intended prerelease dist-tag is `next`.
+The intended prerelease install channel is `next`.
 
-## Dist-tag correction required
+## npm bootstrap `latest` behavior
 
 The first public verification of `nishi-dsh-suite` reported:
 
@@ -45,14 +45,17 @@ The first public verification of `nishi-dsh-suite` reported:
 { next: '0.1.0-rc.1', latest: '0.1.0-rc.1' }
 ```
 
-This RC must not remain on `latest`. Before registry smoke / Market submission:
+Attempts to remove `latest` from the newly created packages completed npm's normal browser authentication flow but the public registry rejected each DELETE with `E400 Bad Request`.
 
-1. inspect dist-tags for all nine packages;
-2. remove `latest` anywhere it points at `0.1.0-rc.1`;
-3. keep `next` pointing at `0.1.0-rc.1`;
-4. verify the final tag state from the public registry.
+This is treated as npm registry bootstrap behavior for a newly created package whose first published version is a prerelease, not as a stable-channel declaration by this project. Do not keep retrying `npm dist-tag rm ... latest` and do not unpublish the version.
 
-Do not unpublish the version. This is a dist-tag correction only.
+Project policy for `0.1.0-rc.1`:
+
+- `next` is the documented prerelease channel;
+- exact-version installs are also supported;
+- `latest -> 0.1.0-rc.1` is recorded as unavoidable first-version registry state;
+- no stable-release claim is made from that tag;
+- a future stable release may intentionally take ownership of `latest`.
 
 ## Historical hard gates
 
@@ -81,11 +84,11 @@ Never mix scoped and unscoped package families in a future train.
 
 ## Publish order
 
-The first RC was published leaves-first and Suite-last. Future prereleases should retain dependency order and use a prerelease dist-tag rather than `latest`.
+The first RC was published leaves-first and Suite-last. Future prereleases should retain dependency order and publish with an explicit prerelease dist-tag.
 
 ## Post-publish registry smoke
 
-After the final dist-tag state is corrected, create a fresh disposable ordinary DSH `0.1.1-rc.2` profile and install **only** the Market-facing registry package:
+Create a fresh disposable ordinary DSH `0.1.1-rc.2` profile and install **only** the Market-facing registry package by exact prerelease version:
 
 ```bash
 dsh plugin --profile nishi-registry-smoke add nishi-dsh-suite@0.1.0-rc.1
@@ -134,12 +137,11 @@ This repository was created at `2026-08-26T00:15:47Z`, so the age gate becomes e
 
 Before Market submission:
 
-1. complete the dist-tag correction;
-2. complete the registry smoke above;
-3. add GitHub repository topic `dsh-plugin`;
-4. verify the repo is older than one day at submission time;
-5. submit one monorepo entry pointing to `https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite`;
-6. keep the description factual and state the actual prerelease/platform scope.
+1. complete the registry smoke above;
+2. add GitHub repository topic `dsh-plugin`;
+3. verify the repo is older than one day at submission time;
+4. submit one monorepo entry pointing to `https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite`;
+5. keep the description factual and state the actual prerelease/platform scope.
 
 Automatic packaged-preset discovery remains blocked upstream on DSH `0.1.1-rc.2` (issue #2); the explicit managed preset bridge is the accepted workaround and must not be described as one-click native preset discovery.
 
