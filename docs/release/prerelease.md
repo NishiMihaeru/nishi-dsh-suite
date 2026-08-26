@@ -17,27 +17,9 @@ pnpm verify:local
 pnpm check:npm-names
 ```
 
-`pnpm verify:local` runs:
+`pnpm verify:local` runs release-family verification, package-contract verification, Orchestrator validation, TypeScript checks, package tests, builds, and local tarball creation.
 
-- release-family verification;
-- package-contract verification;
-- Orchestrator validation;
-- TypeScript checks;
-- package tests;
-- builds;
-- local tarball creation.
-
-The current CachyOS acceptance must remain green for:
-
-- fresh normal DSH `0.1.1-rc.2` profile composition;
-- prepublish install/reinstall/uninstall with the unchanged Suite tarball and acceptance-only local leaf resolution;
-- managed Orchestrator preset bridge and safety checks;
-- Codex primary/subagent/native search;
-- Claude Code subagent;
-- Antigravity primary/subagent/`agy` search;
-- Project Memory aggregate read-only visibility and hash preservation;
-- Usage & Limits runtime/UI;
-- uninstall/preservation and missing-client isolation.
+The current CachyOS acceptance must remain green for fresh-profile lifecycle, managed preset safety, Codex/Claude/Antigravity live providers, routed search, Project Memory aggregate preservation, Usage & Limits runtime/UI, missing-client isolation, and uninstall/preservation.
 
 Windows is deliberately deferred for `0.1.0-rc.1`. Do not describe this RC as Windows-validated or cross-platform validated.
 
@@ -45,9 +27,9 @@ Then inspect every packed manifest and confirm:
 
 - package version is exactly `0.1.0-rc.1`;
 - no packed dependency contains a `workspace:` protocol;
-- `nishi-dsh-suite` contains `cordis.patch.yml`, its prebuilt `lib/bin.js`, and packaged Orchestrator YAML;
+- `nishi-dsh-suite` contains `cordis.patch.yml`, prebuilt `lib/bin.js`, and packaged Orchestrator YAML;
 - `dsh.bundle.patch` points to `./cordis.patch.yml`;
-- `nishi-dsh-usage-limits-host` contains both `lib/index.js` and `lib/client.js` plus package notices;
+- `nishi-dsh-usage-limits-host` contains both `lib/index.js` and `lib/client.js` plus notices;
 - no private source paths, credentials, session data, `.env`, or local DSH state are present.
 
 Do not publish if any deterministic or accepted CachyOS gate is red.
@@ -58,7 +40,9 @@ GitHub Actions are currently blocked before execution by an account billing lock
 
 Run `pnpm check:npm-names` **immediately before first publication**. Search-engine absence is not sufficient evidence of availability.
 
-If **any** unscoped name is already owned by another publisher, stop and rename the **entire** package family to one scope before publishing anything:
+If **any** unscoped name is already owned by another publisher, stop and rename the **entire** package family to the approved `@nishimihaeru/...` scope before publishing anything. Never publish a mixed scoped/unscoped family.
+
+Approved scoped fallback:
 
 ```text
 @nishimihaeru/dsh-codex
@@ -72,7 +56,20 @@ If **any** unscoped name is already owned by another publisher, stop and rename 
 @nishimihaeru/dsh-suite
 ```
 
-Never publish a mixed scoped/unscoped family.
+## Merge-before-publish rule
+
+Once the final local verification and fresh npm-name check pass, merge the accepted release PR to `main` **before** publishing npm packages.
+
+Reason: package metadata points users/reviewers to the public repository. The default branch must already contain the exact source being published.
+
+After merge:
+
+1. record the merge SHA;
+2. use a clean checkout of that exact `main` SHA;
+3. rerun at minimum `pnpm install --frozen-lockfile`, `pnpm verify:local`, and the fresh name check if any meaningful time has elapsed or publication did not start immediately;
+4. publish from that exact source state.
+
+Do not make release-only source edits after the accepted merge without rerunning the relevant gates.
 
 ## Publish order
 
@@ -88,7 +85,7 @@ Publish leaves before packages that depend on them:
 8. `nishi-dsh-usage-limits-host`
 9. `nishi-dsh-suite`
 
-Use the prerelease dist-tag `next`; do **not** publish this RC under `latest`.
+Use prerelease dist-tag `next`; do **not** publish this RC under `latest`.
 
 After npm authentication is intentionally configured by the operator:
 
@@ -141,11 +138,11 @@ A real version-to-version update cannot be exercised until a second Nishi prerel
 
 Do not invent or rename the current Nishi package version solely to manufacture this gate. When the next prerelease is intentionally created, test registry/profile update from `0.1.0-rc.1` to that version and run `preset update`.
 
-This future update gate does not block publishing the first `0.1.0-rc.1` prerelease; it blocks claiming that version-to-version update behavior has been accepted.
+This future update gate does not block publishing the first `0.1.0-rc.1`; it blocks claiming that version-to-version update behavior has been accepted.
 
 ## Market submission gate
 
-The Market app consumes the curated `awesome-dsh-plugin/awesome-dsh-plugin` registry. Its current submission rules require:
+The Market app consumes the curated `awesome-dsh-plugin/awesome-dsh-plugin` registry. Current submission rules require:
 
 - a real `dsh.bundle` manifest;
 - repository age of at least 1 day;
@@ -157,11 +154,12 @@ This repository was created at `2026-08-26T00:15:47Z`, so the age gate becomes e
 
 Before Market submission:
 
-1. publish and complete the registry smoke above;
-2. add the GitHub repository topic `dsh-plugin`;
-3. verify the repo is older than one day at submission time;
-4. submit one monorepo entry pointing to `https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite` after the release branch has been merged to `main`;
-5. keep the description factual and state the actual prerelease/platform scope.
+1. merge the accepted release source to `main`;
+2. publish and complete the registry smoke above;
+3. add GitHub repository topic `dsh-plugin`;
+4. verify the repo is older than one day at submission time;
+5. submit one monorepo entry pointing to `https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite`;
+6. keep the description factual and state the actual prerelease/platform scope.
 
 Automatic packaged-preset discovery remains blocked upstream on DSH `0.1.1-rc.2` (issue #2); the explicit managed preset bridge is the accepted workaround and must not be described as one-click native preset discovery.
 
