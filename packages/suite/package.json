@@ -12,12 +12,15 @@
       "default": "./lib/index.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./presets/orchestrator/preset.yml": "./presets/orchestrator/preset.yml",
+    "./presets/orchestrator/agent.cordis.yml": "./presets/orchestrator/agent.cordis.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/**/*.js",
     "lib/**/*.d.ts",
     "cordis.patch.yml",
+    "presets/**/*.yml",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md"
