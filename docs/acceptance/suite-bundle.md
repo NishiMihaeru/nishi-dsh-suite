@@ -11,7 +11,8 @@ Status: **STATIC_COMPLETE / EXECUTION_PENDING**
 - `dsh.bundle.patch = ./cordis.patch.yml`;
 - exact workspace prerelease dependencies on all eight Nishi packages;
 - exact `@deepseek-ai/dsh-authorization@0.1.1-rc.2` runtime dependency;
-- packaged Orchestrator YAML under `presets/orchestrator`, included in `files` and exported as package subpaths.
+- packaged Orchestrator YAML under `presets/orchestrator`, included in `files` and exported as package subpaths;
+- prebuilt CLI binary contract `nishi-dsh-suite -> ./lib/bin.js` for the explicit rc.2 preset bridge.
 
 The workspace protocol is intentional for repository development and must be verified during `pnpm pack` to produce exact registry versions in the packed manifest before prerelease publication.
 
@@ -38,14 +39,25 @@ The search ownership is deliberate. DSH rc.2 `dsh-base` defines a stock `tool-we
 
 The old combined `nishi-dsh-codex-antigravity` package is not part of the bundle.
 
-## Orchestrator
+## Orchestrator bridge
 
-`packages/suite/presets/orchestrator` is part of the package artifact. The remaining blocker is discovery, not packaging: the bundle intentionally does not patch `agent-presets.config.roots` on DSH 0.1.1-rc.2 because the rc.2 CLI runtime overwrites third-party roots. See `docs/acceptance/orchestrator.md` and issue #2.
+`packages/suite/presets/orchestrator` is part of the package artifact. Automatic package-root discovery remains blocked on DSH `0.1.1-rc.2`, so Suite exposes an explicit managed user-preset bridge through its package binary:
+
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset install
+dsh plugin --profile web exec nishi-dsh-suite preset status
+dsh plugin --profile web exec nishi-dsh-suite preset update
+dsh plugin --profile web exec nishi-dsh-suite preset remove
+```
+
+The bridge is not an install hook. It writes only `$DSH_HOME/.agent-presets/orchestrator`, records ownership plus SHA-256 hashes, refuses unmanaged/local-modified targets, and uses staged replacement for updates. `preset remove` is required before Suite uninstall on rc.2 because there is no supported bundle uninstall hook for that user directory.
+
+Automatic one-click discovery remains tracked in `docs/acceptance/orchestrator.md` and issue #2.
 
 ## Verification status
 
-Static manifest and patch contract tests are present in `packages/suite/test`, including assertions that the authorization service and packaged preset files are part of the Suite contract.
+Static manifest, patch, preset-manager, CLI, and package-contract tests are present. The suite contract asserts the binary declaration and packaged preset files.
 
-Executable `pnpm test`, `pnpm pack`, DSH profile install, update, and uninstall verification remain pending until a local runner is available and the workspace lockfile is regenerated. GitHub-hosted Actions are currently externally blocked by the account billing lock.
+Executable `pnpm test`, `pnpm build`, `pnpm pack`, DSH profile install, preset bridge lifecycle, update, and uninstall verification remain pending until a local runner is available and the workspace lockfile is regenerated. GitHub-hosted Actions are currently externally blocked by the account billing lock.
 
 Do not interpret this document as evidence that the executable gates have passed.
