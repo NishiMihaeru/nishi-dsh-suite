@@ -49,7 +49,7 @@ The Suite intentionally has no DeepSeek/Exa/Perplexity fallback for its routed `
 
 ## Orchestrator
 
-The accepted Orchestrator preset is migrated under `presets/orchestrator` with fixed tools:
+The accepted Orchestrator preset is packaged inside the Market artifact at `packages/suite/presets/orchestrator` with fixed tools:
 
 - `subagent_codex`
 - `subagent_claude_code`
