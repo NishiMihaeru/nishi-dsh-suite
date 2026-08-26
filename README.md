@@ -25,7 +25,9 @@ Normal installation is through DSH plugin reconciliation; there is no portable D
 
 CachyOS/Linux has completed the full Node 24 live-runtime acceptance for the current prerelease. Windows is intentionally **not tested for `0.1.0-rc.1`** and no Windows compatibility claim is made for this prerelease. Project Memory stays inside each project checkout and is not transported by the Suite.
 
-The nine-package prerelease family `0.1.0-rc.1` is published to npm. The documented prerelease channel is `next`, and exact-version installs are supported. Because these are newly created npm packages, the registry also attached `latest` to the first published version and rejected attempts to remove that bootstrap tag; this does **not** represent a stable-release claim. See `docs/release/prerelease.md` for the recorded registry behavior and current release state.
+The nine-package prerelease family `0.1.0-rc.1` is published to npm and has passed a fresh registry-only DSH install/preset/remove smoke with no local tarball overrides. The documented prerelease channel is `next`, and exact-version installs are supported.
+
+Because these are newly created npm packages, the registry also attached `latest` to the first published version and rejected authenticated attempts to remove that bootstrap tag. This does **not** represent a stable-release claim; see `docs/release/prerelease.md` for the recorded registry behavior.
 
 ## Authentication boundary
 
@@ -80,6 +82,8 @@ pnpm verify:local
 `pnpm verify:local` runs release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local package creation.
 
 The accepted source passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Claude Code, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates also pass on CachyOS.
+
+The published `0.1.0-rc.1` family additionally passed a fresh public-registry-only DSH smoke: Suite resolution from npm, all eight exact leaf versions, managed Codex/Claude/DSH dependency versions, Orchestrator preset install/status/remove, and normal Suite removal. Evidence: `docs/acceptance/2026-08-27-registry-smoke.md`.
 
 GitHub-hosted Actions are currently unavailable because jobs are blocked before execution by an account billing lock; no hosted-CI PASS is claimed.
 
