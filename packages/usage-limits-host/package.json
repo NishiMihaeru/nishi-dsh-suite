@@ -34,10 +34,7 @@
     "build": "tsdown",
     "check": "tsc -p tsconfig.json --noEmit",
     "pack": "npm pack",
-    "test": "tsx --import ./test/register-css.mjs --test test/*.test.ts",
-    "test:e2e": "tsx --import ./test/register-css.mjs --test test/e2e/*.test.ts",
-    "test:live": "tsx --import ./test/register-css.mjs --test test/live/*.test.ts",
-    "test:live:antigravity": "tsx --import ./test/register-css.mjs --test test/live/antigravity-local-usage-live.test.ts"
+    "test": "tsx --import ./test/register-css.mjs --test test/*.test.ts"
   },
   "dependencies": {
     "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.1",
