@@ -1,0 +1,129 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.titleBlock {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.kind {
+  flex: none;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--dsw-alias-label-secondary, inherit);
+  background: var(--dsw-alias-bg-layer-2, transparent);
+}
+
+.refreshing {
+  flex: none;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.errorNotice {
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, transparent);
+  color: var(--dsw-alias-state-error-primary, inherit);
+  font-size: 10px;
+}
+
+.metricsList {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.metricsRow {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.metricLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary, inherit);
+  font-weight: 500;
+}
+
+.resetSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 2px;
+  font-size: 10px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.resetTitle,
+.extraTitle {
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.resetList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.resetRow {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto;
+  gap: 8px;
+}
+
+.extraUsage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--dsw-alias-border-l3, transparent);
+  font-size: 10px;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.extraGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.status {
+  margin: 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.statusError {
+  color: var(--dsw-alias-state-error-primary, inherit);
+}
