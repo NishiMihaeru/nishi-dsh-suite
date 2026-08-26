@@ -12,7 +12,7 @@ Status: **STATIC_COMPLETE / EXECUTION_PENDING**
 - exact workspace prerelease dependencies on all eight Nishi packages;
 - exact `@deepseek-ai/dsh-authorization@0.1.1-rc.2` runtime dependency;
 - packaged Orchestrator YAML under `presets/orchestrator`, included in `files` and exported as package subpaths;
-- prebuilt CLI binary contract `nishi-dsh-suite -> ./lib/bin.js` for the explicit rc.2 preset bridge.
+- `nishi-dsh-suite` CLI binary at `lib/bin.js` for the explicit rc.2 preset lifecycle bridge.
 
 The workspace protocol is intentional for repository development and must be verified during `pnpm pack` to produce exact registry versions in the packed manifest before prerelease publication.
 
@@ -39,9 +39,9 @@ The search ownership is deliberate. DSH rc.2 `dsh-base` defines a stock `tool-we
 
 The old combined `nishi-dsh-codex-antigravity` package is not part of the bundle.
 
-## Orchestrator bridge
+## Orchestrator lifecycle on rc.2
 
-`packages/suite/presets/orchestrator` is part of the package artifact. Automatic package-root discovery remains blocked on DSH `0.1.1-rc.2`, so Suite exposes an explicit managed user-preset bridge through its package binary:
+`packages/suite/presets/orchestrator` is part of the package artifact. DSH rc.2 cannot automatically register the package preset root, so the Suite exposes an explicit CLI bridge into DSH's supported user preset root:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install
@@ -50,14 +50,14 @@ dsh plugin --profile web exec nishi-dsh-suite preset update
 dsh plugin --profile web exec nishi-dsh-suite preset remove
 ```
 
-The bridge is not an install hook. It writes only `$DSH_HOME/.agent-presets/orchestrator`, records ownership plus SHA-256 hashes, refuses unmanaged/local-modified targets, and uses staged replacement for updates. `preset remove` is required before Suite uninstall on rc.2 because there is no supported bundle uninstall hook for that user directory.
+The only persistent bridge-owned directory is `$DSH_HOME/.agent-presets/orchestrator`. Atomic install/update may use transient stage/backup siblings under `.agent-presets`; successful operations remove them. Unmanaged or locally edited Orchestrator directories are refused rather than overwritten or removed.
 
-Automatic one-click discovery remains tracked in `docs/acceptance/orchestrator.md` and issue #2.
+Automatic one-click discovery remains tracked in issue #2. See `docs/acceptance/orchestrator.md`.
 
 ## Verification status
 
-Static manifest, patch, preset-manager, CLI, and package-contract tests are present. The suite contract asserts the binary declaration and packaged preset files.
+Static manifest/patch/preset-manager/CLI contract tests are present. `pnpm verify:local` is the one-shot local gate for release/package contracts, Orchestrator validation, TypeScript check, tests, build, and tarball creation.
 
-Executable `pnpm test`, `pnpm build`, `pnpm pack`, DSH profile install, preset bridge lifecycle, update, and uninstall verification remain pending until a local runner is available and the workspace lockfile is regenerated. GitHub-hosted Actions are currently externally blocked by the account billing lock.
+Executable `pnpm verify:local`, DSH profile install/update/uninstall, preset lifecycle, and Windows/CachyOS acceptance remain pending until a real local/hosted runner is available and the workspace lockfile is regenerated. Current GitHub-hosted Actions fail before any job step starts because of the account billing lock.
 
 Do not interpret this document as evidence that the executable gates have passed.
