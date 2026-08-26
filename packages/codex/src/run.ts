@@ -9,7 +9,7 @@
  * packages/subagent/subagent-codex/src/run.ts
  *
  * Custom Policy Delta:
- * Injects three exact configuration overrides into the package-local app-server invocation:
+ * Injects three exact configuration overrides into the external Codex app-server invocation:
  * - -c memories.use_memories=false
  * - -c memories.generate_memories=false
  * - -c project_doc_max_bytes=0
@@ -18,9 +18,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
+import { writeFileSync } from 'node:fs'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import {
@@ -40,18 +38,6 @@ import { CodexAppServerWire, type CodexWireFailureFacts } from './wire.js'
 
 /** Default POSIX grace between subprocess termination tiers. */
 export const DEFAULT_DISPOSE_GRACE_MS = 3000
-
-const require = createRequire(import.meta.url)
-const codexPackageJsonPath = require.resolve('@openai/codex/package.json')
-const codexPackageManifest = JSON.parse(readFileSync(codexPackageJsonPath, 'utf8')) as {
-  bin: { codex: string }
-}
-
-/** Absolute package-local JavaScript wrapper selected by the package manifest. */
-export const CODEX_PACKAGE_BIN = resolve(
-  dirname(codexPackageJsonPath),
-  codexPackageManifest.bin.codex,
-)
 
 /** Native non-interactive Codex modes mapped to official `thread/start` fields. */
 export const CODEX_PERMISSION_MODES = [
@@ -108,13 +94,13 @@ export function codexStartupFailure(cause: unknown): Error {
 }
 
 /**
- * Package-local app-server command with custom memory and project doc suppression.
- * @returns Node, the official wrapper, the 3 memory policy overrides, and app-server --stdio.
+ * External app-server command with custom memory and project doc suppression.
+ * @param executable - resolved official Codex CLI executable.
+ * @returns the executable, 3 memory policy overrides, and app-server --stdio.
  */
-export function codexAppServerArgv(): string[] {
+export function codexAppServerArgv(executable: string): string[] {
   return [
-    process.execPath,
-    CODEX_PACKAGE_BIN,
+    executable,
     '-c',
     'memories.use_memories=false',
     '-c',
@@ -154,6 +140,7 @@ export function textTask(prompt: readonly ContentBlock[]): string[] {
 
 export interface CodexRunSpec {
   readonly cwd: string
+  readonly executable: string
   readonly permissionMode: CodexPermissionMode
   readonly env: Record<string, string>
   readonly disposeGraceMs: number
@@ -165,8 +152,6 @@ export interface CodexRunSpec {
 /**
  * Close the private wire, terminate the managed process tree, and wait for the
  * subprocess owner to prove it is gone.
- * @param wire - private app-server protocol connection.
- * @param child - shared-service handle that owns the process tree.
  */
 export async function disposeCodexChild(
   wire: CodexAppServerWire,
@@ -203,12 +188,7 @@ export async function disposeCodexChild(
   }
 }
 
-/**
- * Start the real `codex app-server --stdio` child and publish its one-shot run.
- * @param request - resolved shared subagent request.
- * @param spec - Workspace, environment, process service, and diagnostic policy.
- * @returns the published run after initialization and ephemeral thread creation.
- */
+/** Start the real external `codex app-server --stdio` child and publish its one-shot run. */
 export async function startCodexRun(
   request: SubagentStartRequest,
   spec: CodexRunSpec,
@@ -221,7 +201,7 @@ export async function startCodexRun(
   let child: SubprocessHandle
   try {
     child = spec.spawn({
-      argv: codexAppServerArgv(),
+      argv: codexAppServerArgv(spec.executable),
       cwd: spec.cwd,
       stdio: {
         stdin: 'pipe',
