@@ -1,6 +1,6 @@
 # Fresh Windows + CachyOS acceptance
 
-Status: **CACHYOS CORE RUNTIME PASS / LIVE PROVIDERS + WINDOWS PENDING**
+Status: **CACHYOS CORE RUNTIME + CODEX LIVE PASS / CLAUDE + ANTIGRAVITY + WINDOWS PENDING**
 
 This is the release gate for Nishi DSH Suite. Windows and CachyOS/Linux are tested as **independent ordinary DSH installations**. No DSH home, session store, vendor credential store, or runtime state is copied between operating systems.
 
@@ -8,8 +8,9 @@ Executed CachyOS evidence:
 
 - deterministic local verification: `docs/acceptance/2026-08-26-cachyos-local-verification.md`
 - isolated fresh-profile/runtime acceptance: `docs/acceptance/2026-08-26-cachyos-runtime-acceptance.md`
+- Codex primary/subagent/search acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-codex-primary-acceptance.md`
 
-The runtime acceptance record is based on the executed local report supplied from the CachyOS test environment; it was not inferred from static repository inspection.
+The acceptance records are based on executed local reports supplied from the CachyOS test environment; they were not inferred from static repository inspection.
 
 ## Preconditions on each OS
 
@@ -139,6 +140,8 @@ With official `codex` installed and authenticated:
 - Project Memory is readable through the accepted read-only bridge;
 - Codex rate limits populate Usage & Limits without leaking raw auth material.
 
+CachyOS Node 24 execution for this section is recorded as PASS in `docs/acceptance/2026-08-26-cachyos-codex-primary-acceptance.md`.
+
 Known accepted debt: stock Codex may still observe global `AGENTS` behavior that cannot currently be fully suppressed by the DSH provider boundary.
 
 ## 6. Claude Code live gates
@@ -177,6 +180,8 @@ In a temporary project:
 6. verify project files and `.dsh/memory` are unchanged;
 7. reinstall Suite + preset and verify the same project memory is available again.
 
+The Codex child path has passed on CachyOS; the aggregate row remains pending until Claude Code and Antigravity child paths are exercised under the release environment.
+
 There is no cross-OS or cross-machine memory synchronization gate.
 
 ## 9. Usage & Limits UI
@@ -190,6 +195,8 @@ Verify on DSH Web:
 - Model Accounts does not expose or initiate vendor subscription OAuth;
 - legacy DSH grants, if intentionally staged for the test, can be removed without deleting unrelated API-key records.
 
+The Codex rate-limit source has passed on CachyOS Node 24; the aggregate runtime/UI row remains pending until the remaining provider/UI gates are executed under the release environment.
+
 ## Acceptance record
 
 Both OS rows must be explicitly recorded before the RC is promoted:
@@ -202,7 +209,7 @@ Both OS rows must be explicitly recorded before the RC is promoted:
 | DSH discovers/selects Orchestrator | PENDING | PASS |
 | real version-to-version update | PENDING | PENDING |
 | uninstall preserves state | PENDING | PASS |
-| Codex primary/subagent/search | PENDING | PENDING |
+| Codex primary/subagent/search | PENDING | PASS |
 | Claude Code subagent | PENDING | PENDING |
 | Antigravity primary/subagent/search | PENDING | PENDING |
 | Project Memory live provider bridge | PENDING | PENDING |
