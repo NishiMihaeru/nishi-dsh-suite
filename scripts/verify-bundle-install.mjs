@@ -143,6 +143,18 @@ function directSuiteDependency() {
   return listed?.dependencies?.['nishi-dsh-suite'] ?? listed?.devDependencies?.['nishi-dsh-suite']
 }
 
+async function assertProfilePnpmContract() {
+  if (!profileDir) return
+  const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
+  const workspace = await readFile(workspacePath, 'utf8')
+  if (!/^nodeLinker:\s*hoisted\s*$/m.test(workspace)) {
+    throw new Error(`DSH profile pnpm contract mismatch: ${workspacePath} must set nodeLinker: hoisted`)
+  }
+  if (!/^autoInstallPeers:\s*false\s*$/m.test(workspace)) {
+    throw new Error(`DSH profile pnpm contract mismatch: ${workspacePath} must set autoInstallPeers: false`)
+  }
+}
+
 async function assertProfileManifest(expectedInstalled) {
   if (!profileDir) return
   const manifest = JSON.parse(await readFile(join(profileDir, 'package.json'), 'utf8'))
@@ -171,6 +183,7 @@ try {
   runDsh(['add', normalizeSpec(args.suite)])
   installedByThisRun = true
   if (!directSuiteDependency()) throw new Error('nishi-dsh-suite is not a direct profile dependency after install')
+  await assertProfilePnpmContract()
   await assertProfileManifest(true)
   await assertPreserved(preserved, 'install')
 
@@ -178,6 +191,7 @@ try {
   console.log(args.updateSpec ? 'Exercising update spec' : 'Exercising idempotent reinstall/reconciliation')
   runDsh(['add', normalizeSpec(secondSpec)])
   if (!directSuiteDependency()) throw new Error('nishi-dsh-suite disappeared after update/reinstall')
+  await assertProfilePnpmContract()
   await assertProfileManifest(true)
   await assertPreserved(preserved, args.updateSpec ? 'update' : 'reinstall')
 
@@ -185,6 +199,7 @@ try {
   runDsh(['remove', 'nishi-dsh-suite'])
   installedByThisRun = false
   if (directSuiteDependency()) throw new Error('nishi-dsh-suite remains a direct dependency after uninstall')
+  await assertProfilePnpmContract()
   await assertProfileManifest(false)
   await assertPreserved(preserved, 'uninstall')
 
