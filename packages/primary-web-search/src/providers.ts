@@ -74,7 +74,7 @@ export async function dispatchPrimarySearch(
 }
 
 export function createPrimarySearchBackends(ctx: Context, config: PrimarySearchProviderConfig): PrimarySearchBackends {
-  const codex = new CodexSearchBackend()
+  const codex = new CodexSearchBackend(ctx)
   const antigravity = new AntigravitySearchBackend(ctx, config.antigravity)
   return {
     codex: {
