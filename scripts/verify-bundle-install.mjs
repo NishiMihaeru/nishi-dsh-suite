@@ -1,7 +1,18 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, readdir, readFile, readlink } from 'node:fs/promises'
+import { lstat, readdir, readFile, readlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
+
+const LOCAL_FAMILY_PACKAGES = [
+  'nishi-dsh-project-memory',
+  'nishi-dsh-codex',
+  'nishi-dsh-antigravity',
+  'nishi-dsh-claude-code',
+  'nishi-dsh-usage-limits',
+  'nishi-dsh-codex-usage-source',
+  'nishi-dsh-primary-web-search',
+  'nishi-dsh-usage-limits-host',
+]
 
 function usage(message) {
   if (message) console.error(message)
@@ -11,7 +22,8 @@ function usage(message) {
 Options:
   --update-spec <tarball-or-spec>  Exercise a real package update; otherwise reinstall the same spec idempotently.
   --profile-dir <path>             Verify package.json dependency + dsh.profile.bundles reconciliation.
-  --dsh-home <path>                Derive profile dir as <home>/profiles/<profile>; does not change DSH_HOME.
+  --dsh-home <path>                Set child DSH_HOME and derive profile dir as <home>/profiles/<profile>.
+  --local-pack-dir <path>          Prepublish acceptance only: resolve Nishi leaf dependencies from local tarballs via temporary profile pnpm overrides. The Suite tarball is not rewritten.
   --preserve <path>                Hash a path before/after each phase; may be repeated.
   --dsh-bin <path-or-command>      DSH executable (default: DSH_BIN env or dsh).
 `)
@@ -32,6 +44,7 @@ function parseArgs(argv) {
       case '--update-spec': result.updateSpec = value(); break
       case '--profile-dir': result.profileDir = value(); break
       case '--dsh-home': result.dshHome = value(); break
+      case '--local-pack-dir': result.localPackDir = value(); break
       case '--preserve': result.preserve.push(value()); break
       case '--dsh-bin': result.dshBin = value(); break
       case '--help': usage(); break
@@ -46,13 +59,19 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2))
 const dshBin = args.dshBin ?? process.env.DSH_BIN ?? 'dsh'
+const explicitDshHome = args.dshHome ? resolve(args.dshHome) : undefined
 const profileDir = args.profileDir
   ? resolve(args.profileDir)
-  : args.dshHome
-    ? resolve(args.dshHome, 'profiles', args.profile)
+  : explicitDshHome
+    ? resolve(explicitDshHome, 'profiles', args.profile)
     : process.env.DSH_HOME
       ? resolve(process.env.DSH_HOME, 'profiles', args.profile)
       : undefined
+const localPackDir = args.localPackDir ? resolve(args.localPackDir) : undefined
+
+if (localPackDir && !profileDir) {
+  usage('--local-pack-dir requires --dsh-home, --profile-dir, or DSH_HOME so the disposable profile workspace can be inspected safely')
+}
 
 function normalizeSpec(spec) {
   if (spec.startsWith('.') || spec.startsWith('/') || /^[A-Za-z]:[\\/]/.test(spec)) {
@@ -69,6 +88,9 @@ function runDsh(pluginArgs, { capture = false, allowFailure = false } = {}) {
       encoding: capture ? 'utf8' : undefined,
       stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
       shell: process.platform === 'win32',
+      env: explicitDshHome
+        ? { ...process.env, DSH_HOME: explicitDshHome }
+        : process.env,
     },
   )
   if (result.error && !allowFailure) throw result.error
@@ -155,6 +177,52 @@ async function assertProfilePnpmContract() {
   }
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+let originalProfileWorkspace
+
+async function installLocalPackOverrides() {
+  if (!localPackDir) return
+  if (!profileDir) throw new Error('internal error: local pack overrides require a resolved profile directory')
+
+  await assertProfilePnpmContract()
+
+  const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
+  const workspace = await readFile(workspacePath, 'utf8')
+  if (/^overrides:\s*$/m.test(workspace)) {
+    throw new Error(`refusing to modify profile workspace with pre-existing overrides: ${workspacePath}`)
+  }
+
+  const filenames = await readdir(localPackDir)
+  const entries = []
+  for (const packageName of LOCAL_FAMILY_PACKAGES) {
+    const pattern = new RegExp(`^${escapeRegex(packageName)}-\\d.+\\.tgz$`)
+    const matches = filenames.filter((filename) => pattern.test(filename))
+    if (matches.length !== 1) {
+      throw new Error(
+        `expected exactly one local tarball for ${packageName} in ${localPackDir}, found ${matches.length}: ${matches.join(', ') || '(none)'}`,
+      )
+    }
+    const tarball = resolve(localPackDir, matches[0]).replace(/\\/g, '/')
+    entries.push(`  ${JSON.stringify(packageName)}: ${JSON.stringify(`file:${tarball}`)}`)
+  }
+
+  originalProfileWorkspace = workspace
+  const overridden = `${workspace.trimEnd()}\n\noverrides:\n${entries.join('\n')}\n`
+  await writeFile(workspacePath, overridden, 'utf8')
+  console.log(`Installed temporary prepublish Nishi-family overrides in ${workspacePath}`)
+}
+
+async function restoreLocalPackOverrides() {
+  if (originalProfileWorkspace === undefined || !profileDir) return
+  const workspacePath = join(profileDir, 'pnpm-workspace.yaml')
+  await writeFile(workspacePath, originalProfileWorkspace, 'utf8')
+  originalProfileWorkspace = undefined
+  console.log(`Restored original DSH profile workspace: ${workspacePath}`)
+}
+
 async function assertProfileManifest(expectedInstalled) {
   if (!profileDir) return
   const manifest = JSON.parse(await readFile(join(profileDir, 'package.json'), 'utf8'))
@@ -179,6 +247,9 @@ try {
     throw new Error(`profile ${args.profile} already has nishi-dsh-suite installed; use a clean acceptance profile or remove it explicitly first`)
   }
 
+  await assertProfilePnpmContract()
+  await installLocalPackOverrides()
+
   console.log(`Installing Suite into normal DSH profile: ${args.profile}`)
   runDsh(['add', normalizeSpec(args.suite)])
   installedByThisRun = true
@@ -199,11 +270,16 @@ try {
   runDsh(['remove', 'nishi-dsh-suite'])
   installedByThisRun = false
   if (directSuiteDependency()) throw new Error('nishi-dsh-suite remains a direct dependency after uninstall')
+
+  await restoreLocalPackOverrides()
   await assertProfilePnpmContract()
   await assertProfileManifest(false)
   await assertPreserved(preserved, 'uninstall')
 
   console.log('Bundle install/update/uninstall acceptance passed for the exercised profile operations.')
+  if (localPackDir) {
+    console.log('Prepublish mode used temporary local-tarball overrides only for Nishi leaf resolution; the Suite tarball itself was not rewritten.')
+  }
   if (!args.updateSpec) {
     console.log('Note: version-to-version update was not exercised; pass --update-spec when a second prerelease tarball is available.')
   }
@@ -213,4 +289,6 @@ try {
     runDsh(['remove', 'nishi-dsh-suite'], { allowFailure: true })
   }
   throw error
+} finally {
+  await restoreLocalPackOverrides()
 }
