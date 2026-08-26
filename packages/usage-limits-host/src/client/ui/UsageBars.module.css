@@ -1,0 +1,46 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--usage-scale, 1));
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: calc(44px * var(--usage-scale, 1)) minmax(0, 1fr);
+  align-items: center;
+  gap: calc(8px * var(--usage-scale, 1));
+  box-sizing: border-box;
+}
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(11px * var(--usage-scale, 1));
+  line-height: calc(14px * var(--usage-scale, 1));
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+.track {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: max(3px, calc(5px * var(--usage-scale, 1)));
+  overflow: hidden;
+  border-radius: 999px;
+  box-sizing: border-box;
+  background: var(--dsw-alias-border-l3, transparent);
+}
+.fill {
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--usage-accent, var(--dsw-alias-button-primary-fill, currentColor));
+  transition: width 160ms ease;
+}
+.compactList { gap: 3px; width: 22px; min-width: 22px; }
+.compactRow { display: block; width: 22px; }
+.compactTrack { width: 22px; height: 3px; }
