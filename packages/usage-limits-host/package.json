@@ -39,6 +39,11 @@
     "test:live": "tsx --import ./test/register-css.mjs --test test/live/*.test.ts",
     "test:live:antigravity": "tsx --import ./test/register-css.mjs --test test/live/antigravity-local-usage-live.test.ts"
   },
+  "dependencies": {
+    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.1",
+    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.1",
+    "nishi-dsh-claude-code": "workspace:0.1.0-rc.1"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-authorization": "0.1.1-rc.2",
@@ -53,9 +58,6 @@
     "@deepseek-ai/dsh-host-apiproxy": "0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
     "@deepseek-ai/dsh-subprocess": "0.1.1-rc.2",
-    "nishi-dsh-codex-usage-source": "0.1.0-rc.1",
-    "nishi-dsh-usage-limits": "0.1.0-rc.1",
-    "nishi-dsh-claude-code": "0.1.0-rc.1",
     "react": "^18.2.0"
   },
   "devDependencies": {
