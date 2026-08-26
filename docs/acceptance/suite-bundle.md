@@ -13,21 +13,23 @@ Status: **STATIC_COMPLETE / EXECUTION_PENDING**
 
 The workspace protocol is intentional for repository development and must be verified during `pnpm pack` to produce exact registry versions in the packed manifest before prerelease publication.
 
-## Bundle rows
+## Bundle rows and ownership
 
-`packages/suite/cordis.patch.yml` mounts exactly these runtime plugins once:
+`packages/suite/cordis.patch.yml` mounts exactly these **host-plane** runtime plugins once:
 
 - `nishi-dsh-project-memory`
 - `nishi-dsh-codex`
 - `nishi-dsh-antigravity`
 - `nishi-dsh-claude-code`
-- `nishi-dsh-primary-web-search`
 - `nishi-dsh-usage-limits-host`
 
-These packages are dependencies but not Cordis rows:
+These packages are installed dependencies but are not host Cordis rows:
 
-- `nishi-dsh-usage-limits`
-- `nishi-dsh-codex-usage-source`
+- `nishi-dsh-primary-web-search` — agent-plane tool mounted by the Orchestrator preset;
+- `nishi-dsh-usage-limits` — domain library;
+- `nishi-dsh-codex-usage-source` — Codex usage source library.
+
+The search ownership is deliberate. DSH rc.2 `dsh-base` defines a stock `tool-web`, and the web bundle disables the host copy because model-facing tools are owned by agent presets. Mounting a second global `web_search` plugin from the Suite would violate that ownership and risk duplicate/shadowed tool registration.
 
 The old combined `nishi-dsh-codex-antigravity` package is not part of the bundle.
 
