@@ -10,6 +10,7 @@ Status: **STATIC_COMPLETE / EXECUTION_PENDING**
 - Node.js `>=24 <25`;
 - `dsh.bundle.patch = ./cordis.patch.yml`;
 - exact workspace prerelease dependencies on all eight Nishi packages;
+- exact `@deepseek-ai/dsh-authorization@0.1.1-rc.2` runtime dependency;
 - packaged Orchestrator YAML under `presets/orchestrator`, included in `files` and exported as package subpaths.
 
 The workspace protocol is intentional for repository development and must be verified during `pnpm pack` to produce exact registry versions in the packed manifest before prerelease publication.
@@ -18,11 +19,14 @@ The workspace protocol is intentional for repository development and must be ver
 
 `packages/suite/cordis.patch.yml` mounts exactly these **host-plane** runtime plugins once:
 
-- `nishi-dsh-project-memory`
-- `nishi-dsh-codex`
-- `nishi-dsh-antigravity`
-- `nishi-dsh-claude-code`
-- `nishi-dsh-usage-limits-host`
+- `@deepseek-ai/dsh-authorization` — official rc.2 authorization service required by Usage Limits Host;
+- `nishi-dsh-project-memory`;
+- `nishi-dsh-codex`;
+- `nishi-dsh-antigravity`;
+- `nishi-dsh-claude-code`;
+- `nishi-dsh-usage-limits-host`.
+
+The authorization row is required because `nishi-dsh-usage-limits-host` injects `authorization`, while stock `dsh-base` and `dsh-web-app` rc.2 do not mount that service. This matches the accepted private profile, which explicitly mounted `@deepseek-ai/dsh-authorization` before Usage Limits Host.
 
 These packages are installed dependencies but are not host Cordis rows:
 
@@ -40,7 +44,7 @@ The old combined `nishi-dsh-codex-antigravity` package is not part of the bundle
 
 ## Verification status
 
-Static manifest and patch contract tests are present in `packages/suite/test`, including assertions that the preset files are part of the Suite package contract.
+Static manifest and patch contract tests are present in `packages/suite/test`, including assertions that the authorization service and packaged preset files are part of the Suite contract.
 
 Executable `pnpm test`, `pnpm pack`, DSH profile install, update, and uninstall verification remain pending until a local runner is available and the workspace lockfile is regenerated. GitHub-hosted Actions are currently externally blocked by the account billing lock.
 
