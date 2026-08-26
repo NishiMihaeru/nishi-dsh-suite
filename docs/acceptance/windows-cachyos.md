@@ -9,7 +9,7 @@ Executed CachyOS evidence:
 - deterministic local verification: `docs/acceptance/2026-08-26-cachyos-local-verification.md`
 - isolated fresh-profile/runtime acceptance: `docs/acceptance/2026-08-26-cachyos-runtime-acceptance.md`
 - Codex primary/subagent/search acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-codex-primary-acceptance.md`
-- remaining live-provider / Usage & Limits acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-remaining-live.md`
+- intermediate remaining live-provider / Usage & Limits acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-remaining-live.md`
 - final authenticated Claude + Antigravity live acceptance on Node 24: `docs/acceptance/2026-08-26-cachyos-final-live.md`
 
 The acceptance records are based on executed local reports supplied from the CachyOS test environment; they were not inferred from static repository inspection.
