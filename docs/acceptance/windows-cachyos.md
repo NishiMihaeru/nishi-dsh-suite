@@ -1,8 +1,13 @@
 # Fresh Windows + CachyOS acceptance
 
-Status: **PREPARED / NOT EXECUTED**
+Status: **CACHYOS CORE RUNTIME PASS / LIVE PROVIDERS + WINDOWS PENDING**
 
 This is the release gate for Nishi DSH Suite. Windows and CachyOS/Linux are tested as **independent ordinary DSH installations**. No DSH home, session store, vendor credential store, or runtime state is copied between operating systems.
+
+Executed CachyOS evidence:
+
+- deterministic local verification: `docs/acceptance/2026-08-26-cachyos-local-verification.md`
+- isolated fresh-profile/runtime acceptance: `docs/acceptance/2026-08-26-cachyos-runtime-acceptance.md`
 
 ## Preconditions on each OS
 
@@ -189,17 +194,17 @@ Both OS rows must be explicitly recorded before the RC is promoted:
 
 | Gate | Windows | CachyOS |
 | --- | --- | --- |
-| install/check/test/build/pack | PENDING | PENDING |
-| fresh profile install | PENDING | PENDING |
-| preset install/status/update/remove | PENDING | PENDING |
-| DSH discovers/selects Orchestrator | PENDING | PENDING |
-| update/reinstall | PENDING | PENDING |
-| uninstall preserves state | PENDING | PENDING |
+| install/check/test/build/pack | PENDING | PASS |
+| fresh profile install | PENDING | PASS |
+| preset install/status/update/remove | PENDING | PASS |
+| DSH discovers/selects Orchestrator | PENDING | PASS |
+| real version-to-version update | PENDING | PENDING |
+| uninstall preserves state | PENDING | PASS |
 | Codex primary/subagent/search | PENDING | PENDING |
 | Claude Code subagent | PENDING | PENDING |
 | Antigravity primary/subagent/search | PENDING | PENDING |
-| Project Memory | PENDING | PENDING |
-| Usage & Limits | PENDING | PENDING |
+| Project Memory live provider bridge | PENDING | PENDING |
+| Usage & Limits runtime/UI | PENDING | PENDING |
 | automatic one-click preset discovery | BLOCKED_UPSTREAM | BLOCKED_UPSTREAM |
 
 A row becomes `PASS` only from an executed gate with captured command/output or an attached acceptance note. Static inspection is not a substitute for a PASS.
