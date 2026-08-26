@@ -18,7 +18,7 @@ This gate exercises the ordinary DSH profile plugin path. It does not create a p
 pnpm pack:local
 ```
 
-The script builds the workspace and packs the eight leaf packages plus `nishi-dsh-suite` into:
+The script builds the eight leaf packages plus `nishi-dsh-suite` into:
 
 ```text
 .artifacts/packs/
@@ -30,9 +30,9 @@ Expected Suite tarball for the first prerelease:
 .artifacts/packs/nishi-dsh-suite-0.1.0-rc.1.tgz
 ```
 
-Packing is also the gate that must confirm pnpm rewrites the source `workspace:0.1.0-rc.1` dependency specs to exact registry versions inside the distributable tarballs.
+Packing must confirm pnpm rewrites source `workspace:0.1.0-rc.1` specs to exact distributable versions and that the Suite tarball contains `lib/bin.js` plus `presets/orchestrator/{preset.yml,agent.cordis.yml}`.
 
-## 2. Install / reconcile / uninstall on a normal profile
+## 2. Install / reconcile on a normal profile
 
 Run the verifier against an explicitly chosen ordinary profile, for example `web`:
 
@@ -55,10 +55,29 @@ With profile manifest inspection enabled, the verifier requires:
 
 - `nishi-dsh-suite` is a direct profile dependency after install;
 - `nishi-dsh-suite` occurs exactly once in `dsh.profile.bundles`;
-- reinstall/update does not duplicate the bundle layer;
-- uninstall removes both the dependency and bundle layer.
+- reinstall/update does not duplicate the bundle layer.
 
-## 3. Preservation checks
+## 3. Install the rc.2 Orchestrator bridge
+
+After the bundle is installed, execute the package binary through that same profile:
+
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset status
+dsh plugin --profile web exec nishi-dsh-suite preset install
+dsh plugin --profile web exec nishi-dsh-suite preset status
+```
+
+Require `absent → current` on a fresh DSH home. A second install must be idempotent.
+
+The bridge may write only:
+
+```text
+$DSH_HOME/.agent-presets/orchestrator/
+```
+
+An unmanaged existing directory must be refused. A local edit to a managed preset must produce `modified` status and block both update and remove.
+
+## 4. Preservation checks
 
 `--preserve` may be repeated. Each supplied file/directory is SHA-256 snapshotted recursively before the operation and must stay byte-for-byte unchanged after install, update/reinstall, and uninstall.
 
@@ -77,7 +96,7 @@ node scripts/verify-bundle-install.mjs \
 
 The verifier does not need to understand the contents of those paths and does not modify them. Hashing is local acceptance instrumentation only.
 
-## 4. Real version-to-version update
+## 5. Real version-to-version update
 
 Reinstalling the same tarball exercises idempotent profile reconciliation. A true update requires a second prerelease build:
 
@@ -89,12 +108,36 @@ node scripts/verify-bundle-install.mjs \
   --update-spec /path/to/nishi-dsh-suite-0.1.0-rc.2.tgz
 ```
 
-Do not mark the update gate passed until two different package versions have been exercised.
+After the package update, run:
 
-## Orchestrator limitation
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset status
+dsh plugin --profile web exec nishi-dsh-suite preset update
+dsh plugin --profile web exec nishi-dsh-suite preset status
+```
 
-Runtime bundle installation can be accepted independently. Automatic discovery of the repository's Orchestrator preset remains blocked by the DSH rc.2 third-party preset-root override documented in `docs/acceptance/orchestrator.md`.
+When the package version/content changed, require `outdated → current`. Do not mark the update gate passed until two different package versions have been exercised.
+
+## 6. Remove preset before bundle uninstall
+
+DSH rc.2 has no supported bundle-uninstall hook for the user preset directory, so the explicit managed preset must be removed while the package binary is still installed:
+
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset remove
+dsh plugin --profile web remove nishi-dsh-suite
+```
+
+Require:
+
+- managed `orchestrator` is absent;
+- sibling user presets remain;
+- Suite dependency and bundle layer are removed;
+- preserved sessions, project files, Project Memory, DSH credentials, and vendor-owned paths are unchanged.
+
+## Automatic-discovery limitation
+
+The explicit bridge is the accepted temporary rc.2 path. Automatic one-click discovery of the packaged Orchestrator remains blocked by the DSH third-party preset-root override documented in `docs/acceptance/orchestrator.md` and issue #2.
 
 ## Current result
 
-The acceptance harness exists, but none of the commands above have been claimed as passing in this migration branch yet. GitHub-hosted CI is externally blocked by the account billing lock, so a local run or restored runner is required for executable evidence.
+The acceptance harness and preset lifecycle implementation exist, but none of the executable commands above have been claimed as passing in this migration branch yet. GitHub-hosted CI is externally blocked by the account billing lock, so a local run or restored runner is required for executable evidence.
