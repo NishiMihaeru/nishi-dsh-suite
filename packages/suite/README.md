@@ -17,7 +17,7 @@ Installing this bundle brings the exact `0.1.0-rc.1` prerelease family:
 - `nishi-dsh-usage-limits-host` — host/RPC/browser Usage & Limits integration;
 - `nishi-dsh-codex-usage-source` — official Codex app-server rate-limit source adapter.
 
-Only runtime Cordis plugins are mounted by `cordis.patch.yml`; library-only dependencies are not duplicated as rows.
+`cordis.patch.yml` mounts only host-plane plugins: Project Memory, the three managed provider packages, and Usage Limits Host. `nishi-dsh-primary-web-search` remains an installed dependency but is mounted on the **agent plane** by the Orchestrator preset, matching DSH Web's rc.2 ownership model. The usage domain and Codex usage source are library dependencies and are not Cordis rows.
 
 ## Authentication boundary
 
