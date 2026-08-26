@@ -20,6 +20,7 @@
     "build": "pnpm -r --if-present build",
     "check": "pnpm -r --if-present check",
     "test": "pnpm -r --if-present test",
+    "test:orchestrator": "node scripts/validate-orchestrator.mjs",
     "pack:packages": "pnpm -r --if-present pack"
   }
 }
