@@ -9,7 +9,7 @@
  */
 
 import { accessSync, constants } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { posix, win32 } from 'node:path'
 
 export const CODEX_EXECUTABLE_ENV = 'DSH_CODEX_EXECUTABLE'
 
@@ -46,6 +46,7 @@ export function resolveCodexExecutable(
   const env = options.env ?? process.env
   const isExecutable = options.isExecutable ?? executableByDefault
   const platform = options.platform ?? process.platform
+  const pathApi = platform === 'win32' ? win32 : posix
   const override = env[CODEX_EXECUTABLE_ENV]?.trim()
 
   if (override !== undefined && override.length > 0) {
@@ -59,9 +60,9 @@ export function resolveCodexExecutable(
 
   const executableName = platform === 'win32' ? 'codex.exe' : 'codex'
   const pathValue = env.PATH ?? env.Path ?? env.path ?? ''
-  for (const directory of pathValue.split(delimiter)) {
+  for (const directory of pathValue.split(pathApi.delimiter)) {
     if (directory.length === 0) continue
-    const candidate = join(directory, executableName)
+    const candidate = pathApi.join(directory, executableName)
     if (isExecutable(candidate)) return { executable: candidate, source: 'path' }
   }
 
