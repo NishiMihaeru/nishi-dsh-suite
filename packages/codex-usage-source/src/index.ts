@@ -1,60 +1,25 @@
 /**
  * Official Codex app-server rate-limits source adapter.
  *
- * Implements a short-lived official Codex app-server (0.147.0)
- * JSON-RPC read session without thread creation, model prompts, or credential copying.
+ * Uses the already-installed external Codex CLI and performs a short-lived
+ * JSON-RPC read session without thread creation, model prompts, or credential
+ * copying.
  */
-import { existsSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import {
   scrubbedParentEnv,
   type SubprocessHandle,
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { resolveCodexExecutable } from './executable.js'
 
 export const DEFAULT_DISPOSE_GRACE_MS = 3_000
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 export const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024
 
-const require = createRequire(import.meta.url)
-
-function resolveCodexBin(): string {
-  let pkgPath: string | undefined
-  try {
-    pkgPath = require.resolve('@openai/codex/package.json')
-  } catch {}
-
-  if (pkgPath === undefined) {
-    const here = dirname(fileURLToPath(import.meta.url))
-    const candidates = [
-      resolve(here, '..', 'node_modules', '@openai', 'codex', 'package.json'),
-      resolve(here, '..', '..', 'codex', 'node_modules', '@openai', 'codex', 'package.json'),
-      resolve(here, '..', '..', '..', 'node_modules', '.pnpm', '@openai+codex@0.147.0', 'node_modules', '@openai', 'codex', 'package.json'),
-    ]
-    for (const candidate of candidates) {
-      if (existsSync(candidate)) {
-        pkgPath = candidate
-        break
-      }
-    }
-  }
-
-  if (pkgPath !== undefined && existsSync(pkgPath)) {
-    try {
-      const manifest = JSON.parse(readFileSync(pkgPath, 'utf8')) as { bin: { codex: string } }
-      return resolve(dirname(pkgPath), manifest.bin.codex)
-    } catch {}
-  }
-  return 'codex'
-}
-
-export const CODEX_PACKAGE_BIN = resolveCodexBin()
-
 export interface OfficialCodexRateLimitsSourceSpec {
   readonly cwd: string
+  /** Programmatic override retained for compatibility; normal user override is DSH_CODEX_EXECUTABLE. */
   readonly executable?: string
   readonly env?: Readonly<Record<string, string>>
   readonly requestTimeoutMs?: number
@@ -67,12 +32,8 @@ export interface CodexRateLimitsSourceLike {
   readRateLimits(): Promise<unknown>
 }
 
-export function codexAppServerArgv(
-  _platform: NodeJS.Platform = process.platform,
-  executable?: string,
-): string[] {
-  if (executable !== undefined) return [executable, 'app-server', '--stdio']
-  return [process.execPath, CODEX_PACKAGE_BIN, 'app-server', '--stdio']
+export function codexAppServerArgv(executable: string): string[] {
+  return [executable, 'app-server', '--stdio']
 }
 
 function thrown(value: unknown): Error {
@@ -96,20 +57,38 @@ async function disposeCodexChild(child: SubprocessHandle): Promise<void> {
   await child.done
 }
 
+function resolvedExecutable(spec: OfficialCodexRateLimitsSourceSpec): string {
+  const explicit = spec.executable?.trim()
+  if (explicit) return explicit
+  return resolveCodexExecutable({
+    env: { ...process.env, ...spec.env },
+  }).executable
+}
+
 export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike {
   private readonly spec: OfficialCodexRateLimitsSourceSpec
 
   constructor(spec: OfficialCodexRateLimitsSourceSpec) {
-    if (!spec || typeof spec !== 'object') throw new Error('codex-usage-source: spec must be a non-null object')
-    if (typeof spec.cwd !== 'string' || spec.cwd.trim().length === 0) throw new Error('codex-usage-source: cwd must be a non-empty string')
-    if (typeof spec.spawn !== 'function') throw new Error('codex-usage-source: spawn must be a function')
+    if (!spec || typeof spec !== 'object') {
+      throw new Error('codex-usage-source: spec must be a non-null object')
+    }
+    if (typeof spec.cwd !== 'string' || spec.cwd.trim().length === 0) {
+      throw new Error('codex-usage-source: cwd must be a non-empty string')
+    }
+    if (typeof spec.spawn !== 'function') {
+      throw new Error('codex-usage-source: spawn must be a function')
+    }
     if (spec.requestTimeoutMs !== undefined) {
       assertPositiveFinite('codex-usage-source', 'requestTimeoutMs', spec.requestTimeoutMs)
-      if (spec.requestTimeoutMs > MAX_TIMER_DELAY_MS) throw new Error(`codex-usage-source: requestTimeoutMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+      if (spec.requestTimeoutMs > MAX_TIMER_DELAY_MS) {
+        throw new Error(`codex-usage-source: requestTimeoutMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+      }
     }
     if (spec.disposeGraceMs !== undefined) {
       assertPositiveFinite('codex-usage-source', 'disposeGraceMs', spec.disposeGraceMs)
-      if (spec.disposeGraceMs > MAX_TIMER_DELAY_MS) throw new Error(`codex-usage-source: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+      if (spec.disposeGraceMs > MAX_TIMER_DELAY_MS) {
+        throw new Error(`codex-usage-source: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+      }
     }
     this.spec = spec
   }
@@ -117,7 +96,8 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
   async readRateLimits(): Promise<unknown> {
     const timeoutMs = this.spec.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     const graceMs = this.spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
-    const argv = codexAppServerArgv(process.platform, this.spec.executable)
+    const executable = resolvedExecutable(this.spec)
+    const argv = codexAppServerArgv(executable)
     const env = { ...scrubbedParentEnv(), ...this.spec.env }
 
     let child: SubprocessHandle | undefined
@@ -132,7 +112,9 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
     } catch (spawnError) {
       throw thrown(spawnError)
     }
-    if (!child || typeof child !== 'object') throw new Error('codex-usage-source: spawn did not return a valid SubprocessHandle')
+    if (!child || typeof child !== 'object') {
+      throw new Error('codex-usage-source: spawn did not return a valid SubprocessHandle')
+    }
 
     const initRequestId = 'req_init'
     const readRequestId = 'req_read'
@@ -144,40 +126,59 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
     let timer: NodeJS.Timeout | undefined
 
     try {
-      if (!stdout || !stdin) throw new Error('codex-usage-source: child process did not provide pipe stdio streams')
+      if (!stdout || !stdin) {
+        throw new Error('codex-usage-source: child process did not provide pipe stdio streams')
+      }
 
       rawResult = await new Promise<unknown>((resolvePromise, reject) => {
         let settled = false
-        const fail = (err: Error) => {
+        let initCompleted = false
+        let byteBuffer = Buffer.alloc(0)
+
+        const fail = (err: Error): void => {
           if (settled) return
           settled = true
           reject(err)
         }
-        const win = (val: unknown) => {
+        const win = (value: unknown): void => {
           if (settled) return
           settled = true
-          resolvePromise(val)
+          resolvePromise(value)
         }
-
-        timer = setTimeout(() => fail(new Error('codex-usage-source: app-server request timed out')), timeoutMs)
-        timer.unref?.()
-        child!.done.then(
-          (procOutcome) => fail(new Error(`codex-usage-source: app-server exited before read settled (code ${procOutcome.exitCode}, signal ${procOutcome.signal})`)),
-          (procErr) => fail(thrown(procErr)),
+        const writeJsonRpc = (message: unknown): void => {
+          try {
+            stdin.write(`${JSON.stringify(message)}\n`)
+          } catch (writeError) {
+            fail(thrown(writeError))
+          }
+        }
+        const protocolLineTooLong = (): Error => new Error(
+          `codex-usage-source: Protocol line length exceeds maximum byte limit of ${MAX_PROTOCOL_LINE_BYTES} bytes`,
         )
 
-        let initCompleted = false
-        let byteBuffer = Buffer.alloc(0)
-        const writeJsonRpc = (msg: unknown) => {
-          try { stdin.write(`${JSON.stringify(msg)}\n`) } catch (writeErr) { fail(thrown(writeErr)) }
-        }
-        const handleLine = (line: string) => {
+        timer = setTimeout(
+          () => fail(new Error('codex-usage-source: app-server request timed out')),
+          timeoutMs,
+        )
+        timer.unref?.()
+
+        child!.done.then(
+          (outcome) => fail(new Error(
+            `codex-usage-source: app-server exited before read settled (code ${outcome.exitCode}, signal ${outcome.signal})`,
+          )),
+          (processError) => fail(thrown(processError)),
+        )
+
+        const handleLine = (line: string): void => {
           if (Buffer.byteLength(line, 'utf8') > MAX_PROTOCOL_LINE_BYTES) {
-            fail(new Error(`codex-usage-source: Protocol line length exceeds maximum byte limit of ${MAX_PROTOCOL_LINE_BYTES} bytes`))
+            fail(protocolLineTooLong())
             return
           }
+
           let parsed: unknown
-          try { parsed = JSON.parse(line) } catch {
+          try {
+            parsed = JSON.parse(line)
+          } catch {
             fail(new Error('codex-usage-source: Malformed JSON protocol line received'))
             return
           }
@@ -185,6 +186,7 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
             fail(new Error('codex-usage-source: Invalid protocol message received'))
             return
           }
+
           const frame = parsed as Record<string, unknown>
           if (typeof frame.method === 'string' && frame.id === undefined) {
             if (frame.method === 'account/rateLimits/updated') {
@@ -192,6 +194,7 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
             }
             return
           }
+
           if (frame.id === initRequestId) {
             if (frame.error) {
               const detail = typeof frame.error === 'object' && frame.error && 'message' in frame.error
@@ -209,6 +212,7 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
             writeJsonRpc({ jsonrpc: '2.0', id: readRequestId, method: 'account/rateLimits/read' })
             return
           }
+
           if (frame.id === readRequestId) {
             if (!initCompleted) {
               fail(new Error('codex-usage-source: read response received before initialize completed'))
@@ -228,21 +232,28 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
             win(frame.result)
           }
         }
-        const onData = (chunk: unknown) => {
-          const buf = Buffer.isBuffer(chunk) ? chunk : typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : Buffer.from(String(chunk), 'utf8')
-          byteBuffer = Buffer.concat([byteBuffer, buf])
+
+        const onData = (chunk: unknown): void => {
+          const buffer = Buffer.isBuffer(chunk)
+            ? chunk
+            : typeof chunk === 'string'
+              ? Buffer.from(chunk, 'utf8')
+              : Buffer.from(String(chunk), 'utf8')
+          byteBuffer = Buffer.concat([byteBuffer, buffer])
+
           if (byteBuffer.length > MAX_PROTOCOL_LINE_BYTES) {
             const newlineIndex = byteBuffer.indexOf(0x0a)
             if (newlineIndex < 0 || newlineIndex > MAX_PROTOCOL_LINE_BYTES) {
-              fail(new Error(`codex-usage-source: Protocol line length exceeds maximum byte limit of ${MAX_PROTOCOL_LINE_BYTES} bytes`))
+              fail(protocolLineTooLong())
               return
             }
           }
+
           for (;;) {
             const newlineIndex = byteBuffer.indexOf(0x0a)
             if (newlineIndex < 0) break
             if (newlineIndex > MAX_PROTOCOL_LINE_BYTES) {
-              fail(new Error(`codex-usage-source: Protocol line length exceeds maximum byte limit of ${MAX_PROTOCOL_LINE_BYTES} bytes`))
+              fail(protocolLineTooLong())
               return
             }
             const line = byteBuffer.subarray(0, newlineIndex).toString('utf8').trim()
@@ -250,9 +261,10 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
             if (line.length > 0) handleLine(line)
           }
         }
-        const onEnd = () => {
+
+        const onEnd = (): void => {
           if (byteBuffer.length > MAX_PROTOCOL_LINE_BYTES) {
-            fail(new Error(`codex-usage-source: Protocol line length exceeds maximum byte limit of ${MAX_PROTOCOL_LINE_BYTES} bytes`))
+            fail(protocolLineTooLong())
             return
           }
           if (byteBuffer.length > 0) {
@@ -261,7 +273,8 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
           }
           fail(new Error('codex-usage-source: app-server protocol stream closed'))
         }
-        const onError = (err: unknown) => fail(thrown(err))
+        const onError = (error: unknown): void => fail(thrown(error))
+
         stdout.on('data', onData)
         stdout.on('end', onEnd)
         stdout.on('error', onError)
@@ -283,17 +296,20 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
           },
         })
       })
-    } catch (err) {
-      opError = thrown(err)
+    } catch (error) {
+      opError = thrown(error)
     } finally {
       if (timer !== undefined) clearTimeout(timer)
       cleanupListeners()
       try {
         await disposeCodexChild(child)
-      } catch (disposeErr) {
-        const cleanupError = thrown(disposeErr)
+      } catch (disposeError) {
+        const cleanupError = thrown(disposeError)
         if (opError !== undefined) {
-          throw new AggregateError([opError, cleanupError], 'codex-usage-source: read failed and app-server cleanup also failed')
+          throw new AggregateError(
+            [opError, cleanupError],
+            'codex-usage-source: read failed and app-server cleanup also failed',
+          )
         }
         throw cleanupError
       }
