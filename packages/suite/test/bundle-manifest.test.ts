@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const manifestUrl = new URL('../package.json', import.meta.url)
+const presetUrl = new URL('../presets/orchestrator/preset.yml', import.meta.url)
+const compositionUrl = new URL('../presets/orchestrator/agent.cordis.yml', import.meta.url)
 
 const expectedDependencies = [
   'nishi-dsh-codex',
@@ -29,4 +31,22 @@ test('suite manifest is a DSH bundle with the exact prerelease package family', 
   }
 
   assert.equal(manifest.dependencies['nishi-dsh-codex-antigravity'], undefined)
+})
+
+test('suite tarball contract includes the packaged orchestrator preset', async () => {
+  const manifest = JSON.parse(await readFile(manifestUrl, 'utf8')) as any
+  const files = new Set(manifest.files ?? [])
+
+  assert.ok(files.has('presets/**/*.yml'), 'Suite files must include packaged preset YAML')
+  assert.equal(
+    manifest.exports?.['./presets/orchestrator/preset.yml'],
+    './presets/orchestrator/preset.yml',
+  )
+  assert.equal(
+    manifest.exports?.['./presets/orchestrator/agent.cordis.yml'],
+    './presets/orchestrator/agent.cordis.yml',
+  )
+
+  await access(presetUrl)
+  await access(compositionUrl)
 })
