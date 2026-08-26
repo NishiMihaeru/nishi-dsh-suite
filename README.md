@@ -8,7 +8,7 @@ The migration targets DeepSeek Harness `0.1.1-rc.2`, Node.js 24, and one Market-
 
 The Suite is split into independently owned runtime packages:
 
-- `nishi-dsh-codex` — Codex primary/subagent integration (with `codex-app-server` provider via pinned `codex-plugin-dsh`);
+- `nishi-dsh-codex` — Codex primary/subagent integration with a `codex-app-server` provider compiled from the reviewed MIT `wingoo/codex-plugin-dsh` source snapshot pinned at `79fe7503390d641680bad8efade52782a3c31ced`;
 - `nishi-dsh-antigravity` — Antigravity primary/subagent integration through the official `agy` client boundary;
 - `nishi-dsh-claude-code` — Claude Code subagent integration through the official Agent SDK;
 - `nishi-dsh-primary-web-search` — one `web_search` tool routed by the active Codex/Antigravity primary;
@@ -23,15 +23,15 @@ The Suite is split into independently owned runtime packages:
 
 Normal installation is through DSH plugin reconciliation; there is no portable DSH home, custom runtime installer, cross-machine session sync, or cross-OS state migration.
 
-Windows and CachyOS/Linux are independent supported installations. Project Memory stays inside each project checkout and is not transported by the Suite.
+CachyOS/Linux has completed the full Node 24 live-runtime acceptance for the current prerelease candidate. Windows is intentionally **not tested for `0.1.0-rc.1`** and no Windows compatibility claim is made for this prerelease. Project Memory stays inside each project checkout and is not transported by the Suite.
 
-The prerelease family is currently `0.1.0-rc.1`. It is **not published yet**. Publication waits for deterministic build/test/pack gates and fresh Windows + CachyOS acceptance.
+The prerelease family is currently `0.1.0-rc.1`. It is **not published yet**. Publication is gated by the deterministic build/test/pack checks, the completed CachyOS acceptance, a fresh npm-name availability check immediately before publication, and the post-publish registry smoke described in `docs/release/prerelease.md`.
 
 ## Authentication boundary
 
 Nishi DSH Suite does not install vendor clients and does not copy, broker, scrape, or replay vendor credentials.
 
-- Codex authentication remains owned by the official `codex` client/App Server.
+- Codex authentication remains owned by the official Codex CLI/App Server product boundary.
 - Claude Code authentication remains owned by the official Claude Code/Agent SDK boundary.
 - Antigravity authentication remains owned by the official `agy` client.
 
@@ -69,16 +69,18 @@ After a Suite update run `preset update`; before removing the Suite run `preset 
 
 ## Verification
 
-Prepared repository gates:
+Repository gates:
 
 ```bash
 corepack enable
-pnpm install
+pnpm install --frozen-lockfile
 pnpm verify:local
 ```
 
 `pnpm verify:local` runs release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local package creation.
 
-Executable gates have **not** been declared passing. GitHub-hosted Actions are currently failing before job steps start because of the account billing lock; the workspace lockfile also needs regeneration in a real pnpm environment before frozen-lockfile CI can pass.
+The current branch has passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Claude Code, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates also pass on CachyOS.
 
-See `docs/acceptance/windows-cachyos.md` and `docs/release/prerelease.md` for the release gates.
+GitHub-hosted Actions are currently unavailable because jobs are blocked before execution by an account billing lock; no hosted-CI PASS is claimed.
+
+See `docs/acceptance/windows-cachyos.md` and `docs/release/prerelease.md` for the exact scope and release gates.
