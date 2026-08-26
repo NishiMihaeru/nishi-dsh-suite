@@ -6,7 +6,7 @@ const manifestUrl = new URL('../package.json', import.meta.url)
 const presetUrl = new URL('../presets/orchestrator/preset.yml', import.meta.url)
 const compositionUrl = new URL('../presets/orchestrator/agent.cordis.yml', import.meta.url)
 
-const expectedDependencies = [
+const expectedNishiDependencies = [
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-claude-code',
@@ -25,12 +25,16 @@ test('suite manifest is a DSH bundle with the exact prerelease package family', 
   assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
   assert.equal(manifest.engines?.node, '>=24 <25')
 
-  assert.deepEqual(Object.keys(manifest.dependencies ?? {}).sort(), expectedDependencies)
-  for (const name of expectedDependencies) {
-    assert.equal(manifest.dependencies[name], 'workspace:0.1.0-rc.1', `${name} must stay on the exact suite prerelease train`)
+  const dependencies = manifest.dependencies ?? {}
+  assert.equal(dependencies['@deepseek-ai/dsh-authorization'], '0.1.1-rc.2')
+
+  const nishiDependencies = Object.keys(dependencies).filter((name) => name.startsWith('nishi-dsh-')).sort()
+  assert.deepEqual(nishiDependencies, expectedNishiDependencies)
+  for (const name of expectedNishiDependencies) {
+    assert.equal(dependencies[name], 'workspace:0.1.0-rc.1', `${name} must stay on the exact suite prerelease train`)
   }
 
-  assert.equal(manifest.dependencies['nishi-dsh-codex-antigravity'], undefined)
+  assert.equal(dependencies['nishi-dsh-codex-antigravity'], undefined)
 })
 
 test('suite tarball contract includes the packaged orchestrator preset', async () => {
