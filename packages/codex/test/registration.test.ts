@@ -36,7 +36,14 @@ test('Codex package registers only the codex subagent provider and codex-app-ser
 
 test('Codex package keeps the accepted plugin surface', () => {
   assert.equal(codex.name, 'subagent-codex')
-  assert.deepEqual(codex.inject, ['subagents', 'subprocess', 'llm', 'projectMemory'])
+  assert.deepEqual(codex.inject, [
+    'subagents',
+    'subprocess',
+    'llm',
+    'projectMemory',
+    'sessions',
+    'attachments',
+  ])
   assert.equal(typeof codex.apply, 'function')
   assert.equal(typeof codex.Config?.toJSON, 'function')
 })

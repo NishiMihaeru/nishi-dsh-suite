@@ -51,16 +51,36 @@ for (const dir of packageDirs) {
 
 const codexRoot = new URL('packages/codex/', root)
 const codexManifest = JSON.parse(await readFile(new URL('package.json', codexRoot), 'utf8'))
-const codexPluginPin = codexManifest.dependencies?.['codex-plugin-dsh']
 assert.equal(
-  codexPluginPin,
-  'github:wingoo/codex-plugin-dsh#79fe7503390d641680bad8efade52782a3c31ced',
-  'nishi-dsh-codex: codex-plugin-dsh must be pinned to exact commit 79fe7503390d641680bad8efade52782a3c31ced',
+  codexManifest.dependencies?.['codex-plugin-dsh'],
+  undefined,
+  'nishi-dsh-codex: must not declare git subdependency on codex-plugin-dsh',
 )
+assert.equal(
+  codexManifest.peerDependencies?.['@deepseek-ai/dsh-attachment'],
+  '0.1.1-rc.2',
+  'nishi-dsh-codex: peerDependencies must pin @deepseek-ai/dsh-attachment to 0.1.1-rc.2',
+)
+assert.equal(
+  codexManifest.peerDependencies?.['@deepseek-ai/dsh-session'],
+  '0.1.1-rc.2',
+  'nishi-dsh-codex: peerDependencies must pin @deepseek-ai/dsh-session to 0.1.1-rc.2',
+)
+assert.equal(
+  await exists(new URL('src/codex-plugin-dsh/index.ts', codexRoot)),
+  true,
+  'nishi-dsh-codex: vendored codex-plugin-dsh index.ts must exist',
+)
+assert.equal(
+  await exists(new URL('src/codex-plugin-dsh/adapter.ts', codexRoot)),
+  true,
+  'nishi-dsh-codex: vendored codex-plugin-dsh adapter.ts must exist',
+)
+const codexNotices = await readFile(new URL('THIRD_PARTY_NOTICES.md', codexRoot), 'utf8')
 assert.match(
-  String(codexPluginPin),
-  /^github:wingoo\/codex-plugin-dsh#[0-9a-f]{40}$/,
-  'nishi-dsh-codex: codex-plugin-dsh must use exact 40-character hex SHA pin, not main/branch/range',
+  codexNotices,
+  /79fe7503390d641680bad8efade52782a3c31ced/,
+  'nishi-dsh-codex: THIRD_PARTY_NOTICES.md must record exact upstream snapshot SHA 79fe7503390d641680bad8efade52782a3c31ced',
 )
 
 const suiteRoot = new URL('packages/suite/', root)

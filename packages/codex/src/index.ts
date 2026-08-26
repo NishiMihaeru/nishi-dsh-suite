@@ -10,6 +10,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-session'
 import {
   assertPositiveFinite,
   NO_START_CAPABILITIES,
@@ -23,7 +25,7 @@ import {
   apply as applyCodexPrimary,
   CODEX_APP_SERVER_PROVIDER,
   CodexAppServerAdapter,
-} from 'codex-plugin-dsh'
+} from './codex-plugin-dsh/index.js'
 import {
   createCodexSubagentMemory,
   type ProjectMemoryServiceLike,
@@ -39,7 +41,14 @@ import {
 import { installCodexPrimaryHistoryBridge } from './primary-history.js'
 
 export const name = 'subagent-codex'
-export const inject = ['subagents', 'subprocess', 'llm', 'projectMemory']
+export const inject = [
+  'subagents',
+  'subprocess',
+  'llm',
+  'projectMemory',
+  'sessions',
+  'attachments',
+]
 
 const DEFAULT_PROVIDER_NAME = 'codex'
 

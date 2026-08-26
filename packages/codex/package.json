@@ -23,17 +23,18 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
+    "test:live:primary": "tsx --test test-live/primary-live.test.ts",
     "test:live:web-search": "tsx --test test-live/web-search.test.ts"
   },
   "dependencies": {
     "@deepseek-ai/dsh-sdk-protocol": "0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@openai/codex": "0.147.0",
-    "@openai/codex-sdk": "0.147.0",
-    "codex-plugin-dsh": "github:wingoo/codex-plugin-dsh#79fe7503390d641680bad8efade52782a3c31ced"
+    "@openai/codex-sdk": "0.147.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-attachment": "0.1.1-rc.2",
     "@deepseek-ai/dsh-invariants": "0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
     "@deepseek-ai/dsh-sdk-protocol": "0.1.1-rc.2",

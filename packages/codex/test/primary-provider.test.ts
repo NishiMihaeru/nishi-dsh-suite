@@ -3,9 +3,6 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import * as codex from '../src/index.ts'
 
-const EXPECTED_PIN_SHA = '79fe7503390d641680bad8efade52782a3c31ced'
-const EXPECTED_DEPENDENCY_SPEC = `github:wingoo/codex-plugin-dsh#${EXPECTED_PIN_SHA}`
-
 function fakeContext() {
   const providers = new Map<string, any>()
   const registeredAdapters: Array<{ providers: string[]; adapter: any }> = []
@@ -61,36 +58,27 @@ function fakeContext() {
   }
 }
 
-test('1. exact pin exists in packages/codex/package.json', async () => {
-  const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  const actualSpec = manifest.dependencies?.['codex-plugin-dsh']
-  assert.equal(
-    actualSpec,
-    EXPECTED_DEPENDENCY_SPEC,
-    `nishi-dsh-codex must have dependency "codex-plugin-dsh": "${EXPECTED_DEPENDENCY_SPEC}"`,
-  )
+test('1. exact snapshot SHA is documented in THIRD_PARTY_NOTICES.md', async () => {
+  const notices = await readFile(new URL('../THIRD_PARTY_NOTICES.md', import.meta.url), 'utf8')
+  assert.match(notices, /79fe7503390d641680bad8efade52782a3c31ced/)
+  assert.match(notices, /wingoo\/codex-plugin-dsh/)
 })
 
-test('2. pin is an exact 40-character hex commit SHA and NOT main/tag/range', async () => {
+test('2. package.json contains no exotic git subdependency', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-  const actualSpec = String(manifest.dependencies?.['codex-plugin-dsh'] ?? '')
-  assert.match(actualSpec, /^github:wingoo\/codex-plugin-dsh#[0-9a-f]{40}$/)
-  assert.equal(actualSpec.includes('main'), false, 'pin must not float on main branch')
-  assert.equal(actualSpec.includes('master'), false, 'pin must not float on master branch')
-  assert.equal(actualSpec.includes('^'), false, 'pin must not use semver range')
-  assert.equal(actualSpec.includes('~'), false, 'pin must not use semver range')
-  const sha = actualSpec.split('#')[1]
-  assert.equal(sha, EXPECTED_PIN_SHA)
+  assert.equal(manifest.dependencies?.['codex-plugin-dsh'], undefined)
+  const allDeps = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies }
+  for (const [name, spec] of Object.entries(allDeps)) {
+    assert.equal(String(spec).includes('github:'), false, `${name} must not be a git dependency: ${spec}`)
+    assert.equal(String(spec).includes('.git'), false, `${name} must not be a git dependency: ${spec}`)
+  }
 })
 
-test('3. package ownership does not depend on hoisting', async () => {
-  // Verify that codex-plugin-dsh is resolvable directly from nishi-dsh-codex
-  const codexPkgUrl = new URL('../package.json', import.meta.url)
-  const manifest = JSON.parse(await readFile(codexPkgUrl, 'utf8'))
-  assert.ok(
-    manifest.dependencies && 'codex-plugin-dsh' in manifest.dependencies,
-    'nishi-dsh-codex must directly own codex-plugin-dsh in its own package.json dependencies',
-  )
+test('3. vendored snapshot provides CodexAppServerAdapter and apply entry', async () => {
+  const vendored = await import('../src/codex-plugin-dsh/index.ts')
+  assert.equal(typeof vendored.apply, 'function')
+  assert.equal(typeof vendored.CodexAppServerAdapter, 'function')
+  assert.equal(vendored.CODEX_APP_SERVER_PROVIDER, 'codex-app-server')
 })
 
 test('4. fresh Suite composition provides codex-app-server', async () => {

@@ -28,7 +28,7 @@ import { createRequire } from 'node:module'
 import {
   CODEX_APP_SERVER_PROVIDER,
   CodexAppServerAdapter,
-} from 'codex-plugin-dsh'
+} from './codex-plugin-dsh/index.js'
 import { prependPath, resolveManagedCodexRuntime } from './resolver.js'
 
 export { CODEX_APP_SERVER_PROVIDER }

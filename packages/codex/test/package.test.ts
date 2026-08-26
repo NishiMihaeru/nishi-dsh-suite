@@ -8,10 +8,9 @@ test('Codex package manifest has independent public identity and exact runtime p
   assert.equal(manifest.version, '0.1.0-rc.1')
   assert.equal(manifest.dependencies?.['@openai/codex'], '0.147.0')
   assert.equal(manifest.dependencies?.['@openai/codex-sdk'], '0.147.0')
-  assert.equal(
-    manifest.dependencies?.['codex-plugin-dsh'],
-    'github:wingoo/codex-plugin-dsh#79fe7503390d641680bad8efade52782a3c31ced',
-  )
+  assert.equal(manifest.dependencies?.['codex-plugin-dsh'], undefined)
+  assert.equal(manifest.peerDependencies?.['@deepseek-ai/dsh-session'], '0.1.1-rc.2')
+  assert.equal(manifest.peerDependencies?.['@deepseek-ai/dsh-attachment'], '0.1.1-rc.2')
   assert.equal(manifest.exports?.['./web-search-backend']?.default, './lib/web-search-backend.js')
   assert.equal(JSON.stringify(manifest).includes('antigravity'), false)
 })
