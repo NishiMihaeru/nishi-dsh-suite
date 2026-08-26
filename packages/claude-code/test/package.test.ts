@@ -16,6 +16,7 @@ test('Claude Code runtime source does not import the Agent SDK', async () => {
     '../src/run.ts',
     '../src/process.ts',
     '../src/memory.ts',
+    '../src/usage.ts',
   ]
   for (const path of paths) {
     const source = await readFile(new URL(path, import.meta.url), 'utf8')
