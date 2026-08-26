@@ -49,6 +49,7 @@
     "pack": "npm pack"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-authorization": "0.1.1-rc.2",
     "nishi-dsh-codex": "workspace:0.1.0-rc.1",
     "nishi-dsh-antigravity": "workspace:0.1.0-rc.1",
     "nishi-dsh-claude-code": "workspace:0.1.0-rc.1",
