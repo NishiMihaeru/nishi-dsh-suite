@@ -10,11 +10,10 @@ const expectedRows = new Map([
   ['nishi-codex', 'nishi-dsh-codex'],
   ['nishi-antigravity', 'nishi-dsh-antigravity'],
   ['nishi-claude-code', 'nishi-dsh-claude-code'],
-  ['nishi-primary-web-search', 'nishi-dsh-primary-web-search'],
   ['nishi-usage-limits-host', 'nishi-dsh-usage-limits-host'],
 ])
 
-test('bundle patch mounts each runtime plugin exactly once', async () => {
+test('bundle patch mounts each host runtime plugin exactly once', async () => {
   const raw = await readFile(patchUrl, 'utf8')
   const patch = parse(raw) as any[]
 
@@ -40,8 +39,12 @@ test('bundle patch mounts each runtime plugin exactly once', async () => {
   assert.deepEqual(new Set(seenIds), new Set(expectedRows.keys()))
   assert.deepEqual(new Set(seenNames), new Set(expectedRows.values()))
 
-  for (const libraryOnly of ['nishi-dsh-usage-limits', 'nishi-dsh-codex-usage-source']) {
-    assert.ok(!seenNames.has(libraryOnly), `${libraryOnly} is a library dependency, not a Cordis row`)
+  for (const dependencyOnly of [
+    'nishi-dsh-primary-web-search',
+    'nishi-dsh-usage-limits',
+    'nishi-dsh-codex-usage-source',
+  ]) {
+    assert.ok(!seenNames.has(dependencyOnly), `${dependencyOnly} must not be mounted as a host Cordis row`)
   }
 
   for (const retired of [
