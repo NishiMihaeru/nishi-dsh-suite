@@ -2,12 +2,12 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-test('Codex package manifest has independent public identity and exact runtime pins', async () => {
+test('Codex package manifest has independent public identity without bundled vendor runtimes', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(manifest.name, 'nishi-dsh-codex')
   assert.equal(manifest.version, '0.1.0-rc.1')
-  assert.equal(manifest.dependencies?.['@openai/codex'], '0.147.0')
-  assert.equal(manifest.dependencies?.['@openai/codex-sdk'], '0.147.0')
+  assert.equal(manifest.dependencies?.['@openai/codex'], undefined)
+  assert.equal(manifest.dependencies?.['@openai/codex-sdk'], undefined)
   assert.equal(manifest.dependencies?.['codex-plugin-dsh'], undefined)
   assert.equal(manifest.peerDependencies?.['@deepseek-ai/dsh-session'], '0.1.1-rc.2')
   assert.equal(manifest.peerDependencies?.['@deepseek-ai/dsh-attachment'], '0.1.1-rc.2')
