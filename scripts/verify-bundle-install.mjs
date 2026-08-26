@@ -251,8 +251,8 @@ try {
   await installLocalPackOverrides()
 
   console.log(`Installing Suite into normal DSH profile: ${args.profile}`)
-  runDsh(['add', normalizeSpec(args.suite)])
   installedByThisRun = true
+  runDsh(['add', normalizeSpec(args.suite)])
   if (!directSuiteDependency()) throw new Error('nishi-dsh-suite is not a direct profile dependency after install')
   await assertProfilePnpmContract()
   await assertProfileManifest(true)
