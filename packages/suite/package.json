@@ -6,6 +6,9 @@
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "bin": {
+    "nishi-dsh-suite": "./lib/bin.js"
+  },
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
