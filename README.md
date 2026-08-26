@@ -47,7 +47,7 @@ The Suite intentionally has no DeepSeek/Exa/Perplexity fallback for its routed `
 
 `DEEPSEEK_API_KEY` is not required by this routed search path.
 
-## Orchestrator
+## Orchestrator on DSH 0.1.1-rc.2
 
 The accepted Orchestrator preset is packaged inside the Market artifact at `packages/suite/presets/orchestrator` with fixed tools:
 
@@ -56,7 +56,23 @@ The accepted Orchestrator preset is packaged inside the Market artifact at `pack
 - `subagent_antigravity`
 - routed `web_search`
 
-Automatic third-party preset discovery is currently blocked by the DSH `0.1.1-rc.2` launcher, which overwrites contributed preset roots with its shipped root after bundle/user overlays. The Suite does not hide this behind a startup copier or `$DSH_HOME/.agent-presets` mutation. Tracking: issue #2.
+Automatic third-party package-root discovery is blocked by the DSH `0.1.1-rc.2` launcher, but rc.2 does support the user preset root at `$DSH_HOME/.agent-presets` (default `~/.dsh/.agent-presets`). Until the upstream seam is fixed, Suite exposes an explicit managed bridge for only its Orchestrator preset.
+
+After installing the Suite into the Web profile through Market/plugin tooling:
+
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset install
+```
+
+Lifecycle commands use the exact Suite binary installed in that profile:
+
+```bash
+dsh plugin --profile web exec nishi-dsh-suite preset status
+dsh plugin --profile web exec nishi-dsh-suite preset update
+dsh plugin --profile web exec nishi-dsh-suite preset remove
+```
+
+The bridge writes only `$DSH_HOME/.agent-presets/orchestrator`, stores an ownership marker with SHA-256 hashes, refuses to overwrite an unmanaged preset, and refuses to update/remove after local edits. Run `preset update` after a Suite update and `preset remove` before uninstalling the Suite. Automatic one-click discovery remains tracked in issue #2.
 
 ## Verification
 
@@ -65,6 +81,7 @@ Prepared repository gates:
 ```bash
 corepack enable
 pnpm install
+pnpm verify:package-contracts
 pnpm verify:release-family
 pnpm check
 pnpm test
