@@ -24,6 +24,7 @@ test('suite manifest is a DSH bundle with the exact prerelease package family', 
   assert.equal(manifest.version, '0.1.0-rc.1')
   assert.equal(manifest.dsh?.bundle?.patch, './cordis.patch.yml')
   assert.equal(manifest.engines?.node, '>=24 <25')
+  assert.equal(manifest.bin?.['nishi-dsh-suite'], './lib/bin.js')
 
   const dependencies = manifest.dependencies ?? {}
   assert.equal(dependencies['@deepseek-ai/dsh-authorization'], '0.1.1-rc.2')
