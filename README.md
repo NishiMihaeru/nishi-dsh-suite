@@ -47,7 +47,7 @@ The Suite intentionally has no DeepSeek/Exa/Perplexity fallback for its routed `
 
 `DEEPSEEK_API_KEY` is not required by this routed search path.
 
-## Orchestrator on DSH 0.1.1-rc.2
+## Orchestrator
 
 The accepted Orchestrator preset is packaged inside the Market artifact at `packages/suite/presets/orchestrator` with fixed tools:
 
@@ -56,23 +56,16 @@ The accepted Orchestrator preset is packaged inside the Market artifact at `pack
 - `subagent_antigravity`
 - routed `web_search`
 
-Automatic third-party package-root discovery is blocked by the DSH `0.1.1-rc.2` launcher, but rc.2 does support the user preset root at `$DSH_HOME/.agent-presets` (default `~/.dsh/.agent-presets`). Until the upstream seam is fixed, Suite exposes an explicit managed bridge for only its Orchestrator preset.
+Automatic third-party preset discovery is blocked by the DSH `0.1.1-rc.2` launcher, which overwrites contributed preset roots with its shipped root after bundle/user overlays. Tracking: issue #2.
 
-After installing the Suite into the Web profile through Market/plugin tooling:
+For rc.2 the Suite provides an explicit managed bridge into DSH's supported user preset root:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install
-```
-
-Lifecycle commands use the exact Suite binary installed in that profile:
-
-```bash
 dsh plugin --profile web exec nishi-dsh-suite preset status
-dsh plugin --profile web exec nishi-dsh-suite preset update
-dsh plugin --profile web exec nishi-dsh-suite preset remove
 ```
 
-The bridge writes only `$DSH_HOME/.agent-presets/orchestrator`, stores an ownership marker with SHA-256 hashes, refuses to overwrite an unmanaged preset, and refuses to update/remove after local edits. Run `preset update` after a Suite update and `preset remove` before uninstalling the Suite. Automatic one-click discovery remains tracked in issue #2.
+After a Suite update run `preset update`; before removing the Suite run `preset remove`. The only persistent directory owned by the bridge is `$DSH_HOME/.agent-presets/orchestrator`; atomic install/update may use transient stage/backup siblings under `.agent-presets`, which are removed after the operation. Unmanaged or locally edited `orchestrator` directories are never overwritten or removed automatically.
 
 ## Verification
 
@@ -81,15 +74,11 @@ Prepared repository gates:
 ```bash
 corepack enable
 pnpm install
-pnpm verify:package-contracts
-pnpm verify:release-family
-pnpm check
-pnpm test
-pnpm build
-pnpm test:orchestrator
-node scripts/pack-local.mjs
+pnpm verify:local
 ```
 
-Executable gates have **not** been declared passing. GitHub-hosted Actions are currently unavailable because of an account billing lock; the workspace lockfile also needs regeneration in a real pnpm environment before frozen-lockfile CI can pass.
+`pnpm verify:local` runs release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local package creation.
+
+Executable gates have **not** been declared passing. GitHub-hosted Actions are currently failing before job steps start because of the account billing lock; the workspace lockfile also needs regeneration in a real pnpm environment before frozen-lockfile CI can pass.
 
 See `docs/acceptance/windows-cachyos.md` and `docs/release/prerelease.md` for the release gates.
