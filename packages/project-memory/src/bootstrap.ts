@@ -1,4 +1,4 @@
-import { lstat, readFile } from 'node:fs/promises'
+import { lstat, readFile, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, normalize } from 'node:path'
 import { ensureCanonicalDirectory, validateCanonicalDirectory, writeSafeFileAtomically } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'

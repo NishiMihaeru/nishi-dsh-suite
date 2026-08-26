@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { PrimaryWebSearchError } from '../src/primary-web-search/errors.js'
-import { normalizeProviderResult } from '../src/primary-web-search/result.js'
-import { resolvePrimarySearchRoute, type PrimarySearchRoute } from '../src/primary-web-search/route.js'
-import { dispatchPrimarySearch, type PrimarySearchBackends } from '../src/primary-web-search/providers.js'
-import { formatSearchOutput, mergeSearchResults, parseSearchArgs, searchMetaFromValue } from '../src/primary-web-search/tool.js'
+import { PrimaryWebSearchError } from '../src/errors.js'
+import { normalizeProviderResult } from '../src/result.js'
+import { resolvePrimarySearchRoute, type PrimarySearchRoute } from '../src/route.js'
+import { dispatchPrimarySearch, type PrimarySearchBackends } from '../src/providers.js'
+import { formatSearchOutput, mergeSearchResults, parseSearchArgs, searchMetaFromValue } from '../src/tool.js'
 
 function execFixture(input: { cwd?: string; config?: Record<string, unknown> } = {}): any {
   let currentConfig = input.config
