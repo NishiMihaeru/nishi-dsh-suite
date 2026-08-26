@@ -1,0 +1,22 @@
+export const en = {
+  title: 'Usage & limits', subtitle: 'Provider quotas reported by installed provider runtimes.',
+  trigger: 'Usage', nav: 'Usage & limits', refresh: 'Refresh', refreshAll: 'Refresh all', refreshing: 'Refreshing...',
+  used: 'Used', remaining: 'Remaining', fresh: 'Fresh', stale: 'Stale', unknown: 'Unknown',
+  statusAvailable: 'Available', statusUnsupported: 'Numeric usage data is not available for this provider.',
+  statusLoginRequired: 'Sign in to the provider to read usage limits.', statusUnavailable: 'Provider usage is currently unavailable.',
+  statusError: 'Usage data could not be read.', badgeAvailable: 'Available', badgeUnsupported: 'Unsupported',
+  badgeLoginRequired: 'Sign-in required', badgeUnavailable: 'Unavailable', badgeError: 'Error', lastChecked: 'Last checked',
+  limitLabel: 'Limit', resetTimePassed: 'Reset time passed', resetsAt: 'Resets', resetLabel: 'Reset', poolLabel: 'Pool',
+  loadingUsage: 'Loading usage...', noLimits: 'No limit windows available.', lowestRemainingTooltip: 'Lowest remaining provider limit',
+  extraUsage: 'Extra Usage', enabled: 'Enabled', disabled: 'Disabled', errorUnavailable: 'Usage data is unavailable.',
+}
+
+export const zh: typeof en = {
+  title: '用量与限额', subtitle: '已安装的模型提供商报告的额度与用量。', trigger: '用量', nav: '用量与限额',
+  refresh: '刷新', refreshAll: '全部刷新', refreshing: '刷新中...', used: '已用', remaining: '剩余', fresh: '最新', stale: '已过期', unknown: '未知',
+  statusAvailable: '可用', statusUnsupported: '该提供商暂不提供数值用量数据。', statusLoginRequired: '请登录该提供商以查看用量限额。',
+  statusUnavailable: '提供商用量当前不可用。', statusError: '无法读取用量数据。', badgeAvailable: '可用', badgeUnsupported: '不支持',
+  badgeLoginRequired: '需要登录', badgeUnavailable: '不可用', badgeError: '错误', lastChecked: '上次检查', limitLabel: '限额',
+  resetTimePassed: '重置时间已过', resetsAt: '重置时间', resetLabel: '重置', poolLabel: '额度池', loadingUsage: '正在加载用量...',
+  noLimits: '没有可显示的限额窗口。', lowestRemainingTooltip: '最低剩余提供商额度', extraUsage: '额外用量', enabled: '已启用', disabled: '已停用', errorUnavailable: '用量数据不可用。',
+}

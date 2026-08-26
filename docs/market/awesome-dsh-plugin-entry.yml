@@ -1,0 +1,6 @@
+# FUTURE SUBMISSION TEMPLATE — do not submit while docs/release/market-submission.md has open gates.
+url: https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite
+name: NishiMihaeru/nishi-dsh-suite#suite
+category: model
+description:
+  en: 'Provider suite for Codex and Antigravity primaries, Codex/Claude Code/Antigravity subagents, primary-routed web search, project memory and usage limits UI.'

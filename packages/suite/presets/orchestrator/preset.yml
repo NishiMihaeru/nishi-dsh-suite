@@ -1,0 +1,3 @@
+name: Orchestrator
+description: Standard-derived orchestrator preset with fixed Codex, Claude Code, and Antigravity delegation tools.
+order: 1

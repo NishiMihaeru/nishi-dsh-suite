@@ -1,0 +1,35 @@
+.container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.outerRing {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-sizing: border-box;
+  -webkit-mask-image: radial-gradient(circle, transparent 6.5px, black 7px);
+  mask-image: radial-gradient(circle, transparent 6.5px, black 7px);
+}
+.innerRing {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  -webkit-mask-image: radial-gradient(circle, transparent 3.5px, black 4px);
+  mask-image: radial-gradient(circle, transparent 3.5px, black 4px);
+}
+.singleRing {
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  -webkit-mask-image: radial-gradient(circle, transparent 5.5px, black 6px);
+  mask-image: radial-gradient(circle, transparent 5.5px, black 6px);
+}

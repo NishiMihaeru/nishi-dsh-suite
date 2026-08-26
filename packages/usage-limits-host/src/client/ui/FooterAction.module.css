@@ -1,0 +1,222 @@
+.container {
+  position: relative;
+  width: 100%;
+}
+
+.wideShell {
+  position: relative;
+  height: var(--usage-panel-height, 300px);
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  z-index: 4;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  width: 38px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l3, transparent);
+  opacity: 0.35;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.resizeHandle:hover::after {
+  opacity: 0.95;
+  background: var(--dsw-alias-label-tertiary, currentColor);
+}
+
+.fitViewport {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  bottom: 6px;
+  left: 6px;
+  overflow: hidden;
+}
+
+.fitContent {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 24px;
+  padding: 0 5px;
+  flex: none;
+}
+
+.headerTitle {
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.refreshButton,
+.compactRefreshButton,
+.detailRefreshButton {
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  cursor: pointer;
+  font: inherit;
+}
+
+.refreshButton {
+  width: 24px;
+  height: 24px;
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.refreshButton:hover,
+.compactRefreshButton:hover,
+.detailRefreshButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+}
+
+.refreshButton:disabled,
+.compactRefreshButton:disabled,
+.detailRefreshButton:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.groupList {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: visible;
+}
+
+.groupHoverTarget {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+}
+
+.compactShell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0 6px;
+}
+
+.compactRefreshButton {
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.usageTooltip {
+  position: fixed;
+  width: 224px;
+  max-width: calc(100vw - 20px);
+  z-index: 1200;
+  pointer-events: none;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+  border-radius: 9px;
+  background: var(--dsw-alias-bg-module-platform, var(--dsw-alias-bg-layer-1, transparent));
+  box-shadow: var(--dsw-shadow-lv2, none);
+  color: var(--dsw-alias-label-primary, inherit);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.usageTooltipTitle {
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.usageTooltipRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usageTooltipRow {
+  display: grid;
+  grid-template-columns: 44px 1fr 1fr;
+  gap: 6px;
+  align-items: center;
+  color: var(--dsw-alias-label-secondary, inherit);
+  white-space: nowrap;
+}
+
+.usageTooltipWindow {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.popoverPanel {
+  position: fixed;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  z-index: 1000;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-module-platform, var(--dsw-alias-bg-layer-1, transparent));
+  box-shadow: var(--dsw-shadow-lv2, none);
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.detailRefreshButton {
+  align-self: flex-end;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}

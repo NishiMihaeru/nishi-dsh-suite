@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.21.0 --activate
+      - run: node scripts/verify-package-contracts.mjs
+      - run: node scripts/verify-release-family.mjs
+      - run: node scripts/validate-orchestrator.mjs
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build

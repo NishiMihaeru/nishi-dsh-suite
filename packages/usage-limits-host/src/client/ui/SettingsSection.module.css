@@ -1,0 +1,208 @@
+.container {
+  max-width: 720px;
+  color: var(--dsw-alias-label-primary, inherit);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.topBar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.providerCardsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.providerName {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.badgeAvailable {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--dsw-alias-border-l3, transparent);
+  color: var(--dsw-alias-state-success-primary, inherit);
+  font-weight: 500;
+}
+
+.badgeOther {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--dsw-alias-border-l3, transparent);
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-weight: 500;
+}
+
+.freshnessTag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.freshnessTagStale {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+  color: var(--dsw-alias-state-warn-label, inherit);
+}
+
+.observedTime {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.errorNotice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-state-error-primary, inherit);
+  font-size: 12px;
+}
+
+.windowsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.windowRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+}
+
+.windowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.windowLabel {
+  font-weight: 500;
+}
+
+.windowMetrics {
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+}
+
+.progressBarTrack {
+  width: 100%;
+  height: 6px;
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progressBarFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.2s ease;
+  background: var(--dsw-alias-button-primary-fill, currentColor);
+}
+
+.progressBarFillWarn {
+  background: var(--dsw-alias-state-warn-label, currentColor);
+}
+
+.progressBarFillError {
+  background: var(--dsw-alias-state-error-primary, currentColor);
+}
+
+.resetTimeText {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+  text-align: right;
+}
+
+.extraUsageContainer {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l3, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.extraUsageTitle {
+  font-weight: 600;
+}
+
+.extraUsageGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.statusMessage {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.statusMessageWarn {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-state-warn-label, inherit);
+}
+
+.statusMessageError {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-state-error-primary, inherit);
+}
