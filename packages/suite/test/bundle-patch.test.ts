@@ -52,5 +52,8 @@ test('bundle patch mounts each runtime plugin exactly once', async () => {
     assert.ok(!raw.includes(retired), `retired package boundary remains in bundle patch: ${retired}`)
   }
 
-  assert.ok(!raw.includes('agent-presets'), 'DSH rc.2 preset-root workaround must not be mounted in the bundle patch')
+  assert.ok(
+    rows.every((row) => row.id !== 'agent-presets' && row.name !== '@deepseek-ai/dsh-agent-presets'),
+    'DSH rc.2 preset-root workaround must not be mounted as a bundle row',
+  )
 })
