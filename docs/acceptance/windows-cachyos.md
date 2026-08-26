@@ -24,6 +24,7 @@ Run on the exact commit under acceptance:
 ```bash
 corepack enable
 pnpm install
+pnpm verify:package-contracts
 pnpm verify:release-family
 pnpm check
 pnpm test
@@ -75,9 +76,46 @@ Expected:
 
 When a second RC exists, rerun with `--update-spec <next-suite-spec>` so version-to-version update is exercised rather than only idempotent reinstall.
 
-## 3. Startup without vendor clients
+## 3. Managed Orchestrator user preset bridge
 
-On a clean profile with the Suite installed, temporarily make each vendor executable unavailable one at a time and start DSH Web.
+DSH `0.1.1-rc.2` cannot discover a third-party package preset root automatically, so on the profile under test run the Suite binary through DSH's pnpm forwarding command:
+
+```bash
+dsh plugin --profile <profile> exec nishi-dsh-suite preset status
+dsh plugin --profile <profile> exec nishi-dsh-suite preset install
+dsh plugin --profile <profile> exec nishi-dsh-suite preset status
+```
+
+Expected:
+
+- fresh `status` is `absent`;
+- install creates only `$DSH_HOME/.agent-presets/orchestrator`;
+- second status is `current`;
+- a second install is idempotent;
+- sibling user presets are untouched;
+- an unmanaged pre-existing `orchestrator` is refused rather than overwritten;
+- a deliberate local edit changes status to `modified` and blocks both update and remove.
+
+For an actual Suite version update, require:
+
+```bash
+dsh plugin --profile <profile> exec nishi-dsh-suite preset status
+dsh plugin --profile <profile> exec nishi-dsh-suite preset update
+```
+
+The pre-update state must be `outdated` and the post-update state `current` when packaged preset content/version changed.
+
+Before uninstalling Suite from Market/plugin tooling, require:
+
+```bash
+dsh plugin --profile <profile> exec nishi-dsh-suite preset remove
+```
+
+Then verify the managed `orchestrator` directory is absent and sibling presets remain. This explicit pre-uninstall step is required on rc.2 because no bundle uninstall hook exists for the user preset directory.
+
+## 4. Startup without vendor clients
+
+On a clean profile with the Suite installed and Orchestrator bridge installed, temporarily make each vendor executable unavailable one at a time and start DSH Web.
 
 Expected:
 
@@ -87,7 +125,7 @@ Expected:
 - no Suite component installs a missing vendor client automatically;
 - no direct subscription OAuth flow is started by DSH.
 
-## 4. Codex live gates
+## 5. Codex live gates
 
 With official `codex` installed and authenticated:
 
@@ -100,7 +138,7 @@ With official `codex` installed and authenticated:
 
 Known accepted debt: stock Codex may still observe global `AGENTS` behavior that cannot currently be fully suppressed by the DSH provider boundary.
 
-## 5. Claude Code live gates
+## 6. Claude Code live gates
 
 With official `claude` installed and authenticated:
 
@@ -111,7 +149,7 @@ With official `claude` installed and authenticated:
 
 Claude subscription primary login is not part of this release gate.
 
-## 6. Antigravity live gates
+## 7. Antigravity live gates
 
 With official `agy` installed and authenticated:
 
@@ -124,20 +162,21 @@ With official `agy` installed and authenticated:
 
 Policy note: support for the official `agy` boundary is technically tested here; this acceptance does not represent the third-party harness integration as Google-approved.
 
-## 7. Project Memory
+## 8. Project Memory
 
 In a temporary project:
 
 1. create bootstrap/topic memory through normal DSH memory tools;
 2. verify it is stored under that project;
 3. start Codex, Claude Code, and Antigravity child paths and verify accepted read-only visibility;
-4. uninstall Suite;
-5. verify project files and `.dsh/memory` are unchanged;
-6. reinstall Suite and verify the same project memory is available again.
+4. remove the managed Orchestrator preset;
+5. uninstall Suite;
+6. verify project files and `.dsh/memory` are unchanged;
+7. reinstall Suite, reinstall the Orchestrator bridge, and verify the same project memory is available again.
 
 There is no cross-OS or cross-machine memory synchronization gate.
 
-## 8. Usage & Limits UI
+## 9. Usage & Limits UI
 
 Verify on DSH Web:
 
@@ -148,13 +187,11 @@ Verify on DSH Web:
 - Model Accounts does not expose or initiate vendor subscription OAuth;
 - legacy DSH grants, if intentionally staged for the test, can be removed without deleting unrelated API-key records.
 
-## 9. Orchestrator
+## 10. Orchestrator
 
-Run `pnpm test:orchestrator` on both systems.
+Run `pnpm test:orchestrator` on both systems and verify DSH lists/selects the Orchestrator after the explicit bridge install.
 
-Then verify actual preset discovery separately. The npm Suite artifact contains the preset under `packages/suite/presets/orchestrator`, but DSH `0.1.1-rc.2` does not currently provide a reliable third-party Market bundle seam for adding that package directory as a preset root. Automatic Market discovery therefore remains an **upstream blocker** until proven on the exact DSH build or a stable seam is added upstream.
-
-Do not copy the preset into `$DSH_HOME/.agent-presets` as a hidden installer workaround for acceptance.
+The npm Suite artifact contains the preset under `packages/suite/presets/orchestrator`. DSH `0.1.1-rc.2` still does not provide a reliable third-party Market bundle seam for adding that package directory as a preset root, so **automatic one-click discovery** remains `BLOCKED_UPSTREAM`. The explicit user-root bridge is the accepted temporary rc.2 path and must remain opt-in, bounded, and reversible.
 
 ## Acceptance record
 
@@ -165,6 +202,7 @@ Both OS rows must be explicitly recorded before the RC is promoted:
 | install/check/test/build | PENDING | PENDING |
 | pack manifest inspection | PENDING | PENDING |
 | fresh profile install | PENDING | PENDING |
+| preset install/status/update/remove bridge | PENDING | PENDING |
 | update/reinstall | PENDING | PENDING |
 | uninstall preserves state | PENDING | PENDING |
 | Codex primary/subagent/search | PENDING | PENDING |
@@ -172,6 +210,7 @@ Both OS rows must be explicitly recorded before the RC is promoted:
 | Antigravity primary/subagent/search | PENDING | PENDING |
 | Project Memory | PENDING | PENDING |
 | Usage & Limits | PENDING | PENDING |
-| Orchestrator discovery | BLOCKED_UPSTREAM | BLOCKED_UPSTREAM |
+| Orchestrator usable via explicit bridge | PENDING | PENDING |
+| Orchestrator automatic Market discovery | BLOCKED_UPSTREAM | BLOCKED_UPSTREAM |
 
 A row becomes `PASS` only from an executed gate with captured command/output or an attached acceptance note. Static inspection is not a substitute for a PASS.
