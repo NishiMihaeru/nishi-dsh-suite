@@ -25,9 +25,10 @@ jobs:
         run: |
           corepack enable
           corepack prepare pnpm@11.21.0 --activate
+      - run: node scripts/verify-package-contracts.mjs
+      - run: node scripts/verify-release-family.mjs
+      - run: node scripts/validate-orchestrator.mjs
       - run: pnpm install --frozen-lockfile
-      - run: pnpm verify:release-family
-      - run: pnpm test:orchestrator
       - run: pnpm check
       - run: pnpm test
       - run: pnpm build
