@@ -49,6 +49,20 @@ for (const dir of packageDirs) {
   )
 }
 
+const codexRoot = new URL('packages/codex/', root)
+const codexManifest = JSON.parse(await readFile(new URL('package.json', codexRoot), 'utf8'))
+const codexPluginPin = codexManifest.dependencies?.['codex-plugin-dsh']
+assert.equal(
+  codexPluginPin,
+  'github:wingoo/codex-plugin-dsh#79fe7503390d641680bad8efade52782a3c31ced',
+  'nishi-dsh-codex: codex-plugin-dsh must be pinned to exact commit 79fe7503390d641680bad8efade52782a3c31ced',
+)
+assert.match(
+  String(codexPluginPin),
+  /^github:wingoo\/codex-plugin-dsh#[0-9a-f]{40}$/,
+  'nishi-dsh-codex: codex-plugin-dsh must use exact 40-character hex SHA pin, not main/branch/range',
+)
+
 const suiteRoot = new URL('packages/suite/', root)
 const suite = JSON.parse(await readFile(new URL('package.json', suiteRoot), 'utf8'))
 assert.equal(suite.dependencies?.['@deepseek-ai/dsh-authorization'], '0.1.1-rc.2')

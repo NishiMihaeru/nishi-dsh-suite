@@ -8,7 +8,7 @@ Compatibility target: **DeepSeek Harness 0.1.1-rc.2**, Node.js 24, pnpm 11.21.0 
 
 Installing this bundle brings the exact `0.1.0-rc.1` prerelease family:
 
-- `nishi-dsh-codex` — Codex primary/subagent integration;
+- `nishi-dsh-codex` — Codex primary/subagent integration (with `codex-app-server` provider via pinned `codex-plugin-dsh`);
 - `nishi-dsh-antigravity` — Antigravity primary/subagent integration through `agy`;
 - `nishi-dsh-claude-code` — Claude Code subagent through the official Agent SDK;
 - `nishi-dsh-primary-web-search` — the single `web_search` tool routed by the active primary provider;

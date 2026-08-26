@@ -7,7 +7,7 @@ It preserves the accepted DSH rc.2 Codex subagent lifecycle, package-local manag
 ## Runtime boundaries
 
 - DSH subagent provider ID: `codex`
-- primary provider bridge: `codex-app-server`
+- primary provider: `codex-app-server` (mounted via pinned `codex-plugin-dsh` @ `79fe7503390d641680bad8efade52782a3c31ced` by wingoo)
 - `@openai/codex`: `0.147.0`
 - `@openai/codex-sdk`: `0.147.0`
 - native Codex authentication remains vendor-owned

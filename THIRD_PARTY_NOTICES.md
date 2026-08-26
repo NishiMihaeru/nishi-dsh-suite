@@ -19,6 +19,15 @@ The Claude Code integration uses `@anthropic-ai/claude-agent-sdk` as a runtime d
 
 The Codex integration depends on official OpenAI Codex packages and/or the installed official Codex client. This repository does not redistribute vendor credentials or authentication stores.
 
+## External Codex Primary Provider Plugin (`codex-plugin-dsh`)
+
+- Upstream: `wingoo/codex-plugin-dsh`
+- Pinned commit: `79fe7503390d641680bad8efade52782a3c31ced`
+- Author: wingoo
+- License: MIT
+
+`codex-plugin-dsh` provides the `codex-app-server` provider adapter that communicates with the local Codex App Server. It is an open-source external plugin by wingoo and is not an official OpenAI plugin.
+
 ## Google Antigravity
 
 The Antigravity integration executes the official `agy` client boundary. Account authentication remains owned by that client. The current third-party-harness policy boundary is documented as provider-policy ambiguous rather than represented as Google-approved.

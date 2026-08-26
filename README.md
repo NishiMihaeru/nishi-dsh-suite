@@ -8,7 +8,7 @@ The migration targets DeepSeek Harness `0.1.1-rc.2`, Node.js 24, and one Market-
 
 The Suite is split into independently owned runtime packages:
 
-- `nishi-dsh-codex` — Codex primary/subagent integration;
+- `nishi-dsh-codex` — Codex primary/subagent integration (with `codex-app-server` provider via pinned `codex-plugin-dsh`);
 - `nishi-dsh-antigravity` — Antigravity primary/subagent integration through the official `agy` client boundary;
 - `nishi-dsh-claude-code` — Claude Code subagent integration through the official Agent SDK;
 - `nishi-dsh-primary-web-search` — one `web_search` tool routed by the active Codex/Antigravity primary;

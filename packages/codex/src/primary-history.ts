@@ -24,15 +24,14 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import {
+  CODEX_APP_SERVER_PROVIDER,
+  CodexAppServerAdapter,
+} from 'codex-plugin-dsh'
 import { prependPath, resolveManagedCodexRuntime } from './resolver.js'
 
-export const CODEX_APP_SERVER_PROVIDER = 'codex-app-server'
-const CODEX_PRIMARY_PACKAGE = 'codex-plugin-dsh'
+export { CODEX_APP_SERVER_PROVIDER }
 const CODEX_CALL_ID_MAX_LENGTH = 64
 const BRIDGE_STATE = Symbol.for('dsh-plugin.codex-primary.history-bridge.v2')
 
@@ -56,49 +55,7 @@ interface CodexAdapterPrototype {
   stream: AdapterStream
   openConnection?: AdapterOpenConnection
   [key: symbol]: unknown
-}
-
-interface CodexPluginModule {
-  CodexAppServerAdapter?: {
-    prototype?: CodexAdapterPrototype
-  }
-}
-
-function moduleErrorCode(error: unknown): string | undefined {
-  if (error === null || typeof error !== 'object') return undefined
-  const code = (error as { code?: unknown }).code
-  return typeof code === 'string' ? code : undefined
-}
-
-function resolveWebProfilePackageJson(): string {
-  const explicit = process.env.DSH_HOME?.trim()
-  if (explicit && explicit.length > 0) {
-    return join(explicit, 'profiles', 'web', 'package.json')
-  }
-
-  const currentPath = fileURLToPath(import.meta.url)
-  const normalized = currentPath.replace(/\\/g, '/')
-  const webIdx = normalized.indexOf('/profiles/web/')
-  if (webIdx !== -1) {
-    const webProfileDir = currentPath.slice(0, webIdx + '/profiles/web/'.length)
-    const candidate = join(webProfileDir, 'package.json')
-    if (existsSync(candidate)) {
-      return candidate
-    }
-  }
-
-  let searchDir = dirname(currentPath)
-  for (let i = 0; i < 6; i++) {
-    const candidate = join(searchDir, '.dsh', 'runtime', 'home', 'profiles', 'web', 'package.json')
-    if (existsSync(candidate)) {
-      return candidate
-    }
-    const parent = dirname(searchDir)
-    if (parent === searchDir) break
-    searchDir = parent
-  }
-
-  return join(homedir(), '.dsh', 'profiles', 'web', 'package.json')
+  [key: string]: unknown
 }
 
 /**
@@ -149,8 +106,8 @@ function foreignCallIdAliases(options: GenerateOptions): ReadonlyMap<string, str
   for (const message of options.messages) {
     if (
       message.role !== 'assistant'
-      || message.source.kind !== 'model'
-      || message.source.provider === CODEX_APP_SERVER_PROVIDER
+      || message.source?.kind !== 'model'
+      || message.source?.provider === CODEX_APP_SERVER_PROVIDER
     ) {
       continue
     }
@@ -174,8 +131,8 @@ export function projectCodexPrimaryHistory(options: GenerateOptions): GenerateOp
   const messages = options.messages.map((message) => {
     const source = message.source
     const foreignAssistant = message.role === 'assistant'
-      && source.kind === 'model'
-      && source.provider !== CODEX_APP_SERVER_PROVIDER
+      && source?.kind === 'model'
+      && source?.provider !== CODEX_APP_SERVER_PROVIDER
 
     let messageChanged = false
     const content = message.content.flatMap((block) => {
@@ -192,7 +149,7 @@ export function projectCodexPrimaryHistory(options: GenerateOptions): GenerateOp
         }
       }
 
-      if (source.kind === 'tool' && block.type === 'tool-result') {
+      if (source?.kind === 'tool' && block.type === 'tool-result') {
         const alias = callIdAliases.get(block.toolCallId)
         if (alias !== undefined && alias !== block.toolCallId) {
           messageChanged = true
@@ -204,7 +161,7 @@ export function projectCodexPrimaryHistory(options: GenerateOptions): GenerateOp
     })
 
     let projectedSource = source
-    if (source.kind === 'tool') {
+    if (source?.kind === 'tool') {
       const alias = callIdAliases.get(source.callId)
       if (alias !== undefined && alias !== source.callId) {
         messageChanged = true
@@ -242,36 +199,16 @@ function releaseBridge(prototype: CodexAdapterPrototype, state: BridgeState): vo
 
 /**
  * Patch the exact installed codex-plugin-dsh adapter prototype without
- * vendoring or mutating the package on disk. The package is resolved from the
- * active managed Web profile, so the bridge follows the same pinned dependency
- * that DSH actually loads.
- *
- * Absence of codex-plugin-dsh is not an error: the custom Codex subagent can be
- * used without the optional primary provider. Once the primary package is
- * installed, malformed exports fail closed instead of silently claiming the
- * bridge is active.
+ * vendoring or mutating the package on disk. The package is resolved directly
+ * from nishi-dsh-codex's own dependencies, so the bridge deterministically
+ * patches the exact same CodexAppServerAdapter that is mounted as primary.
  */
-export async function installCodexPrimaryHistoryBridge(ctx: Context): Promise<boolean> {
-  const profileRequire = createRequire(resolveWebProfilePackageJson())
-  let entry: string
-  try {
-    entry = profileRequire.resolve(CODEX_PRIMARY_PACKAGE)
-  } catch (error: unknown) {
-    if (moduleErrorCode(error) === 'MODULE_NOT_FOUND') {
-      try {
-        const localRequire = createRequire(import.meta.url)
-        entry = localRequire.resolve(CODEX_PRIMARY_PACKAGE)
-      } catch (localError: unknown) {
-        if (moduleErrorCode(localError) === 'MODULE_NOT_FOUND') return false
-        throw localError
-      }
-    } else {
-      throw error
-    }
-  }
-
-  const loaded = await import(pathToFileURL(entry).href) as CodexPluginModule
-  const prototype = loaded.CodexAppServerAdapter?.prototype
+export async function installCodexPrimaryHistoryBridge(
+  ctx: Context,
+  customPrototype?: CodexAdapterPrototype,
+): Promise<boolean> {
+  const prototype: CodexAdapterPrototype | undefined =
+    customPrototype ?? (CodexAppServerAdapter?.prototype as unknown as CodexAdapterPrototype | undefined)
   if (!prototype || typeof prototype.stream !== 'function') {
     throw new Error(
       'subagent-codex: installed codex-plugin-dsh does not expose the expected CodexAppServerAdapter.stream API',
@@ -309,7 +246,8 @@ export async function installCodexPrimaryHistoryBridge(ctx: Context): Promise<bo
         requestHandler: (method: string, params: Record<string, unknown>) => Promise<unknown>,
         observer?: unknown,
       ): Promise<unknown> {
-        const effectiveConfig = createEffectiveCodexConfig(this.config, profileRequire)
+        const localRequire = createRequire(import.meta.url)
+        const effectiveConfig = createEffectiveCodexConfig(this.config, localRequire)
         if (effectiveConfig === this.config) {
           return originalOpenConnection!.call(this, cwd, signal, requestHandler, observer)
         }

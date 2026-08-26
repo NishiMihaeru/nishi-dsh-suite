@@ -20,6 +20,11 @@ import {
 } from '@deepseek-ai/dsh-subagent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
+  apply as applyCodexPrimary,
+  CODEX_APP_SERVER_PROVIDER,
+  CodexAppServerAdapter,
+} from 'codex-plugin-dsh'
+import {
   createCodexSubagentMemory,
   type ProjectMemoryServiceLike,
 } from './memory.js'
@@ -40,16 +45,28 @@ const DEFAULT_PROVIDER_NAME = 'codex'
 
 export interface Config {
   providerName?: string
+  executable?: string
   env?: Record<string, string>
   permissionMode?: CodexPermissionMode
   disposeGraceMs?: number
+  modelCacheMs?: number
+  catalogTimeoutMs?: number
+  turnTimeoutMs?: number
+  stderrMaxBytes?: number
+  modelPageSize?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
   providerName: Schema.string().default(DEFAULT_PROVIDER_NAME),
+  executable: Schema.string().default('codex'),
   env: Schema.dict(Schema.string()).default({}),
   permissionMode: Schema.union([...CODEX_PERMISSION_MODES]).default(DEFAULT_CODEX_PERMISSION_MODE),
   disposeGraceMs: Schema.number().default(DEFAULT_DISPOSE_GRACE_MS),
+  modelCacheMs: Schema.number().default(30_000),
+  catalogTimeoutMs: Schema.number().default(10_000),
+  turnTimeoutMs: Schema.number().default(10 * 60_000),
+  stderrMaxBytes: Schema.number().default(16_384),
+  modelPageSize: Schema.number().default(100),
 })
 
 class CodexProvider implements SubagentProvider {
@@ -103,9 +120,15 @@ class CodexProvider implements SubagentProvider {
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
   const config: Required<Config> = {
     providerName: rawConfig.providerName ?? DEFAULT_PROVIDER_NAME,
+    executable: rawConfig.executable ?? 'codex',
     env: rawConfig.env ?? {},
     permissionMode: rawConfig.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
     disposeGraceMs: rawConfig.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS,
+    modelCacheMs: rawConfig.modelCacheMs ?? 30_000,
+    catalogTimeoutMs: rawConfig.catalogTimeoutMs ?? 10_000,
+    turnTimeoutMs: rawConfig.turnTimeoutMs ?? 10 * 60_000,
+    stderrMaxBytes: rawConfig.stderrMaxBytes ?? 16_384,
+    modelPageSize: rawConfig.modelPageSize ?? 100,
   }
 
   if (config.providerName.trim().length === 0) {
@@ -120,4 +143,16 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
 
   ctx.subagents.registerProvider(new CodexProvider(config.providerName, ctx, config))
   await installCodexPrimaryHistoryBridge(ctx)
+  applyCodexPrimary(ctx, {
+    executable: config.executable,
+    env: config.env,
+    modelCacheMs: config.modelCacheMs,
+    catalogTimeoutMs: config.catalogTimeoutMs,
+    turnTimeoutMs: config.turnTimeoutMs,
+    disposeGraceMs: config.disposeGraceMs,
+    stderrMaxBytes: config.stderrMaxBytes,
+    modelPageSize: config.modelPageSize,
+  })
 }
+
+export { CODEX_APP_SERVER_PROVIDER, CodexAppServerAdapter, installCodexPrimaryHistoryBridge }
