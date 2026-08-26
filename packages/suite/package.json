@@ -1,0 +1,67 @@
+{
+  "name": "nishi-dsh-suite",
+  "version": "0.1.0-rc.1",
+  "description": "Nishi DSH Suite bundle for DeepSeek Harness Market",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NishiMihaeru/nishi-dsh-suite.git",
+    "directory": "packages/suite"
+  },
+  "homepage": "https://github.com/NishiMihaeru/nishi-dsh-suite#readme",
+  "bugs": {
+    "url": "https://github.com/NishiMihaeru/nishi-dsh-suite/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "pack": "npm pack"
+  },
+  "dependencies": {
+    "nishi-dsh-codex": "workspace:0.1.0-rc.1",
+    "nishi-dsh-antigravity": "workspace:0.1.0-rc.1",
+    "nishi-dsh-claude-code": "workspace:0.1.0-rc.1",
+    "nishi-dsh-primary-web-search": "workspace:0.1.0-rc.1",
+    "nishi-dsh-project-memory": "workspace:0.1.0-rc.1",
+    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.1",
+    "nishi-dsh-usage-limits-host": "workspace:0.1.0-rc.1",
+    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "tsx": "4.23.1",
+    "typescript": "5.9.2",
+    "yaml": "2.9.0"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}
