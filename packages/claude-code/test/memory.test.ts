@@ -26,7 +26,7 @@ function fakeContext(overrides: Partial<any> = {}) {
   return { context, reads }
 }
 
-test('Claude memory bridge advertises exactly one read-only DSH memory tool', () => {
+test('Claude memory bridge keeps only the provider-neutral read-only context', () => {
   const { context } = fakeContext()
   const bridge = createClaudeSubagentMemoryFromContext(context as any)
 
@@ -34,10 +34,9 @@ test('Claude memory bridge advertises exactly one read-only DSH memory tool', ()
   assert.equal(CLAUDE_MEMORY_ALLOWED_TOOL, 'mcp__dsh-memory__memory_read')
   assert.equal(bridge.bootstrap, context.renderedBootstrap)
   assert.equal(bridge.allowedTool, CLAUDE_MEMORY_ALLOWED_TOOL)
-  assert.equal(bridge.mcpServer.type, 'sdk')
-  assert.ok(bridge.mcpServer.instance)
-  assert.doesNotMatch(bridge.allowedTool, /memory_write/)
-  assert.doesNotMatch(bridge.allowedTool, /memory_edit/)
+  assert.equal(bridge.context, context)
+  assert.equal('mcpServer' in bridge, false)
+  assert.doesNotMatch(bridge.allowedTool, /memory_write|memory_edit/)
 })
 
 test('Claude memory_read routes through the provider-neutral project-memory context', async () => {
@@ -68,7 +67,7 @@ test('Claude memory_read routes through the provider-neutral project-memory cont
 test('Claude memory_read converts host failures into a fixed tool error', async () => {
   const { context } = fakeContext({
     async readTopic() {
-      throw new Error('/home/<username>/project/.dsh/memory/architecture.md failed')
+      throw new Error('/home/private/project/.dsh/memory/architecture.md failed')
     },
   })
 
@@ -82,7 +81,7 @@ test('Claude memory_read converts host failures into a fixed tool error', async 
   assert.doesNotMatch(String((result.content[0] as any)?.text), /\/home\/private/)
 })
 
-test('Claude project bootstrap stays a distinct section before the delegated task without streaming input', () => {
+test('Claude project bootstrap stays a distinct section before the delegated task', () => {
   const prompt = claudePromptWithProjectMemory(
     'do the delegated work',
     '# DSH Project Context\nproject memory',
