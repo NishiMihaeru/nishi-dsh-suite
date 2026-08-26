@@ -9,6 +9,8 @@ Executed CachyOS evidence:
 - deterministic local verification: `docs/acceptance/2026-08-26-cachyos-local-verification.md`
 - isolated fresh-profile/runtime acceptance: `docs/acceptance/2026-08-26-cachyos-runtime-acceptance.md`
 
+The runtime acceptance record is based on the executed local report supplied from the CachyOS test environment; it was not inferred from static repository inspection.
+
 ## Preconditions on each OS
 
 - DeepSeek Harness `0.1.1-rc.2` installed normally;
