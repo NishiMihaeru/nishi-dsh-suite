@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const VERSION = '0.1.0-rc.1'
+const DSH_VERSION = '0.1.1-rc.2'
 const packages = [
   ['packages/codex', 'nishi-dsh-codex'],
   ['packages/antigravity', 'nishi-dsh-antigravity'],
@@ -27,6 +28,10 @@ for (const [directory, expectedName] of packages) {
   assert.equal(manifest.license, 'MIT', `${expectedName}: license must be MIT`)
   assert.equal(manifest.repository?.url, 'git+https://github.com/NishiMihaeru/nishi-dsh-suite.git')
 
+  for (const lifecycle of ['preinstall', 'install', 'postinstall', 'prepare']) {
+    assert.equal(manifest.scripts?.[lifecycle], undefined, `${expectedName}: publishable package must not run ${lifecycle}`)
+  }
+
   for (const section of ['dependencies', 'optionalDependencies']) {
     for (const [name, spec] of Object.entries(manifest[section] ?? {})) {
       if (!familyNames.has(name)) continue
@@ -36,8 +41,16 @@ for (const [directory, expectedName] of packages) {
 }
 
 const suite = manifests.get('nishi-dsh-suite')
-const expectedSuiteDeps = new Set([...familyNames].filter((name) => name !== 'nishi-dsh-suite'))
-assert.deepEqual(new Set(Object.keys(suite.dependencies ?? {})), expectedSuiteDeps, 'suite must depend on every leaf exactly once')
+const expectedSuiteFamilyDeps = new Set([...familyNames].filter((name) => name !== 'nishi-dsh-suite'))
+const actualSuiteFamilyDeps = new Set(
+  Object.keys(suite.dependencies ?? {}).filter((name) => familyNames.has(name)),
+)
+assert.deepEqual(actualSuiteFamilyDeps, expectedSuiteFamilyDeps, 'suite must depend on every Nishi leaf exactly once')
+assert.equal(
+  suite.dependencies?.['@deepseek-ai/dsh-authorization'],
+  DSH_VERSION,
+  'suite must install the rc.2 authorization service required by Usage Limits Host',
+)
 assert.equal(suite.dsh?.bundle?.patch, './cordis.patch.yml', 'suite must export the DSH bundle patch')
 
 const retiredNames = ['nishi-dsh-codex-antigravity', '@dsh-plugin/project-memory', 'dsh-subagent-codex-custom']
