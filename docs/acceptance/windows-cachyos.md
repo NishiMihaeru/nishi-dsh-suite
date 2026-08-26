@@ -9,7 +9,7 @@ This is the release gate for Nishi DSH Suite. Windows and CachyOS/Linux are test
 - DeepSeek Harness `0.1.1-rc.2` installed normally;
 - Node.js 24;
 - pnpm 11.21.0 available through Corepack;
-- Suite tarballs produced by `node scripts/pack-local.mjs`, or the published `nishi-dsh-suite@0.1.0-rc.1` prerelease;
+- Suite tarballs produced by `pnpm verify:local`, or the published `nishi-dsh-suite@0.1.0-rc.1` prerelease;
 - official vendor clients installed/authenticated only for live gates that exercise them:
   - `codex` for Codex;
   - `claude` for Claude Code;
@@ -24,16 +24,10 @@ Run on the exact commit under acceptance:
 ```bash
 corepack enable
 pnpm install
-pnpm verify:package-contracts
-pnpm verify:release-family
-pnpm check
-pnpm test
-pnpm build
-pnpm test:orchestrator
-node scripts/pack-local.mjs
+pnpm verify:local
 ```
 
-Record Node, pnpm, DSH, OS, and commit SHA with the results.
+`verify:local` covers release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local tarball creation. Record Node, pnpm, DSH, OS, and commit SHA with the results.
 
 ## 2. Fresh normal profile install
 
@@ -76,46 +70,48 @@ Expected:
 
 When a second RC exists, rerun with `--update-spec <next-suite-spec>` so version-to-version update is exercised rather than only idempotent reinstall.
 
-## 3. Managed Orchestrator user preset bridge
+## 3. Orchestrator preset bridge
 
-DSH `0.1.1-rc.2` cannot discover a third-party package preset root automatically, so on the profile under test run the Suite binary through DSH's pnpm forwarding command:
+After installing Suite into the test profile, use that profile's installed binary:
 
 ```bash
-dsh plugin --profile <profile> exec nishi-dsh-suite preset status
-dsh plugin --profile <profile> exec nishi-dsh-suite preset install
-dsh plugin --profile <profile> exec nishi-dsh-suite preset status
+dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset status
+dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset install
+dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset status
 ```
 
-Expected:
+Expected on a fresh DSH home:
 
-- fresh `status` is `absent`;
-- install creates only `$DSH_HOME/.agent-presets/orchestrator`;
+- first status is `absent`;
+- install creates the managed `$DSH_HOME/.agent-presets/orchestrator`;
 - second status is `current`;
-- a second install is idempotent;
-- sibling user presets are untouched;
-- an unmanaged pre-existing `orchestrator` is refused rather than overwritten;
-- a deliberate local edit changes status to `modified` and blocks both update and remove.
+- no `.orchestrator.nishi-stage-*` or `.orchestrator.nishi-backup-*` entry remains after success;
+- an unmanaged pre-existing `orchestrator` is refused;
+- a local edit changes status to `modified` and blocks update/removal;
+- sibling user presets are preserved.
 
-For an actual Suite version update, require:
-
-```bash
-dsh plugin --profile <profile> exec nishi-dsh-suite preset status
-dsh plugin --profile <profile> exec nishi-dsh-suite preset update
-```
-
-The pre-update state must be `outdated` and the post-update state `current` when packaged preset content/version changed.
-
-Before uninstalling Suite from Market/plugin tooling, require:
+After a real Suite version update:
 
 ```bash
-dsh plugin --profile <profile> exec nishi-dsh-suite preset remove
+dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset status
+dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset update
 ```
 
-Then verify the managed `orchestrator` directory is absent and sibling presets remain. This explicit pre-uninstall step is required on rc.2 because no bundle uninstall hook exists for the user preset directory.
+Expected: old managed copy reports `outdated`, then becomes `current`.
+
+Before Suite uninstall:
+
+```bash
+dsh plugin --profile <fresh-profile> exec nishi-dsh-suite preset remove
+```
+
+Expected: only the managed Orchestrator disappears. Then uninstall Suite and confirm preserve hashes remain unchanged.
+
+Automatic one-click Market discovery without this bridge remains the upstream issue #2.
 
 ## 4. Startup without vendor clients
 
-On a clean profile with the Suite installed and Orchestrator bridge installed, temporarily make each vendor executable unavailable one at a time and start DSH Web.
+On a clean profile with the Suite installed, temporarily make each vendor executable unavailable one at a time and start DSH Web.
 
 Expected:
 
@@ -172,7 +168,7 @@ In a temporary project:
 4. remove the managed Orchestrator preset;
 5. uninstall Suite;
 6. verify project files and `.dsh/memory` are unchanged;
-7. reinstall Suite, reinstall the Orchestrator bridge, and verify the same project memory is available again.
+7. reinstall Suite + preset and verify the same project memory is available again.
 
 There is no cross-OS or cross-machine memory synchronization gate.
 
@@ -187,22 +183,16 @@ Verify on DSH Web:
 - Model Accounts does not expose or initiate vendor subscription OAuth;
 - legacy DSH grants, if intentionally staged for the test, can be removed without deleting unrelated API-key records.
 
-## 10. Orchestrator
-
-Run `pnpm test:orchestrator` on both systems and verify DSH lists/selects the Orchestrator after the explicit bridge install.
-
-The npm Suite artifact contains the preset under `packages/suite/presets/orchestrator`. DSH `0.1.1-rc.2` still does not provide a reliable third-party Market bundle seam for adding that package directory as a preset root, so **automatic one-click discovery** remains `BLOCKED_UPSTREAM`. The explicit user-root bridge is the accepted temporary rc.2 path and must remain opt-in, bounded, and reversible.
-
 ## Acceptance record
 
 Both OS rows must be explicitly recorded before the RC is promoted:
 
 | Gate | Windows | CachyOS |
 | --- | --- | --- |
-| install/check/test/build | PENDING | PENDING |
-| pack manifest inspection | PENDING | PENDING |
+| install/check/test/build/pack | PENDING | PENDING |
 | fresh profile install | PENDING | PENDING |
-| preset install/status/update/remove bridge | PENDING | PENDING |
+| preset install/status/update/remove | PENDING | PENDING |
+| DSH discovers/selects Orchestrator | PENDING | PENDING |
 | update/reinstall | PENDING | PENDING |
 | uninstall preserves state | PENDING | PENDING |
 | Codex primary/subagent/search | PENDING | PENDING |
@@ -210,7 +200,6 @@ Both OS rows must be explicitly recorded before the RC is promoted:
 | Antigravity primary/subagent/search | PENDING | PENDING |
 | Project Memory | PENDING | PENDING |
 | Usage & Limits | PENDING | PENDING |
-| Orchestrator usable via explicit bridge | PENDING | PENDING |
-| Orchestrator automatic Market discovery | BLOCKED_UPSTREAM | BLOCKED_UPSTREAM |
+| automatic one-click preset discovery | BLOCKED_UPSTREAM | BLOCKED_UPSTREAM |
 
 A row becomes `PASS` only from an executed gate with captured command/output or an attached acceptance note. Static inspection is not a substitute for a PASS.
