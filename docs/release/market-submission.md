@@ -1,46 +1,81 @@
 # DSH Market submission
 
-Status: **PREPARED / BLOCKED**
+Status: **PREPARED / BLOCKED ON RC.3 RELEASE ACCEPTANCE AND REPOSITORY TOPIC**
 
-The in-app `dshmarket` catalog is sourced from the curated `awesome-dsh-plugin/awesome-dsh-plugin` registry. A plugin is not listed merely because it exists on npm.
+The in-app `dshmarket` catalog is sourced from the curated `awesome-dsh-plugin/awesome-dsh-plugin` registry. A package is not listed merely because it exists on npm.
 
-The future registry entry is prepared at `docs/market/awesome-dsh-plugin-entry.yml`.
+The future registry entry is prepared at:
+
+```text
+docs/market/awesome-dsh-plugin-entry.yml
+```
 
 ## Intended catalog identity
 
-Because this repository is a monorepo and only the Suite package is the Market install target, the registry URL must point at the bundle subpackage:
+This repository is a monorepo and only the Suite package is the Market install target, so the registry URL points at:
 
 ```text
 https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite
 ```
 
-The catalog's own npm probe then reads `packages/suite/package.json`, discovers `nishi-dsh-suite`, and accepts the mapping only if the npm package's `repository` metadata points back to `NishiMihaeru/nishi-dsh-suite`.
+The catalog's npm probe reads `packages/suite/package.json`, discovers `nishi-dsh-suite`, and expects its repository metadata to point back to `NishiMihaeru/nishi-dsh-suite`.
 
-Do **not** add an `npm:` key to the registry YAML. The registry explicitly rejects unknown fields and resolves npm automatically.
+Do **not** add an `npm:` key to the registry YAML unless the upstream registry schema changes; the prepared entry relies on the catalog's normal npm discovery.
 
-## Hard gates before opening the registry PR
+## Current repository facts
 
-Every item below must be satisfied:
+Verified 2026-08-28:
 
-- [ ] PR #1 merged so the catalog URL exists on `main`.
-- [ ] repository is at least one day old (awesome-dsh-plugin automated requirement).
-- [x] repository has at least 10 commits.
-- [ ] GitHub repository topic `dsh-plugin` added.
-- [ ] `nishi-dsh-suite` and all required leaf packages published to npm under one consistent package family.
-- [ ] npm package metadata points back to this repository.
-- [ ] deterministic `pnpm check`, `pnpm test`, `pnpm build`, pack inspection all PASS on the accepted commit.
-- [ ] fresh normal-profile install/update/uninstall acceptance PASS.
-- [ ] Windows acceptance PASS.
-- [ ] CachyOS acceptance PASS.
-- [ ] issue #2 resolved with a supported DSH preset-discovery seam, **or** the catalog description is reduced to features that a one-click Market install actually exposes.
+- [x] PR #1 is merged to `main` (`aff2cab95ea2816b5aff002e51562a15aeeb8dba`).
+- [x] Repository is older than one day (created `2026-08-26T00:15:47Z`).
+- [x] Repository has more than 10 commits.
+- [ ] GitHub repository topic `dsh-plugin` is **not present**; current topics list is empty.
+- [x] Published rc.1 npm family exists.
+- [ ] rc.3 family is not published.
 
-The last gate is release-critical for the currently prepared description. Today `presets/orchestrator` contains the fixed Codex/Claude Code/Antigravity delegation tools and routed `web_search`, but DSH `0.1.1-rc.2` does not automatically discover that third-party preset through normal bundle installation. Submitting the current full-feature description before that is resolved would overstate the one-click install.
+The current development target is rc.3, so Market submission should not use the old rc.1 architecture description.
+
+## Current rc.3 catalog description boundary
+
+A normal Suite bundle install provides the host-plane composition:
+
+- provider-independent Core;
+- Codex primary provider;
+- Antigravity primary provider;
+- Claude usage-only provider;
+- Project Memory;
+- Usage & Limits / Model Accounts host/browser surfaces.
+
+The packaged Orchestrator preset adds routed `web_search`, shared memory/tool rows and DSH-native `subagent` / `subagent_fork`, but DSH `0.1.1-rc.2` does not reliably preserve third-party contributed preset roots. The supported rc.3 workaround is the installed Suite's explicit managed preset bridge (`preset install/status/update/remove`).
+
+Therefore Market copy must **not** imply that routed search or the Orchestrator preset appears automatically from one click unless the upstream preset-discovery limitation is fixed.
+
+Vendor-specific Codex/Antigravity/Claude subagent tools no longer exist in rc.3 and must not appear in Market copy.
+
+## Hard gates before opening the Market registry PR
+
+- [x] PR #1 merged so the catalog URL exists on `main`.
+- [x] Repository age >= 1 day.
+- [x] Repository commit count >= 10.
+- [ ] Add GitHub repository topic `dsh-plugin`.
+- [ ] Finish rc.3 provider-specific cleanup and live product acceptance.
+- [ ] Publish `nishi-dsh-suite` and all required rc.3 leaf packages under one consistent family, after explicit approval.
+- [ ] Confirm published npm package metadata points back to this repository.
+- [ ] Final deterministic rc.3 release gates PASS on the exact accepted commit.
+- [ ] Fresh normal-profile install/update/uninstall acceptance PASS for the released rc.3 family.
+- [ ] CachyOS/Linux final rc.3 live acceptance PASS.
+- [ ] Decide Market policy for Windows: Windows remains NOT TESTED and no Windows claim may be made.
+- [ ] Either upstream preset discovery is fixed, or the catalog description clearly distinguishes host-plane features from the optional explicitly installed Orchestrator preset.
 
 ## Proposed category
 
 `model`
 
-The Suite spans memory, usage and web capabilities, but its primary product boundary is model/provider integration: Codex and Antigravity primary providers plus provider-specific subagents. `awesome-dsh-plugin` maintainers may reclassify the entry; category is not treated as a rejection criterion.
+The primary product boundary is provider integration: Codex and Antigravity are selectable primary routes behind a shared Core contract; Claude contributes usage-only capability. The Suite also provides project memory and usage/browser surfaces.
+
+There are no provider-specific subagent integrations in rc.3.
+
+The `awesome-dsh-plugin` maintainers may reclassify the entry; category is not treated as a product invariant.
 
 ## Registry PR procedure
 
@@ -53,18 +88,23 @@ After all hard gates pass:
    data/plugins/NishiMihaeru__nishi-dsh-suite--packages-suite.yml
    ```
 
-3. Run their required generator:
-
-   ```bash
-   npm ci
-   node scripts/generate-readme.mjs
-   ```
-
-4. Verify the generated README changes only add the Nishi DSH Suite entry.
+3. Run the upstream repository's required generator/tests exactly as documented at submission time.
+4. Verify generated changes only add/update the Nishi DSH Suite entry.
 5. Open one PR against `awesome-dsh-plugin/awesome-dsh-plugin`.
 
-Do not submit an entry to `dsh-market/dsh-market`; its own README states that the catalog is maintained in `awesome-dsh-plugin`.
+Do not submit an entry to a different registry merely because a similarly named Market repository exists; re-check the current DSH Market submission documentation immediately before submission.
 
 ## Description accuracy rule
 
-The prepared English line is intentionally factual and contains no version/count marketing claims. Before submission, compare each claimed capability against the exact released Suite install path. Remove any capability that still requires manual repository copying, a custom installer, an unpublished package, or an undocumented DSH patch.
+Before submission, compare every claimed capability against the exact published Suite install path.
+
+Remove or qualify any feature that:
+
+- requires an unpublished package;
+- requires manual repository copying;
+- requires an undocumented profile patch;
+- requires explicit preset installation but is worded as automatic;
+- names a retired vendor-specific subagent tool;
+- has not passed the final rc.3 acceptance appropriate to that feature.
+
+Current release status is tracked in `docs/release/2026-08-28-rc3-prerelease.md`.
