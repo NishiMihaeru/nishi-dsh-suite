@@ -13,6 +13,7 @@
 
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { RegisteredProvider } from './descriptor.js'
+import { canonicalProviderId, canonicalProviderRoute } from './identity.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -41,18 +42,29 @@ export class NishiProvidersService extends Service {
   }
 
   /**
-   * Record one provider. Rejects a duplicate id or a duplicate route naming
-   * both providers, because a silent second registration would mean one
-   * route quietly answering from the wrong vendor.
+   * Record one provider. Identity is accepted only in canonical form: the
+   * registry never silently trims or rewrites an id/route because doing so
+   * would let the Map key disagree with the RegisteredProvider it returns.
+   * Duplicate ids, duplicate routes between providers, and duplicate routes
+   * inside one provider are all rejected before any state is changed.
    */
   record(entry: RegisteredProvider): () => void {
-    const id = entry.id.trim()
-    if (id.length === 0) throw new Error('nishiProviders: a provider id must be non-empty')
+    const id = canonicalProviderId(entry.id, 'nishiProviders: provider id')
     const existing = this.#byId.get(id)
     if (existing !== undefined) {
       throw new Error(`nishiProviders: provider "${id}" is already registered`)
     }
-    for (const route of entry.routes) {
+
+    const routes: string[] = []
+    const seenRoutes = new Set<string>()
+    for (let index = 0; index < entry.routes.length; index++) {
+      const route = canonicalProviderRoute(entry.routes[index], `nishiProviders: routes[${index}]`)
+      if (seenRoutes.has(route)) {
+        throw new Error(`nishiProviders: provider "${id}" declares duplicate route "${route}"`)
+      }
+      seenRoutes.add(route)
+      routes.push(route)
+
       const owner = this.#byRoute.get(route)
       if (owner !== undefined) {
         throw new Error(
@@ -62,13 +74,13 @@ export class NishiProvidersService extends Service {
     }
 
     this.#byId.set(id, entry)
-    for (const route of entry.routes) this.#byRoute.set(route, entry)
+    for (const route of routes) this.#byRoute.set(route, entry)
     this.#announce()
 
     return () => {
       if (this.#byId.get(id) !== entry) return
       this.#byId.delete(id)
-      for (const route of entry.routes) {
+      for (const route of routes) {
         if (this.#byRoute.get(route) === entry) this.#byRoute.delete(route)
       }
       this.#announce()
@@ -76,12 +88,12 @@ export class NishiProvidersService extends Service {
   }
 
   byId(id: string): RegisteredProvider | undefined {
-    return typeof id === 'string' ? this.#byId.get(id.trim()) : undefined
+    return typeof id === 'string' ? this.#byId.get(id) : undefined
   }
 
-  /** Resolve the provider serving one DSH model route (e.g. `codex-app-server`). */
+  /** Resolve the provider serving one DSH model route. */
   byRoute(route: string): RegisteredProvider | undefined {
-    return typeof route === 'string' ? this.#byRoute.get(route.trim()) : undefined
+    return typeof route === 'string' ? this.#byRoute.get(route) : undefined
   }
 
   all(): readonly RegisteredProvider[] {
