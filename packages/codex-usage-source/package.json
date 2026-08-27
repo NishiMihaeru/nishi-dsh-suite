@@ -1,6 +1,6 @@
 {
   "name": "nishi-dsh-codex-usage-source",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "description": "Official Codex app-server rate-limits source adapter for Nishi DSH Suite",
   "type": "module",
   "main": "lib/index.js",
