@@ -125,8 +125,15 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
     throw new Error(`${descriptor.id}: a provider declaring a model capability must declare at least one route`)
   }
 
+  if (descriptor.presentation.id !== descriptor.id) {
+    throw new Error(
+      `${descriptor.id}: presentation.id must match the provider id (got "${descriptor.presentation.id}")`,
+    )
+  }
+
   const forget = registry.record({
     id: descriptor.id,
+    presentation: descriptor.presentation,
     routes,
     descriptor: descriptor as ProviderDescriptor<never>,
     ...(descriptor.webSearch === undefined

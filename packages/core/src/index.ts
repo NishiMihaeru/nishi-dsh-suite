@@ -9,10 +9,13 @@ import {
 } from './host/composition.js'
 import {
   USAGE_LIMITS_CHANNEL,
+  USAGE_LIMITS_GET_ROSTER_ENDPOINT,
   USAGE_LIMITS_GET_PROVIDERS_ENDPOINT,
   USAGE_LIMITS_GET_PROVIDER_ENDPOINT,
   USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT,
   createUsageLimitsRpcHandler,
+  type ProviderRosterRow,
+  type GetRosterRpcRequest,
   type GetProvidersRpcRequest,
   type GetProviderRpcRequest,
   type RefreshProviderRpcRequest,
@@ -43,10 +46,13 @@ import {
 
 export {
   USAGE_LIMITS_CHANNEL,
+  USAGE_LIMITS_GET_ROSTER_ENDPOINT,
   USAGE_LIMITS_GET_PROVIDERS_ENDPOINT,
   USAGE_LIMITS_GET_PROVIDER_ENDPOINT,
   USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT,
   createUsageLimitsRpcHandler,
+  type ProviderRosterRow,
+  type GetRosterRpcRequest,
   type GetProvidersRpcRequest,
   type GetProviderRpcRequest,
   type RefreshProviderRpcRequest,
@@ -85,6 +91,7 @@ export * from './usage/index.js'
 export { NishiProvidersService } from './registry/service.js'
 export type {
   ModelCapability,
+  ProviderPresentation,
   ProviderDescriptor,
   RegisteredProvider,
 } from './registry/descriptor.js'
@@ -98,18 +105,33 @@ declare module '@deepseek-ai/cordis' {
 export class UsageLimitsHostService extends Service {
   readonly #service: UsageLimitsService
   readonly #publicFacade: UsageLimitsPublicFacade
+  readonly #ctx: Context
 
   constructor(ctx: Context, config?: UsageLimitsHostConfig) {
     super(ctx, 'usageLimits')
+    this.#ctx = ctx
     const clock = config?.clock ?? (() => Date.now())
     const { service, facade } = composeUsageLimitsHost(ctx, config, clock)
     this.#service = service
     this.#publicFacade = facade
+    this.getRosterPublic = this.getRosterPublic.bind(this)
     this.getCachedProvidersPublic = this.getCachedProvidersPublic.bind(this)
     this.getCachedProviderPublic = this.getCachedProviderPublic.bind(this)
     this.refreshProviderPublic = this.refreshProviderPublic.bind(this)
     this.isRegisteredProvider = this.isRegisteredProvider.bind(this)
     this.invalidateProvider = this.invalidateProvider.bind(this)
+  }
+
+  /**
+   * Which providers the browser should render, derived from registrations.
+   * Only providers that declare a usage capability appear: a provider with no
+   * usage source has nothing to show in this surface, and an empty row would
+   * be the grey blank this record exists to remove.
+   */
+  getRosterPublic(): ProviderRosterRow[] {
+    return this.#ctx.nishiProviders.all()
+      .filter((provider) => provider.usage !== undefined)
+      .map((provider) => ({ providerId: provider.id, presentation: provider.presentation }))
   }
 
   getCachedProvidersPublic(): PublicProviderUsage[] {

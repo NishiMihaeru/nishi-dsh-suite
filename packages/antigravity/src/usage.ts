@@ -103,6 +103,27 @@ function numericSourceMetadata(): UsageSourceMetadata {
   };
 }
 
+/**
+ * Strip cadence words from a vendor window label so it can name a pool:
+ * "Gemini Session Limit" describes both a pool and a window, and only the
+ * pool part belongs on the scope.
+ */
+function withoutCadence(value: string): string {
+  return value
+    .replace(/\b(?:5\s*-?\s*h(?:our)?s?|five\s*-?\s*hours?|weekly|week|7\s*-?\s*days?|session|short|limit|quota|remaining)\b/gi, ' ')
+    .replace(/[·|:/_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Display name for one vendor pool, or `undefined` to let the id stand in. */
+function poolLabel(scopeId: string, windowLabel: string): string | undefined {
+  const fromLabel = withoutCadence(windowLabel);
+  if (fromLabel.length > 0) return fromLabel;
+  const fromId = withoutCadence(scopeId.replace(/^legacy-/, '').replace(/-/g, ' '));
+  return fromId.length > 0 ? fromId : undefined;
+}
+
 export function normalizeAntigravityCapability(observation: unknown, observedAtMs: number): ProviderUsageSnapshot {
   if (typeof observedAtMs !== 'number' || !Number.isFinite(observedAtMs) || !Number.isInteger(observedAtMs) || observedAtMs < 0) {
     throw new UsageContractError(`observedAtMs must be a non-negative finite integer number (got ${observedAtMs})`);
@@ -123,6 +144,14 @@ export function normalizeAntigravityCapability(observation: unknown, observedAtM
         ? String(wObj.scopeId).trim()
         : `bucket-${idx}`;
       const scope: LimitScope = { kind: scopeKind, id: scopeId };
+      if (scopeKind === 'BUCKET') {
+        // The pool's display name is the vendor's business, not the
+        // browser's: before rc.3 the client guessed it by matching
+        // 'gemini' / 'claude' / 'gpt' against window labels, which meant
+        // every new vendor pool needed a browser edit.
+        const label = poolLabel(scopeId, String(wObj.label ?? ''));
+        if (label !== undefined) scope.label = label;
+      }
       const win: LimitWindow = {
         id: `antigravity-${scopeId}`,
         label: String(wObj.label ?? ''),

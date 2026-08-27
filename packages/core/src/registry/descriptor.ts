@@ -32,6 +32,38 @@ export interface WebSearchCapability<TConfig> {
   create(ctx: Context, config: TConfig): PrimarySearchBackend
 }
 
+/**
+ * How a provider appears in the browser.
+ *
+ * Serializable by construction: it crosses RPC as data, because the browser
+ * half cannot import a provider package — those spawn processes. Before this
+ * record existed, adding a provider meant editing three client files (a
+ * hardcoded roster, a per-id `switch` of inline SVGs, and grouping decided by
+ * substring matches on window labels), and an unknown provider rendered as a
+ * grey blank.
+ */
+export interface ProviderPresentation {
+  /** Matches `ProviderDescriptor.id`. */
+  readonly id: string
+  readonly displayName: string
+  /** Accent colour, as a CSS colour string. */
+  readonly brandColor: string
+  /**
+   * A single SVG path in a 24x24 viewBox. A provider that supplies none
+   * renders the neutral mark, which is a supported outcome rather than a
+   * visual bug.
+   */
+  readonly iconPath?: string
+  /**
+   * Render this provider's BUCKET-scoped windows as separate pool groups
+   * instead of folding them into the provider row. True for a vendor whose
+   * account is really several pools; the pool's own name comes from the
+   * window scope the provider's normalizer emits, not from the browser
+   * guessing at labels.
+   */
+  readonly bucketsAsPools?: boolean
+}
+
 /** What a usage capability may ask the core to do on its behalf. */
 export interface UsageCapabilityHooks {
   /**
@@ -61,6 +93,8 @@ export interface UsageCapability<TConfig> {
 export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
   /** Canonical provider id, one per provider, also the diagnostic prefix (e.g. `codex`). */
   readonly id: string
+  /** How this provider appears in the browser. Data, not code. */
+  readonly presentation: ProviderPresentation
   /** Identity and lookup facts for this provider's vendor CLI executable. */
   readonly executable: VendorExecutableDescriptor
   /**
@@ -79,6 +113,7 @@ export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
 /** A registered provider as the core sees it. */
 export interface RegisteredProvider {
   readonly id: string
+  readonly presentation: ProviderPresentation
   readonly routes: readonly string[]
   readonly descriptor: ProviderDescriptor<never>
   /**

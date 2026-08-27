@@ -71,7 +71,7 @@ export function UsageGroupBlock(props: UsageGroupBlockProps): React.ReactElement
     >
       <div className={`${styles.header} ${compact ? styles.compactHeader : ''}`}>
         <span className={styles.icon} aria-hidden="true">
-          <ProviderLogo providerId={group.providerId} className={styles.logo} />
+          <ProviderLogo presentation={group.presentation} className={styles.logo} />
         </span>
         {!compact && (
           <span className={styles.titleWrap}>

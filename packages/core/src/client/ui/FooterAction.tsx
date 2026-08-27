@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UsageLimitsClientInjected } from '../index.js'
-import { PRODUCT_PROVIDER_ROSTER } from '../roster.js'
 import {
   buildUsageGroupsForProvider,
   selectUsageGroupDisplayWindows,
@@ -71,11 +70,10 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
   const [contentScale, setContentScale] = useState(1)
   const [hover, setHover] = useState<UsageHoverState | null>(null)
 
-  const groups = useMemo(() => PRODUCT_PROVIDER_ROSTER.flatMap((item) => {
-    const entry = snapshot.providers[item.id]
+  const groups = useMemo(() => snapshot.roster.flatMap((item) => {
+    const entry = snapshot.providers[item.providerId]
     return buildUsageGroupsForProvider({
-      providerId: item.id,
-      defaultDisplayName: item.defaultDisplayName,
+      presentation: item.presentation,
       loadStatus: entry?.status ?? 'idle',
       usage: entry?.usage,
     })
@@ -85,8 +83,8 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
     ? groups.find((group) => groupKey(group) === selectedKey)
     : undefined
 
-  const isAnyRefreshing = PRODUCT_PROVIDER_ROSTER.some(
-    (item) => snapshot.providers[item.id]?.status === 'loading',
+  const isAnyRefreshing = snapshot.roster.some(
+    (item) => snapshot.providers[item.providerId]?.status === 'loading',
   )
 
   const wideStyle = {

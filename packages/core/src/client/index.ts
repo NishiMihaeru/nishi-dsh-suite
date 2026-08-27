@@ -148,7 +148,6 @@ export function apply(ctx: ClientContext): void {
 
 export * from './controller.js'
 export * from './locales.js'
-export * from './roster.js'
 export * from './rpc-client.js'
 export * from './usage-group-model.js'
 export * from './ui/FooterAction.js'

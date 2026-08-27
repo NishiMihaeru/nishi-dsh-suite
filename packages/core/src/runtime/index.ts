@@ -42,6 +42,7 @@ export {
 } from './registration.js'
 export {
   type ModelCapability,
+  type ProviderPresentation,
   type ProviderDescriptor,
   type RegisteredProvider,
   type UsageCapability,

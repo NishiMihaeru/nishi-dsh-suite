@@ -244,23 +244,24 @@ Mechanical merge, no behaviour change. Landed as its own commit so the next task
 ### Task 11: Presentation record and the dynamic roster
 
 **Files:**
-- Modify: `packages/core/src/usage/public-projection.ts`, `packages/core/src/host/rpc.ts`
-- Delete: `packages/core/src/client/roster.ts`
-- Modify: `packages/core/src/client/ui/ProviderLogo.tsx`, `packages/core/src/client/usage-group-model.ts`, `packages/core/src/client/view-model.ts`, `packages/core/src/client/index.ts`
-- Modify: `packages/codex/src/index.ts`, `packages/antigravity/src/index.ts` (each declares its own presentation)
-- Modify: `packages/core/test/view-model.test.ts`, `packages/core/test/rpc.test.ts`
+- Created: `packages/core/test/client-roster.test.ts`
+- Deleted: `packages/core/src/client/roster.ts`
+- Modified: `src/registry/descriptor.ts`, `src/runtime/registration.ts`, `src/host/rpc.ts`, `src/index.ts`, `src/client/{controller,rpc-client,usage-group-model}.ts`, `src/client/ui/{ProviderLogo,UsageGroupBlock,FooterAction,SettingsSection}.tsx`, all three provider `src/index.ts`, `packages/antigravity/src/usage.ts`, `packages/core/test/rpc.test.ts`
 
 **Steps:**
-- [ ] 11.1 Add `ProviderPresentation` to the descriptor and project it through the existing usage RPC as data.
-- [ ] 11.2 `ProviderLogo` renders `brandColor` + `iconPath` from the payload, with the neutral mark as a supported outcome rather than a visual bug.
-- [ ] 11.3 Replace the substring grouping at `usage-group-model.ts:71` (`'claude'` / `'gpt'` / `'external'`, and the `'gemini'` branch above it) with `groupLabel` from the payload, and the `providerId === 'antigravity'` special case with a declared flag on the presentation or the usage snapshot.
-- [ ] 11.4 Derive the roster from the projection instead of the deleted static list: a provider mounted late appears, a provider never mounted leaves no placeholder row and no grey blank.
+- [x] 11.1 `ProviderPresentation` is a required descriptor field, carried on the registry entry and projected over a new `get-roster` endpoint. `registerProvider` refuses a presentation whose `id` disagrees with the provider id, so identity cannot drift between the two. The RPC projects only the declared fields — a provider could hang anything on its descriptor, and the browser renders this straight into the DOM.
+- [x] 11.2 `ProviderLogo` renders `brandColor` + `iconPath` from the payload; a provider declaring no icon gets the neutral mark and one declaring no colour gets the neutral accent, both as supported outcomes.
+- [x] 11.3 The substring grouping is gone. A pool's identity now comes from the `scope.id` / `scope.label` the **provider's** normalizer emits, and the Antigravity normalizer derives that label from the vendor's own window text — the vendor's pool names are the vendor's business. The `providerId === 'antigravity'` behaviour became a declared `bucketsAsPools` flag, and pool ordering is alphabetical instead of a hardcoded rank.
+- [x] 11.4 The roster is derived: the controller asks the host which providers exist, seeds one row each, and refreshes those. A provider mounted later appears on the next refresh; one that is not mounted leaves no row and is never refreshed; a failed roster call leaves the surface empty rather than inventing providers. Covered by seven tests plus three on the endpoint.
+
+**Deliberate visual simplification:** the accent for an Antigravity pool used to be purple for `Claude/GPT` and blue otherwise, decided by matching the group's display name. Pools now inherit their provider's brand colour. Keeping the old behaviour would have meant either per-pool colours in the presentation record or the browser knowing vendor pool names again.
+
+**Found while implementing:** the Model Accounts locale strings still told the user to "use the Claude Code subagent", which was removed in rc.2 — stale user-facing copy, now corrected in both languages. Separately, the Model Accounts surface still names `openai-codex` / `anthropic` / `openai`: same DSH authorization id space as the host-side allowlist, and the same documented exception.
 
 **Verify:**
-- [ ] `pnpm test`; `echo $?` must be `0`.
-- [ ] Live (Stage 3.6): all providers mounted; then a profile without Antigravity; then Antigravity mounted while the browser is already open.
-
----
+- [x] `pnpm --filter nishi-dsh-core test` exit `0`; `pnpm verify:local` exit `0`.
+- [x] `grep -riE "codex|antigravity|claude|gemini|gpt"` over `src/client` outside `authorization/` returns nothing.
+- [ ] Live (Stage 3.6): all providers mounted, then a profile without Antigravity, then one mounted while the browser is open — deferred to Task 16.
 
 ### Task 12: Claude as a provider plugin — landed with Task 10
 

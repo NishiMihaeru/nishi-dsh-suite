@@ -1,24 +1,59 @@
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import type { RpcResult, RpcError } from '@deepseek-ai/dsh-host-apiproxy'
+import type { ProviderPresentation } from '../registry/descriptor.js'
 import {
   parsePublicProviderUsage,
   type PublicProviderUsage,
 } from '../usage/index.js'
 
 export const USAGE_LIMITS_CHANNEL = '/usage-limits'
+export const USAGE_LIMITS_GET_ROSTER_ENDPOINT = 'get-roster'
 export const USAGE_LIMITS_GET_PROVIDERS_ENDPOINT = 'get-providers'
 export const USAGE_LIMITS_GET_PROVIDER_ENDPOINT = 'get-provider'
 export const USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT = 'refresh-provider'
 
+export type GetRosterRpcRequest = Record<string, never>
 export type GetProvidersRpcRequest = Record<string, never>
+
+/**
+ * One row of the roster the browser renders from. It answers "which providers
+ * exist and how do they look", which is a different question from "what is
+ * their usage" — a provider with no snapshot yet must still appear, and one
+ * that is not mounted must not.
+ */
+export interface ProviderRosterRow {
+  providerId: string
+  presentation: ProviderPresentation
+}
 export interface GetProviderRpcRequest { providerId: string }
 export interface RefreshProviderRpcRequest { providerId: string; force?: boolean }
 
 export interface UsageLimitsRpcHost {
+  getRosterPublic(): ProviderRosterRow[]
   getCachedProvidersPublic(): PublicProviderUsage[]
   getCachedProviderPublic(providerId: string): PublicProviderUsage | undefined
   refreshProviderPublic(providerId: string, options?: { force?: boolean }): Promise<PublicProviderUsage>
   isRegisteredProvider(providerId: string): boolean
+}
+
+/**
+ * Project one roster row for the browser, dropping anything a provider put on
+ * its presentation that this contract does not define. The browser renders
+ * this straight into the DOM, so the shape crossing the boundary is fixed
+ * here rather than trusted from the descriptor.
+ */
+function parseProviderRosterRow(row: ProviderRosterRow): ProviderRosterRow {
+  const presentation = row.presentation
+  return {
+    providerId: row.providerId,
+    presentation: {
+      id: presentation.id,
+      displayName: presentation.displayName,
+      brandColor: presentation.brandColor,
+      ...(presentation.iconPath === undefined ? {} : { iconPath: presentation.iconPath }),
+      ...(presentation.bucketsAsPools === undefined ? {} : { bucketsAsPools: presentation.bucketsAsPools }),
+    },
+  }
 }
 
 const GENERIC_BAD_REQUEST_MESSAGE = 'Invalid usage limits request.'
@@ -51,6 +86,10 @@ export function createUsageLimitsRpcHandler(host: UsageLimitsRpcHost): Connectio
   return async (endpoint: string, payload: unknown, _signal: AbortSignal): Promise<RpcResult<unknown>> => {
     try {
       switch (endpoint) {
+        case USAGE_LIMITS_GET_ROSTER_ENDPOINT: {
+          if (!isPlainObject(payload) || Object.keys(payload).length !== 0) return createBadRequestResult()
+          return { ok: true, value: host.getRosterPublic().map((row) => parseProviderRosterRow(row)) }
+        }
         case USAGE_LIMITS_GET_PROVIDERS_ENDPOINT: {
           if (!isPlainObject(payload) || Object.keys(payload).length !== 0) return createBadRequestResult()
           return {

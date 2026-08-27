@@ -5,7 +5,6 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UsageLimitsClientInjected } from '../index.js'
-import { PRODUCT_PROVIDER_ROSTER } from '../roster.js'
 import { buildUsageGroupsForProvider } from '../usage-group-model.js'
 import { UsageGroupDetails } from './UsageGroupDetails.js'
 import styles from './SettingsSection.module.css'
@@ -28,18 +27,17 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
     return () => window.clearInterval(timer)
   }, [])
 
-  const groups = useMemo(() => PRODUCT_PROVIDER_ROSTER.flatMap((item) => {
-    const entry = snapshot.providers[item.id]
+  const groups = useMemo(() => snapshot.roster.flatMap((item) => {
+    const entry = snapshot.providers[item.providerId]
     return buildUsageGroupsForProvider({
-      providerId: item.id,
-      defaultDisplayName: item.defaultDisplayName,
+      presentation: item.presentation,
       loadStatus: entry?.status ?? 'idle',
       usage: entry?.usage,
     })
   }), [snapshot])
 
-  const isAnyRefreshing = PRODUCT_PROVIDER_ROSTER.some(
-    (item) => snapshot.providers[item.id]?.status === 'loading',
+  const isAnyRefreshing = snapshot.roster.some(
+    (item) => snapshot.providers[item.providerId]?.status === 'loading',
   )
 
   return (

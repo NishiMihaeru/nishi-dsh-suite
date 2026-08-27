@@ -158,6 +158,7 @@ test('registerProvider records the provider, then registers the model, then runs
   const seenByInstall: unknown[] = []
   const descriptor: ProviderDescriptor<FixtureConfig> = {
     id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
     model: {
       routes: ['fixture-model'],
@@ -176,7 +177,12 @@ test('registerProvider records the provider, then registers the model, then runs
   await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
 
   assert.deepEqual(fixture.calls, ['record', 'model-create', 'model', 'install'])
-  assert.deepEqual(fixture.recorded, [{ id: 'fixture', routes: ['fixture-model'], descriptor }])
+  assert.deepEqual(fixture.recorded, [{
+    id: 'fixture',
+    presentation: descriptor.presentation,
+    routes: ['fixture-model'],
+    descriptor,
+  }])
   assert.deepEqual(fixture.adapters, [{ routes: ['fixture-model'], adapter: { name: 'fixture-adapter' } }])
   assert.deepEqual(seenByModel, [[fixture.ctx, FIXTURE_CONFIG]])
   assert.deepEqual(seenByInstall, [[fixture.ctx, FIXTURE_CONFIG]])
@@ -186,6 +192,7 @@ test('registerProvider registers nothing on ctx.subagents — delegation left th
   const fixture = fakeContext()
   const descriptor: ProviderDescriptor<FixtureConfig> = {
     id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
     model: { routes: ['fixture-model'], create: () => ({ name: 'fixture-adapter' } as any) },
   }
@@ -199,6 +206,7 @@ test('registerProvider resolves cleanly when the descriptor has neither model no
   const fixture = fakeContext()
   const descriptor: ProviderDescriptor<FixtureConfig> = {
     id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
   }
 
@@ -211,6 +219,7 @@ test('registerProvider awaits an async install before resolving', async () => {
   let installFinished = false
   const descriptor: ProviderDescriptor<FixtureConfig> = {
     id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
     async install() {
       await new Promise(resolve => setTimeout(resolve, 0))
@@ -227,6 +236,7 @@ test('registerProvider refuses a model capability with no route', async () => {
   const fixture = fakeContext()
   const descriptor: ProviderDescriptor<FixtureConfig> = {
     id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
     model: { routes: [], create: () => ({ name: 'fixture-adapter' } as any) },
   }
@@ -241,6 +251,7 @@ test('registerProvider refuses a model capability with no route', async () => {
 test('registerProvider fails with an actionable diagnostic when the core row is not mounted', async () => {
   const descriptor: ProviderDescriptor<FixtureConfig> = {
     id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
   }
 
@@ -254,6 +265,7 @@ test('disposing the provider plugin withdraws its registry entry', async () => {
   const fixture = fakeContext()
   const descriptor: ProviderDescriptor<FixtureConfig> = {
     id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
     model: { routes: ['fixture-model'], create: () => ({ name: 'fixture-adapter' } as any) },
   }
@@ -262,4 +274,19 @@ test('disposing the provider plugin withdraws its registry entry', async () => {
   assert.deepEqual(fixture.forgotten, [])
   for (const dispose of fixture.disposers) dispose()
   assert.deepEqual(fixture.forgotten, ['fixture'], 'the entry belongs to the provider plugin lifetime')
+})
+
+test('registerProvider refuses a presentation whose id disagrees with the provider id', async () => {
+  const fixture = fakeContext()
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'other', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /presentation\.id must match the provider id/,
+  )
+  assert.deepEqual(fixture.recorded, [], 'a mismatched identity records nothing')
 })

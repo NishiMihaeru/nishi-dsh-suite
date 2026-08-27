@@ -95,6 +95,12 @@ function externalCodexCommand(env: Record<string, string>): string {
  */
 const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
   id: 'codex',
+  presentation: {
+    id: 'codex',
+    displayName: 'Codex',
+    brandColor: '#10A37F',
+    iconPath: 'M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128z',
+  },
   executable: CODEX_DESCRIPTOR,
   model: {
     routes: [CODEX_APP_SERVER_PROVIDER],
