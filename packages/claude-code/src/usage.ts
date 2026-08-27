@@ -1,203 +1,174 @@
-/**
- * Official Claude Agent SDK usage source for dsh-plugin.
- * Spawns an unattended CLI query with empty prompt and retrieves session cost.
- *
- * @module dsh-subagent-claude-code-custom/usage
- */
+/** Claude Code usage source over the official external CLI control protocol. */
 
-import {
-  query as officialQuery,
-  type Options,
-  type Query,
-  type SDKMessage,
-  type SpawnOptions,
-} from '@anthropic-ai/claude-agent-sdk'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { randomUUID } from 'node:crypto'
 import {
   scrubbedParentEnv,
   type SubprocessHandle,
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import {
-  claudeSpawnSpec,
-  ManagedClaudeCodeProcess,
-} from './process.js'
-import {
-  DEFAULT_DISPOSE_GRACE_MS,
-  disposeClaudeCodeChild,
-} from './run.js'
+import { resolveClaudeExecutable } from './executable.js'
+import { claudeOutputLines, disposeClaudeCliChild } from './process.js'
+import { DEFAULT_DISPOSE_GRACE_MS } from './run.js'
 
 export const DEFAULT_USAGE_REQUEST_TIMEOUT_MS = 30_000
+const DEFAULT_STDERR_MAX_BYTES = 16 * 1024
 
 export interface OfficialClaudeUsageSourceSpec {
   readonly cwd: string
-  readonly executable: string
+  readonly executable?: string
   readonly env?: Record<string, string>
   readonly requestTimeoutMs?: number
   readonly disposeGraceMs?: number
   readonly spawn?: (spec: SubprocessSpawnSpec) => SubprocessHandle
 }
 
-export type ClaudeUsageQuery = Query & {
-  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(): Promise<unknown>
-}
-
-export interface OfficialClaudeUsageSourceDeps {
-  readonly query?: (params: { prompt: AsyncIterable<SDKMessage>; options: Options }) => ClaudeUsageQuery
-}
-
-function emptyPrompt(): AsyncIterable<SDKMessage> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      // 0 user turns: prompt iterator completes immediately
-    },
+function positiveTimer(value: number | undefined, name: string, fallback: number): number {
+  if (value === undefined) return fallback
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_TIMER_DELAY_MS) {
+    throw new Error(
+      `subagent-claude-code: ${name} must be a positive finite integer <= ${MAX_TIMER_DELAY_MS}`,
+    )
   }
+  return value
 }
 
-function thrown(value: unknown): Error {
-  return value instanceof Error ? value : new Error(String(value))
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }
 
-function extractDisposeError(error: unknown): Error {
-  const thrownErr = thrown(error)
-  return (thrownErr as any).cause instanceof Error ? (thrownErr as any).cause : thrownErr
+export function claudeUsageCliArgv(executable: string): string[] {
+  return [
+    executable,
+    '--print',
+    '--verbose',
+    '--input-format', 'stream-json',
+    '--output-format', 'stream-json',
+    '--no-session-persistence',
+    '--tools', '',
+    '--strict-mcp-config',
+  ]
 }
 
 export class OfficialClaudeUsageSource {
   private readonly spec: OfficialClaudeUsageSourceSpec
-  private readonly queryFactory: (params: {
-    prompt: AsyncIterable<SDKMessage>
-    options: Options
-  }) => ClaudeUsageQuery
+  private readonly timeoutMs: number
+  private readonly graceMs: number
 
-  constructor(spec: OfficialClaudeUsageSourceSpec, deps?: OfficialClaudeUsageSourceDeps) {
-    if (spec.requestTimeoutMs !== undefined) {
-      if (
-        !Number.isSafeInteger(spec.requestTimeoutMs) ||
-        spec.requestTimeoutMs <= 0 ||
-        spec.requestTimeoutMs > MAX_TIMER_DELAY_MS
-      ) {
-        throw new Error(
-          `subagent-claude-code: requestTimeoutMs must be a positive finite integer <= ${MAX_TIMER_DELAY_MS}`,
-        )
-      }
-    }
-    if (spec.disposeGraceMs !== undefined) {
-      if (
-        !Number.isSafeInteger(spec.disposeGraceMs) ||
-        spec.disposeGraceMs <= 0 ||
-        spec.disposeGraceMs > MAX_TIMER_DELAY_MS
-      ) {
-        throw new Error(
-          `subagent-claude-code: disposeGraceMs must be a positive finite integer <= ${MAX_TIMER_DELAY_MS}`,
-        )
-      }
-    }
+  constructor(spec: OfficialClaudeUsageSourceSpec) {
+    this.timeoutMs = positiveTimer(
+      spec.requestTimeoutMs,
+      'requestTimeoutMs',
+      DEFAULT_USAGE_REQUEST_TIMEOUT_MS,
+    )
+    this.graceMs = positiveTimer(
+      spec.disposeGraceMs,
+      'disposeGraceMs',
+      DEFAULT_DISPOSE_GRACE_MS,
+    )
     this.spec = spec
-    this.queryFactory = deps?.query ?? (officialQuery as any)
   }
 
   async getUsage(): Promise<unknown> {
-    const controller = new AbortController()
-    let child: SubprocessHandle | undefined
+    if (this.spec.spawn === undefined) {
+      throw new Error('subagent-claude-code: usage source requires the DSH subprocess spawn service')
+    }
 
-    const timeoutMs = this.spec.requestTimeoutMs ?? DEFAULT_USAGE_REQUEST_TIMEOUT_MS
-    const graceMs = this.spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
-    const options: Options = {
-      abortController: controller,
+    const env = { ...process.env, ...this.spec.env }
+    const executable = this.spec.executable ?? resolveClaudeExecutable({ env }).executable
+    const controller = new AbortController()
+    const child = this.spec.spawn({
+      argv: claudeUsageCliArgv(executable),
       cwd: this.spec.cwd,
-      pathToClaudeCodeExecutable: this.spec.executable,
+      stdio: {
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: { maxBytes: DEFAULT_STDERR_MAX_BYTES },
+      },
+      graceMs: this.graceMs,
+      signal: controller.signal,
       env: {
         ...scrubbedParentEnv(),
         ...this.spec.env,
         CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
         CLAUDE_CODE_DISABLE_CLAUDE_MDS: '1',
       },
-      persistSession: false,
-      disallowedTools: ['AskUserQuestion'],
-      settingSources: [],
-      spawnClaudeCodeProcess: (spawnOptions: SpawnOptions) => {
-        const spawned = this.spec.spawn
-          ? this.spec.spawn(claudeSpawnSpec(spawnOptions, graceMs))
-          : undefined
-        if (spawned) {
-          child = spawned
-          return new ManagedClaudeCodeProcess(spawned) as any
-        }
-        throw new Error('subagent-claude-code: spawn function not provided')
-      },
+    })
+
+    const stdin = child.stdin
+    const stdout = child.stdout
+    if (!stdin || !stdout) {
+      await disposeClaudeCliChild(child).catch(() => {})
+      throw new Error('subagent-claude-code: Claude usage control session did not expose stdio pipes')
     }
+    stdin.on('error', () => {})
+    stdout.on('error', () => {})
 
-    let query: ClaudeUsageQuery | undefined
-
-    try {
-      query = this.queryFactory({
-        prompt: emptyPrompt(),
-        options,
-      })
-
-      if (child === undefined || child.pid <= 0) {
-        throw new Error(
-          'subagent-claude-code: official SDK did not publish a controllable Claude Code process',
-        )
-      }
-    } catch (startupError: unknown) {
-      if (child !== undefined) {
-        try {
-          await disposeClaudeCodeChild(query, child)
-        } catch (disposeError: unknown) {
-          throw new AggregateError(
-            [thrown(startupError), extractDisposeError(disposeError)],
-            'subagent-claude-code: startup failed and CLI cleanup also failed',
-          )
-        }
-      } else if (query !== undefined) {
-        try {
-          query.close()
-        } catch (disposeError: unknown) {
-          throw new AggregateError(
-            [thrown(startupError), extractDisposeError(disposeError)],
-            'subagent-claude-code: startup failed and query cleanup also failed',
-          )
-        }
-      }
-      throw thrown(startupError)
-    }
-
-    let rawUsage: unknown
-    let usageError: unknown
+    const requestId = randomUUID()
+    let requestSent = false
     let timer: NodeJS.Timeout | undefined
 
-    try {
-      const usagePromise = query.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET()
-      void usagePromise.catch(() => {})
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('subagent-claude-code: usage request timed out')
+        if (!controller.signal.aborted) controller.abort(error)
+        reject(error)
+      }, this.timeoutMs)
+      timer.unref?.()
+    })
+    void timeout.catch(() => {})
 
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          const timeoutErr = new Error('subagent-claude-code: usage request timed out')
-          if (!controller.signal.aborted) {
-            controller.abort(timeoutErr)
-          }
-          reject(timeoutErr)
-        }, timeoutMs)
-        timer.unref?.()
-      })
+    const protocol = (async (): Promise<unknown> => {
+      for await (const line of claudeOutputLines(stdout)) {
+        if (line.trim().length === 0) continue
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(line)
+        } catch (error) {
+          throw new Error('subagent-claude-code: Claude usage control stream emitted malformed JSON', { cause: error })
+        }
+        const message = record(parsed)
+        if (!message || typeof message.type !== 'string') continue
 
-      rawUsage = await Promise.race([usagePromise, timeoutPromise])
-    } catch (error: unknown) {
-      usageError = error
-    } finally {
-      if (timer !== undefined) {
-        clearTimeout(timer)
+        if (!requestSent && message.type === 'system' && message.subtype === 'init') {
+          requestSent = true
+          stdin.write(`${JSON.stringify({
+            type: 'control_request',
+            request_id: requestId,
+            request: { subtype: 'get_usage' },
+          })}\n`)
+          continue
+        }
+
+        if (message.type !== 'control_response') continue
+        const response = record(message.response)
+        if (response?.request_id !== requestId) continue
+        if (response.subtype !== 'success') {
+          throw new Error('subagent-claude-code: Claude usage control request failed')
+        }
+        return response.response
       }
+      throw new Error('subagent-claude-code: Claude usage control session ended before get_usage response')
+    })()
+    void protocol.catch(() => {})
+
+    let result: unknown
+    let requestError: unknown
+    try {
+      result = await Promise.race([protocol, timeout])
+    } catch (error) {
+      requestError = error
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      if (!controller.signal.aborted) controller.abort(new Error('subagent-claude-code: usage request complete'))
       try {
-        await disposeClaudeCodeChild(query, child)
-      } catch (disposeError: unknown) {
-        const cleanupError = extractDisposeError(disposeError)
-        if (usageError !== undefined) {
+        await disposeClaudeCliChild(child)
+      } catch (cleanupError) {
+        if (requestError !== undefined) {
           throw new AggregateError(
-            [thrown(usageError), cleanupError],
+            [requestError, cleanupError],
             'subagent-claude-code: usage request failed and CLI cleanup also failed',
           )
         }
@@ -205,10 +176,7 @@ export class OfficialClaudeUsageSource {
       }
     }
 
-    if (usageError !== undefined) {
-      throw thrown(usageError)
-    }
-
-    return rawUsage
+    if (requestError !== undefined) throw requestError
+    return result
   }
 }
