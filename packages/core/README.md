@@ -1,40 +1,96 @@
 # nishi-dsh-core
 
-The provider-independent core of Nishi DSH Suite.
+Provider-independent core for Nishi DSH Suite.
 
-Everything in this package is true for every provider, and nothing in it names one. Providers are separate plugins that reach the core through cordis injection and contribute a descriptor plus their own protocol translation — so adding a provider is adding a plugin, and touches nothing here.
+The core owns the seams that must stay stable when the primary provider changes: provider registration, shared vendor-runtime helpers, routed web search, normalized usage/limits, host RPC and browser surfaces. Provider protocol translation stays in provider packages.
 
-## Two mount points
+A new provider must not require an edit to this package or to browser logic. Shipping it still requires normal declarative Suite packaging (dependency/bundle row/release-family membership).
+
+## Entries and planes
 
 | Entry | Plane | Mounted as | Owns |
 |---|---|---|---|
-| `nishi-dsh-core` | host | bundle row | the provider registry, the usage/limits service, its RPC projection |
-| `nishi-dsh-core/web-search` | agent | preset row | the routed `web_search` tool |
+| `nishi-dsh-core` | host | Suite bundle row | provider-registry publication plus host lifecycle composition |
+| `nishi-dsh-core/web-search` | agent | Orchestrator preset row | routed `web_search` tool |
 | `nishi-dsh-core/client` | browser | `dsh.client` manifest | Usage & Limits and Model Accounts UI |
-| `nishi-dsh-core/runtime` | library | imported by provider packages | shared vendor CLI runtime and the registration contract |
+| `nishi-dsh-core/runtime` | library | provider import | shared vendor CLI runtime and `registerProvider()` |
+| `nishi-dsh-core/usage` | library | provider/core import | normalized usage contracts and collectors |
 
-The registry and usage service are process singletons: a provider may register only once, and the browser reads one usage projection for every session.
+## Host lifecycle
+
+The final Cordis lifecycle is deliberately split in two:
+
+1. outer `nishi-core` has `inject: []` and mounts `NishiProvidersService` first;
+2. it then mounts the internal `nishi-core-host` child with `inject: ['nishiProviders', 'connection', 'credentials']`;
+3. the child constructs Usage Limits host state and registers Usage Limits / Model Accounts RPC handlers.
+
+This avoids the self-dependency that would result from asking the outer core to inject the `nishiProviders` service that it is responsible for publishing. The lifecycle was verified against a real DSH profile boot and unload/remount cycle.
+
+The Model Accounts host reads DSH credentials directly. The core no longer imports or injects `@deepseek-ai/dsh-authorization`.
+
+## Provider registry and registration
+
+Providers declare `inject: ['nishiProviders', ...]` and call the shared `registerProvider(ctx, descriptor, config)` path.
+
+`registerProvider()`:
+
+- validates canonical provider and route identities;
+- validates `presentation.id` against the provider id;
+- constructs provider-owned search and usage capabilities on the provider context;
+- records the provider in `NishiProvidersService`;
+- registers model routes through `ctx.llm.registerAdapter` when a model capability exists;
+- runs provider-specific `install`;
+- rolls back registry/adapter state transactionally if registration fails.
+
+The registry supports late registration and withdrawal. Usage composition follows registry changes instead of snapshotting a static provider list.
 
 ## Shared vendor CLI runtime (`./runtime`)
 
-- `resolveVendorExecutable(descriptor, options)` — the single executable resolver. Precedence: explicit config value, then the provider's `envOverride` environment variable, then a `PATH` walk. Fails closed with a diagnostic that names the product; never silently falls back past an invalid explicit value.
-- `outputLines(stream, maxBytes)` — bounded newline-delimited decoding of a Node `Readable`. CRLF-tolerant, rejects an over-long line instead of buffering without limit, and yields a trailing partial line once the stream ends.
-- `disposeVendorChild(handle)` — terminate the managed subprocess tree, wait for exit, await settlement.
-- `settledStderr(handle, graceMs)` — vendor CLIs commonly explain themselves on stderr *after* the terminal protocol frame, so reading it the instant that frame arrives sees an empty buffer.
-- `ephemeralAgentWorkspace(spec)` — the temporary `<tmp>/.agents/agents/<name>/agent.md` tree as one unit, with a `dispose()` that removes it even when creation failed partway.
-- `vendorFailure(spec)` / `recognizeVendorStderr(text, recognizers)` — one error shape carrying `product` / `stage` / `category`. Raw vendor stderr never reaches a message: only conditions a caller explicitly recognized become part of a diagnostic.
-- `resolveSharedProviderConfig(id, raw, defaults)` and `registerProvider(ctx, descriptor, config)` — the merge-and-validate step for the six config fields every provider shares, and the single registration path.
+The runtime entry provides provider-neutral helpers including:
+
+- executable resolution with explicit-config → environment override → `PATH` precedence;
+- bounded UTF-8 line streaming;
+- managed subprocess disposal;
+- settled stderr collection;
+- ephemeral agent workspaces;
+- `VendorFailure` metadata and deterministic stderr recognition;
+- shared provider-config validation;
+- the single provider-registration path.
+
+Raw vendor stderr is not automatically surfaced as a user-facing error message.
 
 ## Routed web search
 
-One `web_search` tool, resolved per call through the provider registry: the session's primary route decides which provider's native search runs. A provider that declares no search capability, or a route no provider serves, produces an explicit `WEB_SEARCH_UNSUPPORTED` error — there is deliberately no DeepSeek/Exa/Perplexity fallback, because silently searching with a different vendor than the session selected is worse than saying no.
+`nishi-dsh-core/web-search` reads the current session request header on every call, validates the provider route with the same canonical-route contract used by registration, then resolves the backend through `ctx.nishiProviders.byRoute(route)?.webSearch`.
 
-It is a preset row rather than a bundle row: whether an agent can search at all is a preset choice, while the registry it resolves is a host-plane singleton.
+- malformed/unavailable route metadata → `WEB_SEARCH_ROUTE_UNAVAILABLE`;
+- valid canonical route with no backend → `WEB_SEARCH_UNSUPPORTED`;
+- no fallback to another vendor.
 
-## Usage and limits
+The tool is an agent-plane preset row because search availability is a preset choice; the registry it resolves remains host-owned.
 
-One normalized domain with a capability taxonomy in which "this provider exposes no machine-readable usage" is a legal state rather than an error, one collector shape, and one default refresh policy. The browser is served a safe projection over RPC; no vendor OAuth, session, or token material crosses that boundary.
+## Usage and browser surface
 
-## Provenance
+Usage is a descriptor capability. A provider may expose a collector or omit the capability entirely. The host/browser surface renders the current registry roster from serialized `ProviderPresentation` data rather than provider-specific browser branches.
 
-This package is the merge of the former `nishi-dsh-provider-kit`, `nishi-dsh-usage-limits`, `nishi-dsh-usage-limits-host`, and `nishi-dsh-primary-web-search` — four packages describing one core. The web-search tool could only join once it stopped importing the provider packages: it now resolves backends through the registry.
+A provider with no usage capability stays visible with an explicit `UNSUPPORTED` usage state. Late-mounted providers appear on roster refresh; withdrawn providers disappear. Browser refreshes are generation-aware so stale async work cannot resurrect removed providers.
+
+## Provider-neutrality boundary
+
+Production core code has no dependency on `nishi-dsh-codex`, `nishi-dsh-antigravity`, or `nishi-dsh-claude`. A synthetic fourth provider was exercised through registry, route lookup, web-search capability, late usage registration and withdrawal without production-core changes.
+
+The only named vendor-like ids in the Model Accounts surface are DSH authorization/credential ids such as `openai-codex` and `anthropic`. They are a foreign DSH id space used by a constrained read/logout compatibility surface, not core provider-routing branches.
+
+## Acceptance status
+
+Core stabilization completed through Core 14 Final Acceptance:
+
+- full core/package/workspace gates PASS;
+- six rc.3 tarballs install into a disposable DSH profile;
+- all exported core subpaths resolve from the installed package;
+- real DSH host boot and HTTP readiness PASS;
+- agent-plane `nishi-dsh-core/web-search` mount PASS;
+- registry-first child lifecycle PASS;
+- unload/remount produces no duplicate registry, usage service or RPC handlers.
+
+The core is treated as **DONE / FROZEN** for the remainder of rc.3 unless a new reproducible blocker requires reopening it.
