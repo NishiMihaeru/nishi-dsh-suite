@@ -175,7 +175,7 @@ No edits to the usage domain, the host composition, or any browser file.
 | Stream decoding, disposal, settled stderr, ephemeral workspaces | one implementation each |
 | Usage: source interface, collector, refresh policy, registration | unified; one `read()`, one collector, descriptor-driven |
 | Failure shape | kit has `VendorFailure`; Codex and Antigravity still produce the same string themselves |
-| Shared config and single registration path | in progress |
+| Shared config and single registration path | done — the invariant greps clean |
 | Memory adaptation | duplicated verbatim between Codex and Antigravity |
 | Web search contract | shape parallel, not yet unified |
 | Presentation record | not built; the browser still hardcodes three providers |
