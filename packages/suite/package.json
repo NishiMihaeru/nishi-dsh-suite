@@ -1,6 +1,6 @@
 {
   "name": "nishi-dsh-suite",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "description": "Nishi DSH Suite bundle for DeepSeek Harness Market",
   "license": "MIT",
   "type": "module",
@@ -53,14 +53,14 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-authorization": "0.1.1-rc.2",
-    "nishi-dsh-codex": "workspace:0.1.0-rc.1",
-    "nishi-dsh-antigravity": "workspace:0.1.0-rc.1",
-    "nishi-dsh-claude-code": "workspace:0.1.0-rc.1",
-    "nishi-dsh-primary-web-search": "workspace:0.1.0-rc.1",
-    "nishi-dsh-project-memory": "workspace:0.1.0-rc.1",
-    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.1",
-    "nishi-dsh-usage-limits-host": "workspace:0.1.0-rc.1",
-    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.1"
+    "nishi-dsh-codex": "workspace:0.1.0-rc.2",
+    "nishi-dsh-antigravity": "workspace:0.1.0-rc.2",
+    "nishi-dsh-claude-code": "workspace:0.1.0-rc.2",
+    "nishi-dsh-primary-web-search": "workspace:0.1.0-rc.2",
+    "nishi-dsh-project-memory": "workspace:0.1.0-rc.2",
+    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.2",
+    "nishi-dsh-usage-limits-host": "workspace:0.1.0-rc.2",
+    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.2"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
