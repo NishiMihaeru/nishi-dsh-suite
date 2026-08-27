@@ -55,7 +55,7 @@
     "@deepseek-ai/dsh-authorization": "0.1.1-rc.2",
     "nishi-dsh-codex": "workspace:0.1.0-rc.2",
     "nishi-dsh-antigravity": "workspace:0.1.0-rc.2",
-    "nishi-dsh-claude-code": "workspace:0.1.0-rc.2",
+    "nishi-dsh-claude-usage-source": "workspace:0.1.0-rc.2",
     "nishi-dsh-primary-web-search": "workspace:0.1.0-rc.2",
     "nishi-dsh-project-memory": "workspace:0.1.0-rc.2",
     "nishi-dsh-usage-limits": "workspace:0.1.0-rc.2",

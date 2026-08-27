@@ -1,4 +1,4 @@
-/** Claude Code usage source over the official external CLI control protocol. */
+/** Claude usage/limits source over the official external CLI control protocol. */
 
 import { randomUUID } from 'node:crypto'
 import {
@@ -9,8 +9,8 @@ import {
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { resolveClaudeExecutable } from './executable.js'
 import { claudeOutputLines, disposeClaudeCliChild } from './process.js'
-import { DEFAULT_DISPOSE_GRACE_MS } from './run.js'
 
+export const DEFAULT_DISPOSE_GRACE_MS = 3000
 export const DEFAULT_USAGE_REQUEST_TIMEOUT_MS = 30_000
 const DEFAULT_STDERR_MAX_BYTES = 16 * 1024
 
@@ -27,7 +27,7 @@ function positiveTimer(value: number | undefined, name: string, fallback: number
   if (value === undefined) return fallback
   if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_TIMER_DELAY_MS) {
     throw new Error(
-      `subagent-claude-code: ${name} must be a positive finite integer <= ${MAX_TIMER_DELAY_MS}`,
+      `claude-usage-source: ${name} must be a positive finite integer <= ${MAX_TIMER_DELAY_MS}`,
     )
   }
   return value
@@ -73,7 +73,7 @@ export class OfficialClaudeUsageSource {
 
   async getUsage(): Promise<unknown> {
     if (this.spec.spawn === undefined) {
-      throw new Error('subagent-claude-code: usage source requires the DSH subprocess spawn service')
+      throw new Error('claude-usage-source: usage source requires the DSH subprocess spawn service')
     }
 
     const env = { ...process.env, ...this.spec.env }
@@ -101,7 +101,7 @@ export class OfficialClaudeUsageSource {
     const stdout = child.stdout
     if (!stdin || !stdout) {
       await disposeClaudeCliChild(child).catch(() => {})
-      throw new Error('subagent-claude-code: Claude usage control session did not expose stdio pipes')
+      throw new Error('claude-usage-source: Claude usage control session did not expose stdio pipes')
     }
     stdin.on('error', () => {})
     stdout.on('error', () => {})
@@ -112,7 +112,7 @@ export class OfficialClaudeUsageSource {
 
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        const error = new Error('subagent-claude-code: usage request timed out')
+        const error = new Error('claude-usage-source: usage request timed out')
         if (!controller.signal.aborted) controller.abort(error)
         reject(error)
       }, this.timeoutMs)
@@ -127,7 +127,7 @@ export class OfficialClaudeUsageSource {
         try {
           parsed = JSON.parse(line)
         } catch (error) {
-          throw new Error('subagent-claude-code: Claude usage control stream emitted malformed JSON', { cause: error })
+          throw new Error('claude-usage-source: Claude usage control stream emitted malformed JSON', { cause: error })
         }
         const message = record(parsed)
         if (!message || typeof message.type !== 'string') continue
@@ -146,11 +146,11 @@ export class OfficialClaudeUsageSource {
         const response = record(message.response)
         if (response?.request_id !== requestId) continue
         if (response.subtype !== 'success') {
-          throw new Error('subagent-claude-code: Claude usage control request failed')
+          throw new Error('claude-usage-source: Claude usage control request failed')
         }
         return response.response
       }
-      throw new Error('subagent-claude-code: Claude usage control session ended before get_usage response')
+      throw new Error('claude-usage-source: Claude usage control session ended before get_usage response')
     })()
     void protocol.catch(() => {})
 
@@ -162,14 +162,14 @@ export class OfficialClaudeUsageSource {
       requestError = error
     } finally {
       if (timer !== undefined) clearTimeout(timer)
-      if (!controller.signal.aborted) controller.abort(new Error('subagent-claude-code: usage request complete'))
+      if (!controller.signal.aborted) controller.abort(new Error('claude-usage-source: usage request complete'))
       try {
         await disposeClaudeCliChild(child)
       } catch (cleanupError) {
         if (requestError !== undefined) {
           throw new AggregateError(
             [requestError, cleanupError],
-            'subagent-claude-code: usage request failed and CLI cleanup also failed',
+            'claude-usage-source: usage request failed and CLI cleanup also failed',
           )
         }
         throw cleanupError

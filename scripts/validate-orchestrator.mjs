@@ -26,7 +26,7 @@ if (duplicates.size > 0) {
 }
 
 requireCount('subagent_codex', /^\s*toolName:\s*subagent_codex\s*$/gm)
-requireCount('subagent_claude_code', /^\s*toolName:\s*subagent_claude_code\s*$/gm)
+requireCount('retired subagent_claude_code', /^\s*toolName:\s*subagent_claude_code\s*$/gm, 0)
 requireCount('subagent_antigravity', /^\s*toolName:\s*subagent_antigravity\s*$/gm)
 requireCount('primary web_search package', /^\s*name:\s*['"]?nishi-dsh-primary-web-search['"]?\s*$/gm)
 requireCount('project memory package', /^\s*name:\s*['"]?nishi-dsh-project-memory['"]?\s*$/gm)

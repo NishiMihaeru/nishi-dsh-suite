@@ -1,4 +1,4 @@
-/** Direct Claude Code CLI process helpers owned by DSH subprocess. */
+/** Direct Claude CLI process helpers owned by DSH subprocess. */
 
 import type { Readable } from 'node:stream'
 import type { SubprocessHandle, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
@@ -7,7 +7,7 @@ export const MAX_CLAUDE_STREAM_LINE_BYTES = 1024 * 1024
 
 function lineTooLarge(): Error {
   return new Error(
-    `subagent-claude-code: Claude stream line exceeded maximum ${MAX_CLAUDE_STREAM_LINE_BYTES} bytes`,
+    `claude-usage-source: Claude stream line exceeded maximum ${MAX_CLAUDE_STREAM_LINE_BYTES} bytes`,
   )
 }
 

@@ -10,7 +10,6 @@ const expectedRows = new Map([
   ['nishi-project-memory', 'nishi-dsh-project-memory'],
   ['nishi-codex', 'nishi-dsh-codex'],
   ['nishi-antigravity', 'nishi-dsh-antigravity'],
-  ['nishi-claude-code', 'nishi-dsh-claude-code'],
   ['nishi-usage-limits-host', 'nishi-dsh-usage-limits-host'],
 ])
 
@@ -44,6 +43,7 @@ test('bundle patch mounts each host runtime plugin exactly once', async () => {
     'nishi-dsh-primary-web-search',
     'nishi-dsh-usage-limits',
     'nishi-dsh-codex-usage-source',
+    'nishi-dsh-claude-usage-source',
   ]) {
     assert.ok(!seenNames.has(dependencyOnly), `${dependencyOnly} must not be mounted as a host Cordis row`)
   }

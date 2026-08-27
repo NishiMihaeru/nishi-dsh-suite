@@ -1,8 +1,8 @@
-const VERSION = '0.1.0-rc.1'
+const VERSION = '0.1.0-rc.2'
 const names = [
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
-  'nishi-dsh-claude-code',
+  'nishi-dsh-claude-usage-source',
   'nishi-dsh-primary-web-search',
   'nishi-dsh-project-memory',
   'nishi-dsh-usage-limits',

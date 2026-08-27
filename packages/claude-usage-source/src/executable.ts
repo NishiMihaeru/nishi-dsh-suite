@@ -1,4 +1,4 @@
-/** External Claude Code CLI resolution for the Nishi Claude provider. */
+/** External Claude CLI resolution for the usage source. */
 
 import { accessSync, constants } from 'node:fs'
 import { posix, win32 } from 'node:path'
@@ -42,7 +42,7 @@ export function resolveClaudeExecutable(
   if (override !== undefined && override.length > 0) {
     if (!isExecutable(override)) {
       throw new Error(
-        `subagent-claude-code: configured Claude executable is not executable: ${JSON.stringify(override)}`,
+        `claude-usage-source: configured Claude executable is not executable: ${JSON.stringify(override)}`,
       )
     }
     return { executable: override, source: 'override' }
@@ -57,6 +57,6 @@ export function resolveClaudeExecutable(
   }
 
   throw new Error(
-    `subagent-claude-code: Claude CLI is unavailable; install Claude Code and ensure ${JSON.stringify(executableName)} is on PATH or set ${CLAUDE_EXECUTABLE_ENV}`,
+    `claude-usage-source: Claude CLI is unavailable; install Claude Code and ensure ${JSON.stringify(executableName)} is on PATH or set ${CLAUDE_EXECUTABLE_ENV}`,
   )
 }

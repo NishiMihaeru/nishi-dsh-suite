@@ -4,7 +4,7 @@ import { access, readFile } from 'node:fs/promises'
 const packageDirs = [
   'codex',
   'antigravity',
-  'claude-code',
+  'claude-usage-source',
   'primary-web-search',
   'project-memory',
   'usage-limits',

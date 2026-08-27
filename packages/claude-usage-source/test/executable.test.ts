@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resolveClaudeExecutable } from '../src/executable.ts'
+import { resolveClaudeExecutable } from '../src/executable.js'
 
 test('explicit DSH_CLAUDE_EXECUTABLE wins over PATH', () => {
   const result = resolveClaudeExecutable({

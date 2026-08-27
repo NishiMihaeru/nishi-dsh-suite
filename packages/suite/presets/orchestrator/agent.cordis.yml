@@ -185,20 +185,12 @@
         backgroundMode: continuable
 
     # Product providers are host-plane singletons. In this Orchestrator preset,
-    # Codex, Claude Code, and Antigravity fixed subagent tools are enabled.
+    # Codex and Antigravity fixed subagent tools are enabled.
     - id: tool-subagent-codex
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: codex
         toolName: subagent_codex
-        enableRunInBackground: false
-        maxDepth: provider-managed
-
-    - id: tool-subagent-claude-code
-      name: '@deepseek-ai/dsh-tool-subagent'
-      config:
-        provider: claude-code
-        toolName: subagent_claude_code
         enableRunInBackground: false
         maxDepth: provider-managed
 

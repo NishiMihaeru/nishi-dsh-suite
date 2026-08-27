@@ -15,8 +15,5 @@
     - id: nishi-antigravity
       name: 'nishi-dsh-antigravity'
 
-    - id: nishi-claude-code
-      name: 'nishi-dsh-claude-code'
-
     - id: nishi-usage-limits-host
       name: 'nishi-dsh-usage-limits-host'
