@@ -119,17 +119,6 @@ function createLiveContext() {
         throw new Error('No attachments in live text probe')
       },
     },
-    projectMemory: {
-      async createSubagentContext(projectRoot: string) {
-        return {
-          projectRoot,
-          renderedBootstrap: null,
-          async readTopic(topic: string) {
-            return { topic, exists: false, content: null }
-          },
-        }
-      },
-    },
     on(event: string, fn: Function) {
       const list = events.get(event) ?? []
       list.push(fn)

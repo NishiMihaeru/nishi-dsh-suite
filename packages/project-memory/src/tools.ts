@@ -8,7 +8,6 @@ import {
 } from './bootstrap.js'
 import { registerMemoryCommands } from './commands.js'
 import { registerProjectContextRuntime } from './runtime.js'
-import { ProjectMemoryService } from './service.js'
 import { readTopicMemory, writeTopicMemory, editTopicMemory } from './topics.js'
 
 interface SessionHeaderHolder {
@@ -217,9 +216,6 @@ const memoryEditTool = defineTool({
 export const name = 'project-memory'
 export const inject = ['tools', 'agents']
 export function apply(ctx: Context): void {
-  if (typeof ctx.plugin === 'function') {
-    ctx.plugin(ProjectMemoryService)
-  }
   ctx.tools.register(memoryReadTool)
   ctx.tools.register(memoryWriteTool)
   ctx.tools.register(memoryEditTool)

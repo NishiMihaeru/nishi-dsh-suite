@@ -31,17 +31,6 @@ function fakeContext() {
           registeredAdapters.push({ providers: providerNames, adapter })
         },
       },
-      projectMemory: {
-        async createSubagentContext() {
-          return {
-            projectRoot: '/repo',
-            renderedBootstrap: null,
-            async readTopic(topic: string) {
-              return { topic, exists: false, content: null }
-            },
-          }
-        },
-      },
       on(event: string, listener: Function) {
         const list = events.get(event) ?? []
         list.push(listener)
