@@ -1,56 +1,86 @@
-# Provider Contract
+# Core Connector Contract
 
-**Status:** design. Partially implemented — see *Implementation state* at the end.
+**Status:** design for `0.1.0-rc.3`. Supersedes the kit-era version of this document, which described a shared library (`nishi-dsh-provider-kit`) consumed by three sibling packages. Decisions of record are the maintainer's, 2026-08-27.
 
-**Goal:** one contract every subscription provider satisfies, present and future. Adding a provider costs a descriptor plus its protocol translation, and touches no shared code — not the host wiring, not the usage domain, not the browser UI.
+**Goal:** two kinds of package and nothing else.
+
+- **One core plugin** owns everything that is provider-independent: the guarantee that project memory is the same on every provider, one routed `web_search` tool, one normalized usage/limits surface and its UI. It names no provider.
+- **One plugin per provider** adapts a vendor CLI to the core's connector: a descriptor plus that vendor's protocol translation.
+
+Adding a provider means adding a plugin. It touches no shared code, no host composition, and no browser file.
+
+## Decisions of record (2026-08-27)
+
+1. **Delegation is removed entirely.** Vendor subagents (`subagent_codex`, `subagent_antigravity`) go away with their tools, their runners and their memory transports. Delegation returns later through DSH's own child agents (`@deepseek-ai/dsh-subagent`'s spawn/fork backends), which ride the primary route and therefore inherit the core's tools and memory for free.
+2. **The core is one package**, `nishi-dsh-core`, merging `provider-kit`, `primary-web-search`, `usage-limits` and `usage-limits-host`.
+3. **Claude becomes a provider plugin** declaring only `usage`. This deliberately reverses stage 2.6 for Claude: that step folded two usage-source packages into the kit because two packages for one concept was overhead. The unit here is *one package per provider*, and a provider with a single declared capability is the honest demonstration that the connector holds.
+4. **One canonical provider id, vendor route strings kept as aliases.** `id: 'codex'` with `routes: ['codex-app-server']`; `id: 'antigravity'` with `routes: ['antigravity-cli']`. The route string is user-visible — it appears in saved session request headers and in the profile default — so renaming it would be a breaking change for cosmetics on a seam DSH owns.
+5. **Project memory stays its own package.** After delegation is removed it has zero provider coupling: `memory_read` / `memory_write` / `memory_edit` are ordinary DSH tools. The "same memory on every provider" guarantee comes from composition, not from merging two thousand lines of topic and filesystem code into the connector.
 
 ## Principles
 
-1. **DSH owns the seams; the Suite is an on-ramp.** Model routing (`ctx.llm.registerAdapter`), tools and memory (`ctx.tools`, `ctx.projectMemory`), process lifetime (`ctx.subprocess`), delegation (`ctx.subagents`) are the harness's. The contract describes how a vendor CLI reaches them, never a parallel harness.
+1. **DSH owns the seams; the core is an on-ramp.** Model routing (`ctx.llm.registerAdapter`), tools and memory (`ctx.tools`, `ctx.projectMemory`), process lifetime (`ctx.subprocess`) are the harness's. This is also why the connector is cordis injection and not a plugin system of our own — see *Registration*.
 2. **Absence is a declaration.** Every capability past identity is optional, and omitting one is a statement with defined consequences — never an oversight and never an error at composition time.
-3. **A capability may only be declared where it can be enforced.** Both current providers declare `NO_START_CAPABILITIES`, which is honest. Antigravity's managed agent tool list is *not* honoured by its CLI — a live session announces the full native toolset — so its `toolFilter` must stay `false`. A capability the service cannot enforce is worse than one it refuses.
-4. **Translation stays provider-owned.** Roughly nine tenths of provider code is protocol translation — Codex `adapter.ts` 837 + `wire.ts` 802, Antigravity `antigravity-primary.ts` 784. The protocols differ in kind: JSON-RPC against an app-server versus bespoke JSON envelopes over a stream-json CLI. This contract deliberately does not try to unify them.
-5. **Raw vendor output never escapes.** Only recognised conditions become diagnostics, built from the matched token alone. This holds for every capability.
+3. **A capability may only be declared where it can be enforced.** A capability the provider cannot actually deliver is worse than one it refuses.
+4. **Translation stays provider-owned.** Roughly nine tenths of provider code is protocol translation, and the protocols differ in kind: JSON-RPC against an app-server versus bespoke JSON envelopes over a stream-json CLI. This contract deliberately does not try to unify them.
+5. **Raw vendor output never escapes.** Only recognised conditions become diagnostics, built from the matched token alone.
+6. **The core names no provider.** Grep-checkable, browser half included. Today this is violated in three client files; closing it is the point of the presentation record.
 
-## Two halves
+## Two planes, one package
 
-The contract splits along the process boundary, because the Usage & Limits client runs in the browser and cannot import a package that spawns processes.
+The core has two mount points, because two lifetimes are involved and collapsing them breaks one of them.
 
-- **Host descriptor** — code. Adapters, sources, spawn specs. Lives in the provider package, consumed by the kit.
-- **Presentation record** — data. Crosses RPC to the browser as part of the usage projection.
+| Entry | Plane | Mounted as | Owns |
+|---|---|---|---|
+| `nishi-dsh-core` | host | bundle row in `cordis.patch.yml` | provider registry, usage domain, usage RPC, browser half |
+| `nishi-dsh-core/web-search` | agent | preset row | the `web_search` tool for the agents whose preset carries it |
 
-Today the browser hardcodes provider identity in three places: `client/roster.ts` (id and display name), `client/ui/ProviderLogo.tsx` (brand colour and an inline SVG per id, unknown ids falling back to grey with no mark), and `client/usage-group-model.ts:71` (group naming by substring match on `'claude'`/`'gpt'`/`'external'`). A future provider is invisible in the UI until someone edits browser code. The presentation record exists to end that.
+The registry and the usage service are process singletons: a provider may only be registered once, and the browser reads one usage projection for every session. The `web_search` tool is per-agent by nature — whether an agent can search at all is a preset choice. The agent-plane entry resolves the host-plane registry rather than creating one.
+
+The browser half cannot import provider packages, because those spawn processes. That is the reason provider identity must cross RPC as data.
+
+## Registration — cordis injection, not a second plugin system
+
+The core provides a service; each provider plugin injects it. cordis defers a plugin's `apply` until its injected services exist and unwinds the registration when the plugin is disposed, so load order, absence and teardown are already solved.
 
 ```ts
-/** Serializable. Crosses RPC. No functions, no imports from provider packages. */
-export interface ProviderPresentation {
-  readonly id: string                    // 'codex', 'antigravity', ...
-  readonly displayName: string           // 'Codex'
-  readonly brandColor: string            // '#10A37F'
-  readonly iconPath?: string             // single SVG path in a 24x24 viewBox
-  readonly groupLabel?: string           // when one account spans vendors, e.g. 'Claude/GPT'
+// core — host plane
+export const name = 'nishi-core'
+// provides: nishiProviders
+
+// provider plugin
+export const name = 'codex'
+export const inject = ['nishiProviders', 'subprocess', 'llm']
+export async function apply(ctx: Context, raw: Config = {}): Promise<void> {
+  const config = resolveSharedProviderConfig('codex', raw, CODEX_DEFAULTS)
+  await ctx.nishiProviders.register(codexDescriptor, config)
 }
 ```
 
-`iconPath` is a path string rather than a component so it can be sent as data; a provider that supplies none renders the neutral mark, which must remain a supported outcome rather than a visual bug.
+`register` records the descriptor, registers the model adapter under the descriptor's routes, registers the usage source with the usage domain, and runs `install`. A provider package contains **no** direct `ctx.llm.registerAdapter` call — a grep-checkable invariant, and the primary test of whether this contract is real.
 
-## Host descriptor
+A provider mounted after the browser has already rendered must appear; a provider not mounted at all must not leave a placeholder row. The usage roster is therefore derived from registrations, not from a static list.
+
+## The descriptor
 
 ```ts
 export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
-  readonly id: string
-  readonly presentation: ProviderPresentation
+  readonly id: string                              // canonical, one per provider: 'codex'
+  readonly routes: readonly string[]               // model-route aliases: ['codex-app-server']
+  readonly presentation: ProviderPresentation      // data; crosses RPC to the browser
   readonly executable: VendorExecutableDescriptor
 
   readonly model?: ModelCapability<TConfig>
-  readonly delegation?: DelegationCapability<TConfig>
-  readonly memory?: MemoryCapability
   readonly usage?: UsageCapability
   readonly webSearch?: WebSearchCapability<TConfig>
 
   install?(ctx: Context, config: TConfig): void | Promise<void>
 }
 ```
+
+`routes` is empty exactly when `model` is absent — a usage-only provider such as Claude serves no route.
+
+Two capabilities from the previous version are gone. `DelegationCapability` goes with delegation. `MemoryCapability` — with its `in-band-tool` / `loopback-mcp` / `prompt-prefix` transport matrix — goes because the only plane that needed a transport was the delegated one. On the primary plane memory tools execute inside DSH, identically for every provider, and a provider cannot opt out of them or affect them. That is the strongest form the guarantee can take, and it needs no declaration.
 
 ### Shared configuration
 
@@ -68,56 +98,21 @@ export interface VendorExecutableDescriptor {
 }
 ```
 
-Precedence: explicit config value, then the environment override, then `PATH`. Fails closed — an invalid override never silently selects a different binary. `productName` exists so a shared resolver can still say *which* product is missing; without it every provider reports the same unhelpful sentence, which is what previously drove a provider to keep its own resolver just to own its wording.
+Precedence: explicit config value, then the environment override, then `PATH`. Fails closed — an invalid override never silently selects a different binary. `productName` exists so a shared resolver can still say *which* product is missing.
 
 ### Model — the primary plane
 
 ```ts
 export interface ModelCapability<TConfig> {
-  readonly routes: readonly string[]
   create(ctx: Context, config: TConfig): LlmAdapter
 }
 ```
 
-Absent → the provider is not selectable as a primary. This is the capability that makes providers interchangeable, and it is DSH's own contract: `LlmAdapter.stream(GenerateOptions)` plus `listModels()`.
+Absent → the provider is not selectable as a primary. Routes come from the descriptor, not from the capability, because the registry needs them before the adapter is built.
 
 **The model catalog must be honest.** No filtering of unrecognised model families. A hardcoded pattern such as `^(gemini|claude|gpt|oss)` silently hides new families, which attacks the exact value the product sells.
 
-### Delegation — the subagent plane
-
-```ts
-export interface DelegationCapability<TConfig> {
-  readonly capabilities: SubagentCapabilities   // outputSchema, depthLimit, toolFilter, persona
-  create(ctx: Context, config: TConfig): SubagentProvider
-}
-```
-
-Absent → the provider cannot be delegated to; only its models are usable. Declared capabilities are validated by DSH against each start request, so a false declaration produces a refusal rather than silent best-effort.
-
-Delegation is deliberately **not** normalised across providers beyond this: a delegated vendor agent brings its own tools, sandbox and audit trail, and flattening that removes the reason to call it. DSH's own in-process child agents (`@deepseek-ai/dsh-subagent`'s `child-agent`) are the uniform path when uniformity is what is wanted.
-
-### Memory
-
-Project memory is provider-agnostic on the primary plane — the tools execute inside DSH. On the **delegated** plane it must physically reach the vendor process, and the observed transports differ in kind:
-
-| Transport | Mechanism | Seen in |
-|---|---|---|
-| `in-band-tool` | host-declared tool in the turn params with an in-band callback | Codex app-server `dynamicTools` |
-| `loopback-mcp` | ephemeral authenticated HTTP MCP server on `127.0.0.1` | the former Claude integration |
-| `prompt-prefix` | rendered bootstrap injected ahead of the task | Antigravity |
-
-```ts
-export interface MemoryCapability {
-  readonly transport: 'in-band-tool' | 'loopback-mcp' | 'prompt-prefix'
-  readonly access: 'read'            // write is intentionally not offered to delegated runs
-}
-```
-
-`in-band-tool` is strictly the best where available: no listener, no secret, no vendor config mutation, and the tool's lifetime equals the turn's. `loopback-mcp` is the fallback for CLIs with no in-band channel. `prompt-prefix` is the weakest — the model cannot fetch a topic it was not handed — and a provider declaring it should be understood as offering degraded memory, not equivalent memory.
-
-Delegated runs are **read-only** by decision. Writing would require ownership and conflict rules across concurrent runs; the maintenance/consolidation turn is where that would belong if it is ever wanted.
-
-The adaptation itself — deriving a subagent memory handle from `ctx.projectMemory` — is identical across providers and belongs to the kit, not to each package.
+**Vendor-native memory must be suppressed on this plane.** A provider whose CLI carries its own memory or project-doc injection must disable it in the invocation it controls, at the same level of enforcement it claims. Codex does this with three `-c` overrides; Antigravity's is partly config and partly prompt instruction, which is guidance to a model rather than enforcement and must be recorded as such.
 
 ### Usage
 
@@ -130,7 +125,7 @@ export interface UsageCapability {
 }
 ```
 
-Absent, or declared unsupported → the UI shows an honest row, never an error. The usage domain already proves this with `NO_SUPPORTED_MACHINE_READABLE_SOURCE`; the contract generalises it. One source interface, one method, one collector, one default policy — registration iterates descriptors rather than branching per provider.
+Absent, or declared unsupported → the UI shows an honest row, never an error. One source interface, one method, one collector, one default policy; registration iterates descriptors rather than branching per provider.
 
 ### Web search
 
@@ -144,39 +139,60 @@ export interface WebSearchBackend {
 }
 ```
 
-Absent → routing to this provider yields an explicit unsupported error, which is the existing behaviour and correct. The two current backends already share their shape — an error class carrying a code, `record`, `bounded`, `promptFor`, effort encoding, and `search(route, request, signal)`; the contract and helpers are shared, while argv construction, event parsing and result extraction stay provider-owned.
+Absent → routing to this provider yields an explicit unsupported error. The core owns the tool, route resolution from the calling agent's request header, the error taxonomy and result normalization; the provider owns argv construction, event parsing and result extraction. There is no DeepSeek/Exa/Perplexity fallback by design.
 
-## Registration — the single path
+### Presentation record
 
 ```ts
-export async function registerProvider<TConfig extends SharedProviderConfig>(
-  ctx: Context, descriptor: ProviderDescriptor<TConfig>, config: TConfig,
-): Promise<void>
+/** Serializable. Crosses RPC. No functions, no imports from provider packages. */
+export interface ProviderPresentation {
+  readonly id: string                    // matches descriptor.id
+  readonly displayName: string           // 'Codex'
+  readonly brandColor: string            // '#10A37F'
+  readonly iconPath?: string             // single SVG path in a 24x24 viewBox
+  readonly groupLabel?: string           // when one account spans vendors, e.g. 'Claude/GPT'
+}
 ```
 
-Order: delegation, then model, then `install`. A provider package must contain **no** direct `ctx.subagents.registerProvider` or `ctx.llm.registerAdapter` call — that is a grep-checkable invariant, and the primary test of whether this contract is real.
+`iconPath` is a path string rather than a component so it can be sent as data; a provider supplying none renders the neutral mark, which must remain a supported outcome rather than a visual bug. `groupLabel` replaces the substring guessing that currently decides grouping from the words `'claude'`, `'gpt'` and `'external'` found in a window label.
+
+## Invariants
+
+Checkable, and each one is a test rather than a review habit.
+
+1. No provider package calls `ctx.llm.registerAdapter` or registers a usage source directly.
+2. `nishi-dsh-core` contains no provider identifier — `codex`, `antigravity`, `claude`, `gpt`, `gemini` — in any file, browser half included. Vendor-neutral words in prose comments are the only exception, and the test spells out which.
+3. Every descriptor with a `model` capability declares at least one route; every descriptor without one declares none.
+4. `nishi-dsh-core` does not depend on any provider package.
+5. No `subagents` registration and no vendor subagent tool exists anywhere in the tree.
 
 ## Adding a provider
 
 Complete list. Anything outside it is a contract defect, not a task.
 
-1. A package exporting `name`, `inject`, `Config`, `apply` — where `apply` resolves the shared config and calls `registerProvider`.
-2. A descriptor: identity, presentation, executable, and the capabilities the vendor actually supports.
-3. Protocol translation: the `LlmAdapter`, the subagent runner, the search backend — whatever the declared capabilities require.
-4. Registration as a bundle row in `packages/suite/cordis.patch.yml`, and membership in the release family lists.
+1. A package exporting `name`, `inject` (including `nishiProviders`), `Config`, and an `apply` that resolves the shared config and calls `ctx.nishiProviders.register`.
+2. A descriptor: identity, routes, presentation, executable, and the capabilities the vendor actually supports.
+3. Protocol translation: the `LlmAdapter`, the search backend, the usage source — whatever the declared capabilities require.
+4. A bundle row in `packages/suite/cordis.patch.yml`, and membership in the release family lists.
 
-No edits to the usage domain, the host composition, or any browser file.
+No edits to the core, the usage domain, the host composition, or any browser file.
 
 ## Implementation state
+
+Measured against `HEAD` = `218f8cc`, before any rc.3 work.
 
 | Concern | State |
 |---|---|
 | Executable resolution | one implementation, `productName` for specific diagnostics |
 | Stream decoding, disposal, settled stderr, ephemeral workspaces | one implementation each |
-| Usage: source interface, collector, refresh policy, registration | unified; one `read()`, one collector, descriptor-driven |
-| Failure shape | kit has `VendorFailure`; Codex and Antigravity still produce the same string themselves |
-| Shared config and single registration path | done — the invariant greps clean |
-| Memory adaptation | duplicated verbatim between Codex and Antigravity |
-| Web search contract | shape parallel, not yet unified |
-| Presentation record | not built; the browser still hardcodes three providers |
+| Usage: source interface, collector, refresh policy, registration | one interface and one collector shape; registration still branches per provider in the host |
+| Shared config and single registration path | done for model and subagent; the registry service does not exist yet |
+| Failure shape | core has `VendorFailure`; Codex and Antigravity still produce the same string themselves |
+| Delegation | present; to be removed in full |
+| Memory adaptation | duplicated between Codex and Antigravity; both copies die with delegation |
+| Codex vendor-memory suppression | injected only on the delegated path; **absent from the primary invocation** |
+| Web search | contract shape parallel, not unified; the core package imports both provider packages |
+| Presentation record | not built; the browser hardcodes three providers in three files |
 | Model catalog honesty | Antigravity still filters by pattern |
+| Core package | not merged; four packages |
+| Claude | a usage source inside the kit, not a provider plugin |
