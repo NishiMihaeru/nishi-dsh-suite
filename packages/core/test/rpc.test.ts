@@ -44,13 +44,49 @@ function host(overrides: Partial<UsageLimitsRpcHost> = {}): UsageLimitsRpcHost {
   }
 }
 
-test('get-provider trims and validates provider id before returning the public dto', async () => {
+test('get-provider accepts an exact canonical provider id', async () => {
   const handler = createUsageLimitsRpcHandler(host())
-  const result = await handler(USAGE_LIMITS_GET_PROVIDER_ENDPOINT, { providerId: ' codex ' }, signal)
+  const result = await handler(USAGE_LIMITS_GET_PROVIDER_ENDPOINT, { providerId: 'codex' }, signal)
 
   assert.equal(result.ok, true)
   if (!result.ok) return
   assert.deepEqual(result.value, usage)
+})
+
+test('get-provider rejects a noncanonical provider id instead of silently trimming it', async () => {
+  let called = false
+  const handler = createUsageLimitsRpcHandler(host({
+    getCachedProviderPublic: () => {
+      called = true
+      return usage
+    },
+  }))
+
+  const result = await handler(USAGE_LIMITS_GET_PROVIDER_ENDPOINT, { providerId: ' codex ' }, signal)
+
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.equal(result.error.code, 'bad-request')
+  assert.equal(called, false)
+})
+
+test('refresh-provider also rejects noncanonical provider ids before reaching the host', async () => {
+  let called = false
+  const handler = createUsageLimitsRpcHandler(host({
+    refreshProviderPublic: async () => {
+      called = true
+      return usage
+    },
+  }))
+
+  const result = await handler(
+    USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT,
+    { providerId: 'codex route', force: true },
+    signal,
+  )
+
+  assert.equal(result.ok, false)
+  assert.equal(called, false)
 })
 
 test('usage rpc rejects unexpected request fields', async () => {
