@@ -5,7 +5,7 @@ import test from 'node:test'
 test('Claude Code package manifest has independent public identity without Agent SDK runtime', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(manifest.name, 'nishi-dsh-claude-code')
-  assert.equal(manifest.version, '0.1.0-rc.1')
+  assert.equal(manifest.version, '0.1.0-rc.2')
   assert.equal(manifest.dependencies?.['@anthropic-ai/claude-agent-sdk'], undefined)
   assert.equal(manifest.exports?.['./usage']?.default, './lib/usage.js')
 })
