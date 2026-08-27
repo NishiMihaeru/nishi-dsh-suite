@@ -76,14 +76,21 @@ function resolvedConfig(config: Config): AdapterConfig {
   }
 }
 
-/** Register the adapter inside the existing DSH provider and session lifecycles. */
-export function apply(ctx: Context, config: Config): void {
+/**
+ * Build the adapter and bind it to the session and dispose lifecycles.
+ *
+ * Registration is deliberately absent: every provider reaches ctx.llm through
+ * the kit's single registerProvider path, so registering here as well would
+ * claim the same route twice. Locally modified against the vendored upstream
+ * snapshot for exactly that reason.
+ */
+export function createAdapter(ctx: Context, config: Config): CodexAppServerAdapter {
   const adapter = new CodexAppServerAdapter(ctx, resolvedConfig(config))
-  ctx.llm.registerAdapter([CODEX_APP_SERVER_PROVIDER], adapter)
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/end') adapter.closeSession(String(session.header.id))
   })
   ctx.effect(() => () => adapter.dispose(), 'codex-plugin-dsh: close active App Server turns')
+  return adapter
 }
 
 export { CODEX_APP_SERVER_PROVIDER, CodexAppServerAdapter }

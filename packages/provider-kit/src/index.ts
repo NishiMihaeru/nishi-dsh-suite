@@ -47,3 +47,10 @@ export {
   type CodexRateLimitsSourceLike,
   type OfficialCodexRateLimitsSourceSpec,
 } from './codex-usage.js'
+export {
+  registerProvider,
+  resolveSharedProviderConfig,
+  type ProviderDescriptor,
+  type SharedProviderConfig,
+  type SharedProviderDefaults,
+} from './registration.js'

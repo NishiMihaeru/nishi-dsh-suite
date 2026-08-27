@@ -768,17 +768,24 @@ export class AntigravityCliAdapter extends LlmAdapter {
   }
 }
 
-export function installAntigravityPrimaryAdapter(
+/**
+ * Build the primary adapter and give its disposal to the calling scope.
+ *
+ * Registration deliberately does NOT happen here: every provider reaches
+ * ctx.llm through the kit's single registerProvider path, so this must not
+ * register a second time. Keeping creation in one function is what lets the
+ * live suite drive exactly the object production drives.
+ */
+export function createAntigravityPrimaryAdapter(
   ctx: Context,
   config: AntigravityPrimaryConfig,
 ): AntigravityCliAdapter {
   const adapter = new AntigravityCliAdapter(ctx, config)
-  ctx.llm.registerAdapter([ANTIGRAVITY_PRIMARY_PROVIDER], adapter)
   ctx.effect(
     function* () {
       yield () => { void adapter.dispose() }
     },
-    'subagent-codex: dispose official Antigravity CLI primary adapter',
+    'subagent-antigravity: dispose official Antigravity CLI primary adapter',
   )
   return adapter
 }

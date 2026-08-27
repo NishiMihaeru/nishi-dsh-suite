@@ -74,11 +74,19 @@ test('2. package.json contains no exotic git subdependency', async () => {
   }
 })
 
-test('3. vendored snapshot provides CodexAppServerAdapter and apply entry', async () => {
+test('3. vendored snapshot creates the adapter but never registers it', async () => {
   const vendored = await import('../src/codex-plugin-dsh/index.ts')
-  assert.equal(typeof vendored.apply, 'function')
+  assert.equal(typeof vendored.createAdapter, 'function')
   assert.equal(typeof vendored.CodexAppServerAdapter, 'function')
   assert.equal(vendored.CODEX_APP_SERVER_PROVIDER, 'codex-app-server')
+
+  // The snapshot is locally modified: upstream's `apply` both created and
+  // registered the adapter. Registration now happens once, in the kit's
+  // registerProvider, so restoring an `apply` entry here would claim the
+  // codex-app-server route twice.
+  assert.equal((vendored as Record<string, unknown>).apply, undefined)
+  const source = await readFile(new URL('../src/codex-plugin-dsh/index.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /ctx\.llm\.registerAdapter/)
 })
 
 test('4. fresh Suite composition provides codex-app-server', async () => {

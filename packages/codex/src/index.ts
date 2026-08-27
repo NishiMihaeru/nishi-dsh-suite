@@ -13,16 +13,20 @@ import Schema from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-session'
 import {
-  assertPositiveFinite,
   NO_START_CAPABILITIES,
   resolveChildCwd,
   type SubagentProvider,
   type SubagentRun,
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import {
-  apply as applyCodexPrimary,
+  registerProvider,
+  resolveSharedProviderConfig,
+  type ProviderDescriptor,
+  type SharedProviderDefaults,
+} from 'nishi-dsh-provider-kit'
+import {
+  createAdapter as createCodexPrimaryAdapter,
   CODEX_APP_SERVER_PROVIDER,
   CodexAppServerAdapter,
 } from './codex-plugin-dsh/index.js'
@@ -30,7 +34,7 @@ import {
   createCodexSubagentMemory,
   type ProjectMemoryServiceLike,
 } from './memory.js'
-import { resolveCodexExecutable } from './resolver.js'
+import { CODEX_DESCRIPTOR, resolveCodexExecutable } from './resolver.js'
 import {
   CODEX_PERMISSION_MODES,
   DEFAULT_CODEX_PERMISSION_MODE,
@@ -52,6 +56,16 @@ export const inject = [
 ]
 
 const DEFAULT_PROVIDER_NAME = 'codex'
+
+/** Fields shared by every subscription-CLI provider, defaulted for Codex. */
+const DEFAULT_CODEX_SHARED_CONFIG: SharedProviderDefaults = {
+  env: {},
+  modelCacheMs: 30_000,
+  catalogTimeoutMs: 10_000,
+  turnTimeoutMs: 10 * 60_000,
+  disposeGraceMs: DEFAULT_DISPOSE_GRACE_MS,
+  stderrMaxBytes: 16_384,
+}
 
 export interface Config {
   providerName?: string
@@ -77,6 +91,13 @@ export const Config: Schema<Config> = Schema.object({
   modelPageSize: Schema.number().default(100),
 })
 
+/** Config after merge-and-validate: every field is present, `providerName`/`permissionMode`/`modelPageSize` are Codex-specific. */
+interface ResolvedCodexConfig extends SharedProviderDefaults {
+  readonly providerName: string
+  readonly permissionMode: CodexPermissionMode
+  readonly modelPageSize: number
+}
+
 function externalCodexCommand(env: Record<string, string>): string {
   const override = env.DSH_CODEX_EXECUTABLE?.trim() || process.env.DSH_CODEX_EXECUTABLE?.trim()
   return override && override.length > 0 ? override : 'codex'
@@ -89,7 +110,7 @@ class CodexProvider implements SubagentProvider {
   constructor(
     readonly name: string,
     private readonly ctx: Context,
-    private readonly config: Required<Config>,
+    private readonly config: ResolvedCodexConfig,
   ) {}
 
   async start(request: SubagentStartRequest): Promise<SubagentRun> {
@@ -133,42 +154,59 @@ class CodexProvider implements SubagentProvider {
   }
 }
 
+/**
+ * The Codex registration recipe: a subagent provider plus an `install` step
+ * for the external Codex App Server primary bridge.
+ *
+ * There is no `model` entry here. `applyCodexPrimary` (in
+ * `./codex-plugin-dsh/index.ts`, vendored from upstream `codex-plugin-dsh`)
+ * builds and registers its `CodexAppServerAdapter` in one motion, together
+ * with model-catalog caching, a `session/event` listener, and its own
+ * dispose effect — extracting a standalone `create(): LlmAdapter` out of
+ * that would mean rewriting `adapter.ts`, which is out of scope here. So
+ * Codex's whole primary bridge — history installation and
+ * `applyCodexPrimary` together — runs as `install`, exactly as `apply()`
+ * ran them before this module existed.
+ */
+const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
+  id: 'subagent-codex',
+  executable: CODEX_DESCRIPTOR,
+  subagent: {
+    create: (ctx, config) => new CodexProvider(config.providerName, ctx, config),
+  },
+  model: {
+    routes: [CODEX_APP_SERVER_PROVIDER],
+    create: (ctx, config) => createCodexPrimaryAdapter(ctx, {
+      executable: externalCodexCommand(config.env),
+      env: config.env,
+      modelCacheMs: config.modelCacheMs,
+      catalogTimeoutMs: config.catalogTimeoutMs,
+      turnTimeoutMs: config.turnTimeoutMs,
+      disposeGraceMs: config.disposeGraceMs,
+      stderrMaxBytes: config.stderrMaxBytes,
+      modelPageSize: config.modelPageSize,
+    }),
+  },
+  async install(ctx) {
+    await installCodexPrimaryHistoryBridge(ctx)
+  },
+}
+
 /** Register the Codex subagent and external Codex primary bridge. */
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
-  const config: Required<Config> = {
-    providerName: rawConfig.providerName ?? DEFAULT_PROVIDER_NAME,
-    env: rawConfig.env ?? {},
+  const providerName = rawConfig.providerName ?? DEFAULT_PROVIDER_NAME
+  if (providerName.trim().length === 0) {
+    throw new Error('subagent-codex: providerName must be non-empty')
+  }
+  const shared = resolveSharedProviderConfig('subagent-codex', rawConfig, DEFAULT_CODEX_SHARED_CONFIG)
+  const config: ResolvedCodexConfig = {
+    ...shared,
+    providerName,
     permissionMode: rawConfig.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE,
-    disposeGraceMs: rawConfig.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS,
-    modelCacheMs: rawConfig.modelCacheMs ?? 30_000,
-    catalogTimeoutMs: rawConfig.catalogTimeoutMs ?? 10_000,
-    turnTimeoutMs: rawConfig.turnTimeoutMs ?? 10 * 60_000,
-    stderrMaxBytes: rawConfig.stderrMaxBytes ?? 16_384,
     modelPageSize: rawConfig.modelPageSize ?? 100,
   }
 
-  if (config.providerName.trim().length === 0) {
-    throw new Error('subagent-codex: providerName must be non-empty')
-  }
-  assertPositiveFinite('subagent-codex', 'disposeGraceMs', config.disposeGraceMs)
-  if (config.disposeGraceMs > MAX_TIMER_DELAY_MS) {
-    throw new Error(
-      `subagent-codex: disposeGraceMs must be no greater than ${MAX_TIMER_DELAY_MS}`,
-    )
-  }
-
-  ctx.subagents.registerProvider(new CodexProvider(config.providerName, ctx, config))
-  await installCodexPrimaryHistoryBridge(ctx)
-  applyCodexPrimary(ctx, {
-    executable: externalCodexCommand(config.env),
-    env: config.env,
-    modelCacheMs: config.modelCacheMs,
-    catalogTimeoutMs: config.catalogTimeoutMs,
-    turnTimeoutMs: config.turnTimeoutMs,
-    disposeGraceMs: config.disposeGraceMs,
-    stderrMaxBytes: config.stderrMaxBytes,
-    modelPageSize: config.modelPageSize,
-  })
+  await registerProvider(ctx, codexDescriptor, config)
 }
 
 export { CODEX_APP_SERVER_PROVIDER, CodexAppServerAdapter, installCodexPrimaryHistoryBridge }

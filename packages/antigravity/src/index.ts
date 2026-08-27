@@ -1,15 +1,20 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import {
-  assertPositiveFinite,
   NO_START_CAPABILITIES,
   resolveChildCwd,
   type SubagentProvider,
   type SubagentRun,
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
-import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { installAntigravityPrimaryAdapter } from './antigravity-primary.js'
+import {
+  registerProvider,
+  resolveSharedProviderConfig,
+  type ProviderDescriptor,
+  type SharedProviderDefaults,
+  type VendorExecutableDescriptor,
+} from 'nishi-dsh-provider-kit'
+import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
 import {
   DEFAULT_ANTIGRAVITY_SUBAGENT_EFFORT,
   DEFAULT_ANTIGRAVITY_SUBAGENT_MODEL,
@@ -24,12 +29,31 @@ export const name = 'subagent-antigravity'
 export const inject = ['subagents', 'subprocess', 'llm', 'projectMemory']
 
 export const DEFAULT_ANTIGRAVITY_EXECUTABLE = 'agy'
+export const DEFAULT_ANTIGRAVITY_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'
 export const DEFAULT_ANTIGRAVITY_MODEL_CACHE_MS = 30_000
 export const DEFAULT_ANTIGRAVITY_CATALOG_TIMEOUT_MS = 30_000
 export const DEFAULT_ANTIGRAVITY_TURN_TIMEOUT_MS = 10 * 60_000
 export const DEFAULT_ANTIGRAVITY_DISPOSE_GRACE_MS = 3_000
 export const DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES = 64_000
 export const DEFAULT_ANTIGRAVITY_SUBAGENT_PROVIDER_NAME = 'antigravity'
+
+/** Identity and lookup facts for the Antigravity CLI executable. */
+const ANTIGRAVITY_DESCRIPTOR: VendorExecutableDescriptor = {
+  id: 'subagent-antigravity',
+  defaultName: DEFAULT_ANTIGRAVITY_EXECUTABLE,
+  envOverride: DEFAULT_ANTIGRAVITY_EXECUTABLE_ENV,
+  productName: 'Antigravity CLI',
+}
+
+/** Fields shared by every subscription-CLI provider, defaulted for Antigravity. */
+const DEFAULT_ANTIGRAVITY_SHARED_CONFIG: SharedProviderDefaults = {
+  env: {},
+  modelCacheMs: DEFAULT_ANTIGRAVITY_MODEL_CACHE_MS,
+  catalogTimeoutMs: DEFAULT_ANTIGRAVITY_CATALOG_TIMEOUT_MS,
+  turnTimeoutMs: DEFAULT_ANTIGRAVITY_TURN_TIMEOUT_MS,
+  disposeGraceMs: DEFAULT_ANTIGRAVITY_DISPOSE_GRACE_MS,
+  stderrMaxBytes: DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES,
+}
 
 export interface Config {
   executable?: string
@@ -57,14 +81,12 @@ export const Config: Schema<Config> = Schema.object({
   subagentEffort: Schema.union(['low', 'medium', 'high'] as const).default(DEFAULT_ANTIGRAVITY_SUBAGENT_EFFORT),
 })
 
-interface AntigravityProviderConfig {
+/** Config after merge-and-validate: every field is present, the rest are Antigravity-specific. */
+interface ResolvedAntigravityConfig extends SharedProviderDefaults {
   readonly executable: string
-  readonly env: Record<string, string>
-  readonly model: string
-  readonly effort: 'low' | 'medium' | 'high'
-  readonly turnTimeoutMs: number
-  readonly disposeGraceMs: number
-  readonly stderrMaxBytes: number
+  readonly subagentProviderName: string
+  readonly subagentModel: string
+  readonly subagentEffort: 'low' | 'medium' | 'high'
 }
 
 class AntigravityProvider implements SubagentProvider {
@@ -74,7 +96,7 @@ class AntigravityProvider implements SubagentProvider {
   constructor(
     readonly name: string,
     private readonly ctx: Context,
-    private readonly config: AntigravityProviderConfig,
+    private readonly config: ResolvedAntigravityConfig,
   ) {}
 
   async start(request: SubagentStartRequest): Promise<SubagentRun> {
@@ -94,8 +116,8 @@ class AntigravityProvider implements SubagentProvider {
       cwd,
       executable: this.config.executable,
       env: this.config.env,
-      model: this.config.model,
-      effort: this.config.effort,
+      model: this.config.subagentModel,
+      effort: this.config.subagentEffort,
       turnTimeoutMs: this.config.turnTimeoutMs,
       disposeGraceMs: this.config.disposeGraceMs,
       stderrMaxBytes: this.config.stderrMaxBytes,
@@ -112,55 +134,45 @@ class AntigravityProvider implements SubagentProvider {
   }
 }
 
-export function apply(ctx: Context, rawConfig: Config = {}): void {
-  const config = {
-    executable: rawConfig.executable ?? DEFAULT_ANTIGRAVITY_EXECUTABLE,
-    env: rawConfig.env ?? {},
-    modelCacheMs: rawConfig.modelCacheMs ?? DEFAULT_ANTIGRAVITY_MODEL_CACHE_MS,
-    catalogTimeoutMs: rawConfig.catalogTimeoutMs ?? DEFAULT_ANTIGRAVITY_CATALOG_TIMEOUT_MS,
-    turnTimeoutMs: rawConfig.turnTimeoutMs ?? DEFAULT_ANTIGRAVITY_TURN_TIMEOUT_MS,
-    disposeGraceMs: rawConfig.disposeGraceMs ?? DEFAULT_ANTIGRAVITY_DISPOSE_GRACE_MS,
-    stderrMaxBytes: rawConfig.stderrMaxBytes ?? DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES,
-    subagentProviderName: rawConfig.subagentProviderName ?? DEFAULT_ANTIGRAVITY_SUBAGENT_PROVIDER_NAME,
-    subagentModel: rawConfig.subagentModel ?? DEFAULT_ANTIGRAVITY_SUBAGENT_MODEL,
+/**
+ * The Antigravity registration recipe: a subagent provider plus the
+ * `AntigravityCliAdapter` as the `antigravity-cli` model route.
+ *
+ * Unlike Codex, the adapter here has a clean `create(): LlmAdapter` — it is
+ * just `new AntigravityCliAdapter(ctx, config)` — so `model` is populated
+ * directly instead of falling back to `install`. The adapter's dispose
+ * effect is bound inside `createAntigravityPrimaryAdapter`, which the live
+ * suite drives directly so it exercises the same object production does.
+ */
+const antigravityDescriptor: ProviderDescriptor<ResolvedAntigravityConfig> = {
+  id: 'subagent-antigravity',
+  executable: ANTIGRAVITY_DESCRIPTOR,
+  subagent: {
+    create: (ctx, config) => new AntigravityProvider(config.subagentProviderName, ctx, config),
+  },
+  model: {
+    routes: [ANTIGRAVITY_PRIMARY_PROVIDER],
+    create: (ctx, config) => createAntigravityPrimaryAdapter(ctx, config),
+  },
+}
+
+export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
+  const executable = rawConfig.executable ?? DEFAULT_ANTIGRAVITY_EXECUTABLE
+  if (executable.trim().length === 0) throw new Error('subagent-antigravity: executable must be non-empty')
+  const subagentProviderName = rawConfig.subagentProviderName ?? DEFAULT_ANTIGRAVITY_SUBAGENT_PROVIDER_NAME
+  if (subagentProviderName.trim().length === 0) throw new Error('subagent-antigravity: subagentProviderName must be non-empty')
+  const subagentModel = rawConfig.subagentModel ?? DEFAULT_ANTIGRAVITY_SUBAGENT_MODEL
+  if (subagentModel.trim().length === 0) throw new Error('subagent-antigravity: subagentModel must be non-empty')
+
+  const shared = resolveSharedProviderConfig('subagent-antigravity', rawConfig, DEFAULT_ANTIGRAVITY_SHARED_CONFIG)
+
+  const config: ResolvedAntigravityConfig = {
+    ...shared,
+    executable,
+    subagentProviderName,
+    subagentModel,
     subagentEffort: rawConfig.subagentEffort ?? DEFAULT_ANTIGRAVITY_SUBAGENT_EFFORT,
   }
 
-  if (config.executable.trim().length === 0) throw new Error('subagent-antigravity: executable must be non-empty')
-  if (config.subagentProviderName.trim().length === 0) throw new Error('subagent-antigravity: subagentProviderName must be non-empty')
-  if (config.subagentModel.trim().length === 0) throw new Error('subagent-antigravity: subagentModel must be non-empty')
-  if (!Number.isFinite(config.modelCacheMs) || config.modelCacheMs < 0) {
-    throw new Error('subagent-antigravity: modelCacheMs must be non-negative and finite')
-  }
-  for (const [field, value] of [
-    ['catalogTimeoutMs', config.catalogTimeoutMs],
-    ['turnTimeoutMs', config.turnTimeoutMs],
-    ['disposeGraceMs', config.disposeGraceMs],
-    ['stderrMaxBytes', config.stderrMaxBytes],
-  ] as const) {
-    assertPositiveFinite('subagent-antigravity', field, value)
-    if (field !== 'stderrMaxBytes' && value > MAX_TIMER_DELAY_MS) {
-      throw new Error(`subagent-antigravity: ${field} must be no greater than ${MAX_TIMER_DELAY_MS}`)
-    }
-  }
-
-  ctx.subagents.registerProvider(new AntigravityProvider(config.subagentProviderName, ctx, {
-    executable: config.executable,
-    env: config.env,
-    model: config.subagentModel,
-    effort: config.subagentEffort,
-    turnTimeoutMs: config.turnTimeoutMs,
-    disposeGraceMs: config.disposeGraceMs,
-    stderrMaxBytes: config.stderrMaxBytes,
-  }))
-
-  installAntigravityPrimaryAdapter(ctx, {
-    executable: config.executable,
-    env: config.env,
-    modelCacheMs: config.modelCacheMs,
-    catalogTimeoutMs: config.catalogTimeoutMs,
-    turnTimeoutMs: config.turnTimeoutMs,
-    disposeGraceMs: config.disposeGraceMs,
-    stderrMaxBytes: config.stderrMaxBytes,
-  })
+  await registerProvider(ctx, antigravityDescriptor, config)
 }

@@ -29,7 +29,7 @@ export interface CodexExecutableResolutionOptions {
   readonly platform?: NodeJS.Platform
 }
 
-const CODEX_DESCRIPTOR: VendorExecutableDescriptor = {
+export const CODEX_DESCRIPTOR: VendorExecutableDescriptor = {
   id: 'subagent-codex',
   defaultName: 'codex',
   envOverride: CODEX_EXECUTABLE_ENV,
