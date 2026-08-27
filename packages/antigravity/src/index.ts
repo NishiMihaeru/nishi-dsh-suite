@@ -18,7 +18,7 @@ import {
   type ProviderDescriptor,
   type SharedProviderDefaults,
   type VendorExecutableDescriptor,
-} from 'nishi-dsh-provider-kit'
+} from 'nishi-dsh-core/runtime'
 import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
 
 export const name = 'antigravity'

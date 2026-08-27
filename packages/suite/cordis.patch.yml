@@ -15,5 +15,5 @@
     - id: nishi-antigravity
       name: 'nishi-dsh-antigravity'
 
-    - id: nishi-usage-limits-host
-      name: 'nishi-dsh-usage-limits-host'
+    - id: nishi-core
+      name: 'nishi-dsh-core'

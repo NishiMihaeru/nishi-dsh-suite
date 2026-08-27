@@ -19,7 +19,7 @@ import {
   resolveSharedProviderConfig,
   type ProviderDescriptor,
   type SharedProviderDefaults,
-} from 'nishi-dsh-provider-kit'
+} from 'nishi-dsh-core/runtime'
 import {
   createAdapter as createCodexPrimaryAdapter,
   CODEX_APP_SERVER_PROVIDER,

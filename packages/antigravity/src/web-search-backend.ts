@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline'
 import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-subprocess'
-import { ephemeralAgentWorkspace } from 'nishi-dsh-provider-kit'
+import { ephemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
 
 const AGENT_NAME = 'dsh-web-search'
 const WINDOWS_EXECUTABLE_ENV = 'DSH_PRIMARY_WEB_SEARCH_AGY_EXECUTABLE'

@@ -8,7 +8,7 @@ test('project-memory package exposes the public rc.2 package boundary', async ()
   const pkg = JSON.parse(await readFile(manifestUrl, 'utf8'))
 
   assert.equal(pkg.name, 'nishi-dsh-project-memory')
-  assert.equal(pkg.version, '0.1.0-rc.2')
+  assert.equal(pkg.version, '0.1.0-rc.3')
   assert.equal(pkg.private, undefined)
   assert.equal(pkg.type, 'module')
   assert.deepEqual(pkg.exports, {

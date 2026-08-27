@@ -6,17 +6,17 @@ The migration targets DeepSeek Harness `0.1.1-rc.2`, Node.js 24, and one Market-
 
 ## Modules
 
-The Suite is split into independently owned runtime packages:
+The Suite is one provider-independent core plus one plugin per provider:
 
+- `nishi-dsh-core` — the core: shared vendor CLI runtime, the normalized usage/limits domain, and the host/RPC/browser Usage & Limits surface. It names no provider;
 - `nishi-dsh-codex` — Codex primary provider with a `codex-app-server` route compiled from the reviewed MIT `wingoo/codex-plugin-dsh` source snapshot pinned at `79fe7503390d641680bad8efade52782a3c31ced`;
 - `nishi-dsh-antigravity` — Antigravity primary provider through the official `agy` client boundary;
-- `nishi-dsh-primary-web-search` — one `web_search` tool routed by the active Codex/Antigravity primary;
-- `nishi-dsh-project-memory` — project-scoped Shared Project Memory;
-- `nishi-dsh-usage-limits` — normalized usage/limits domain;
-- `nishi-dsh-provider-kit` — shared vendor CLI runtime, including the Codex app-server rate-limit source and the Claude usage/limits source through the installed official `claude` CLI;
-- `nishi-dsh-usage-limits-host` — host/RPC/browser Usage & Limits integration.
+- `nishi-dsh-project-memory` — project-scoped Shared Project Memory, provider-agnostic by construction;
+- `nishi-dsh-primary-web-search` — one `web_search` tool routed by the active primary. Folds into the core once its provider-package dependency is inverted.
 
 `nishi-dsh-suite` is a thin composition bundle over those packages. It does not reimplement provider behavior.
+
+In `0.1.0-rc.3` the former `nishi-dsh-provider-kit`, `nishi-dsh-usage-limits`, and `nishi-dsh-usage-limits-host` merged into `nishi-dsh-core`: they were three packages describing one core.
 
 ## Distribution model
 

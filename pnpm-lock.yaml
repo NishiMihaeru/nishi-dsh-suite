@@ -31,9 +31,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
         version: 3.18.1
-      nishi-dsh-provider-kit:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../provider-kit
+      nishi-dsh-core:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../core
     devDependencies:
       '@types/node':
         specifier: 24.13.3
@@ -74,9 +74,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
         version: 3.18.1
-      nishi-dsh-provider-kit:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../provider-kit
+      nishi-dsh-core:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../core
     devDependencies:
       '@types/node':
         specifier: 24.13.3
@@ -88,152 +88,7 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
-  packages/primary-web-search:
-    dependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.1
-        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/dsh-subprocess':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
-      '@deepseek-ai/dsh-system-prompt':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-llm@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))))(@deepseek-ai/dsh-scope@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
-      '@deepseek-ai/dsh-tools':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(119bc70f73f8eddebfaa6b47561adeb3)
-      '@deepseek-ai/schemastery':
-        specifier: ^3.18.1
-        version: 3.18.1
-      nishi-dsh-antigravity:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../antigravity
-      nishi-dsh-codex:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../codex
-    devDependencies:
-      '@types/node':
-        specifier: 24.13.3
-        version: 24.13.3
-      tsx:
-        specifier: 4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-
-  packages/project-memory:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.1
-        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/dsh-agent':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(c1537a8836b04097f168b024f1e38d85)
-      '@deepseek-ai/dsh-llm':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
-      '@deepseek-ai/dsh-tools':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(119bc70f73f8eddebfaa6b47561adeb3)
-      '@types/node':
-        specifier: 24.13.3
-        version: 24.13.3
-      tsx:
-        specifier: 4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-
-  packages/provider-kit:
-    dependencies:
-      '@deepseek-ai/cordis':
-        specifier: ^4.0.1
-        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/dsh-llm':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
-      '@deepseek-ai/dsh-subagent':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(41d5ff529e06289e51a68d84fe32d51b)
-      '@deepseek-ai/dsh-subprocess':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
-      '@deepseek-ai/dsh-timeout':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
-    devDependencies:
-      '@types/node':
-        specifier: 24.13.3
-        version: 24.13.3
-      tsx:
-        specifier: 4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-
-  packages/suite:
-    dependencies:
-      '@deepseek-ai/dsh-authorization':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(e0350187351f9d964689a3e0122aa410)
-      nishi-dsh-antigravity:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../antigravity
-      nishi-dsh-codex:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../codex
-      nishi-dsh-primary-web-search:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../primary-web-search
-      nishi-dsh-project-memory:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../project-memory
-      nishi-dsh-provider-kit:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../provider-kit
-      nishi-dsh-usage-limits:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../usage-limits
-      nishi-dsh-usage-limits-host:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../usage-limits-host
-    devDependencies:
-      '@types/node':
-        specifier: 24.13.3
-        version: 24.13.3
-      tsx:
-        specifier: 4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-      yaml:
-        specifier: 2.9.0
-        version: 2.9.0
-
-  packages/usage-limits:
-    devDependencies:
-      '@types/node':
-        specifier: 24.13.3
-        version: 24.13.3
-      tsx:
-        specifier: 4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-
-  packages/usage-limits-host:
-    dependencies:
-      nishi-dsh-provider-kit:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../provider-kit
-      nishi-dsh-usage-limits:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../usage-limits
+  packages/core:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.1
@@ -274,6 +129,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
+      '@deepseek-ai/dsh-subagent':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(41d5ff529e06289e51a68d84fe32d51b)
       '@deepseek-ai/dsh-subprocess':
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
@@ -319,6 +177,98 @@ importers:
       use-sync-external-store:
         specifier: 1.2.0
         version: 1.2.0(react@18.3.1)
+
+  packages/primary-web-search:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@deepseek-ai/dsh-subprocess':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
+      '@deepseek-ai/dsh-system-prompt':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-llm@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))))(@deepseek-ai/dsh-scope@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
+      '@deepseek-ai/dsh-tools':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(119bc70f73f8eddebfaa6b47561adeb3)
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.1
+        version: 3.18.1
+      nishi-dsh-antigravity:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../antigravity
+      nishi-dsh-codex:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../codex
+    devDependencies:
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      tsx:
+        specifier: 4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
+  packages/project-memory:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@deepseek-ai/dsh-agent':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(c1537a8836b04097f168b024f1e38d85)
+      '@deepseek-ai/dsh-llm':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
+      '@deepseek-ai/dsh-tools':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(119bc70f73f8eddebfaa6b47561adeb3)
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      tsx:
+        specifier: 4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
+  packages/suite:
+    dependencies:
+      '@deepseek-ai/dsh-authorization':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(e0350187351f9d964689a3e0122aa410)
+      nishi-dsh-antigravity:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../antigravity
+      nishi-dsh-codex:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../codex
+      nishi-dsh-core:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../core
+      nishi-dsh-primary-web-search:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../primary-web-search
+      nishi-dsh-project-memory:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../project-memory
+    devDependencies:
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      tsx:
+        specifier: 4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
 packages:
 

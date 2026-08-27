@@ -10,7 +10,7 @@ const expectedRows = new Map([
   ['nishi-project-memory', 'nishi-dsh-project-memory'],
   ['nishi-codex', 'nishi-dsh-codex'],
   ['nishi-antigravity', 'nishi-dsh-antigravity'],
-  ['nishi-usage-limits-host', 'nishi-dsh-usage-limits-host'],
+  ['nishi-core', 'nishi-dsh-core'],
 ])
 
 test('bundle patch mounts each host runtime plugin exactly once', async () => {
@@ -39,11 +39,7 @@ test('bundle patch mounts each host runtime plugin exactly once', async () => {
   assert.deepEqual(new Set(seenIds), new Set(expectedRows.keys()))
   assert.deepEqual(new Set(seenNames), new Set(expectedRows.values()))
 
-  for (const dependencyOnly of [
-    'nishi-dsh-primary-web-search',
-    'nishi-dsh-usage-limits',
-    'nishi-dsh-provider-kit',
-  ]) {
+  for (const dependencyOnly of ['nishi-dsh-primary-web-search']) {
     assert.ok(!seenNames.has(dependencyOnly), `${dependencyOnly} must not be mounted as a host Cordis row`)
   }
 
@@ -51,6 +47,9 @@ test('bundle patch mounts each host runtime plugin exactly once', async () => {
     'nishi-dsh-codex-antigravity',
     '@dsh-plugin/project-memory',
     'dsh-subagent-codex-custom/primary-web-search',
+    'nishi-dsh-provider-kit',
+    'nishi-dsh-usage-limits',
+    'nishi-dsh-usage-limits-host',
   ]) {
     assert.ok(!raw.includes(retired), `retired package boundary remains in bundle patch: ${retired}`)
   }

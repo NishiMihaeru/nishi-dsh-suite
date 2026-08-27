@@ -1,12 +1,10 @@
-const VERSION = '0.1.0-rc.2'
+const VERSION = '0.1.0-rc.3'
 const names = [
-  'nishi-dsh-provider-kit',
+  'nishi-dsh-core',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-primary-web-search',
   'nishi-dsh-project-memory',
-  'nishi-dsh-usage-limits',
-  'nishi-dsh-usage-limits-host',
   'nishi-dsh-suite',
 ]
 

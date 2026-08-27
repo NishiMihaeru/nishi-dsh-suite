@@ -1,7 +1,7 @@
 {
   "name": "nishi-dsh-codex",
   "description": "Managed Codex primary/subagent integration for DeepSeek Harness",
-  "version": "0.1.0-rc.2",
+  "version": "0.1.0-rc.3",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -29,7 +29,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-sdk-protocol": "0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
-    "nishi-dsh-provider-kit": "workspace:0.1.0-rc.2"
+    "nishi-dsh-core": "workspace:0.1.0-rc.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

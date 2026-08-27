@@ -6,7 +6,7 @@
  * to one explicit environment override followed by the current PATH.
  *
  * This module is a thin Codex-flavoured wrapper around the shared
- * `nishi-dsh-provider-kit` resolver: the walk itself (env override, then
+ * `nishi-dsh-core` resolver: the walk itself (env override, then
  * PATH, fail closed on an invalid override) lives in the kit, and this
  * module only supplies the Codex descriptor and supplies the Codex descriptor. Diagnostics are the kit's,
  * so every provider reports resolution failures the same way.
@@ -14,7 +14,7 @@
  * @module nishi-dsh-codex/resolver
  */
 
-import { resolveVendorExecutable, type VendorExecutableDescriptor } from 'nishi-dsh-provider-kit'
+import { resolveVendorExecutable, type VendorExecutableDescriptor } from 'nishi-dsh-core/runtime'
 
 export const CODEX_EXECUTABLE_ENV = 'DSH_CODEX_EXECUTABLE'
 

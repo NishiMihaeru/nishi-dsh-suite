@@ -1,16 +1,14 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
-const VERSION = '0.1.0-rc.2'
+const VERSION = '0.1.0-rc.3'
 const DSH_VERSION = '0.1.1-rc.2'
 const packages = [
-  ['packages/provider-kit', 'nishi-dsh-provider-kit'],
+  ['packages/core', 'nishi-dsh-core'],
   ['packages/codex', 'nishi-dsh-codex'],
   ['packages/antigravity', 'nishi-dsh-antigravity'],
   ['packages/primary-web-search', 'nishi-dsh-primary-web-search'],
   ['packages/project-memory', 'nishi-dsh-project-memory'],
-  ['packages/usage-limits', 'nishi-dsh-usage-limits'],
-  ['packages/usage-limits-host', 'nishi-dsh-usage-limits-host'],
   ['packages/suite', 'nishi-dsh-suite'],
 ]
 
@@ -96,6 +94,9 @@ const retiredNames = [
   'nishi-dsh-claude-code',
   '@dsh-plugin/project-memory',
   'dsh-subagent-codex-custom',
+  'nishi-dsh-provider-kit',
+  'nishi-dsh-usage-limits',
+  'nishi-dsh-usage-limits-host',
 ]
 for (const [name, manifest] of manifests) {
   const raw = JSON.stringify(manifest)

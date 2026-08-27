@@ -12,7 +12,7 @@ Adding a provider means adding a plugin. It touches no shared code, no host comp
 ## Decisions of record (2026-08-27)
 
 1. **Delegation is removed entirely.** Vendor subagents (`subagent_codex`, `subagent_antigravity`) go away with their tools, their runners and their memory transports. Delegation returns later through DSH's own child agents (`@deepseek-ai/dsh-subagent`'s spawn/fork backends), which ride the primary route and therefore inherit the core's tools and memory for free.
-2. **The core is one package**, `nishi-dsh-core`, merging `provider-kit`, `primary-web-search`, `usage-limits` and `usage-limits-host`.
+2. **The core is one package**, `nishi-dsh-core`, merging `provider-kit`, `usage-limits`, `usage-limits-host` and — once its provider-package dependency is inverted — `primary-web-search`. The web-search tool cannot merge before that inversion: it value-imports the provider packages, and the core cannot depend on what depends on it.
 3. **Claude becomes a provider plugin** declaring only `usage`. This deliberately reverses stage 2.6 for Claude: that step folded two usage-source packages into the kit because two packages for one concept was overhead. The unit here is *one package per provider*, and a provider with a single declared capability is the honest demonstration that the connector holds.
 4. **One canonical provider id, vendor route strings kept as aliases.** `id: 'codex'` with `routes: ['codex-app-server']`; `id: 'antigravity'` with `routes: ['antigravity-cli']`. The route string is user-visible — it appears in saved session request headers and in the profile default — so renaming it would be a breaking change for cosmetics on a seam DSH owns.
 5. **Project memory stays its own package.** After delegation is removed it has zero provider coupling: `memory_read` / `memory_write` / `memory_edit` are ordinary DSH tools. The "same memory on every provider" guarantee comes from composition, not from merging two thousand lines of topic and filesystem code into the connector.
@@ -34,6 +34,9 @@ The core has two mount points, because two lifetimes are involved and collapsing
 |---|---|---|---|
 | `nishi-dsh-core` | host | bundle row in `cordis.patch.yml` | provider registry, usage domain, usage RPC, browser half |
 | `nishi-dsh-core/web-search` | agent | preset row | the `web_search` tool for the agents whose preset carries it |
+| `nishi-dsh-core/runtime` | — | imported by provider packages | vendor CLI runtime and the registration contract |
+
+`./runtime` is a library entry rather than a mount point. It exists so a provider package can take the shared runtime without importing the host graph and its browser-adjacent peer set.
 
 The registry and the usage service are process singletons: a provider may only be registered once, and the browser reads one usage projection for every session. The `web_search` tool is per-agent by nature — whether an agent can search at all is a preset choice. The agent-plane entry resolves the host-plane registry rather than creating one.
 

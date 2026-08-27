@@ -159,27 +159,28 @@ The three overrides `memories.use_memories=false`, `memories.generate_memories=f
 
 ### Task 7: Create `nishi-dsh-core`
 
-Mechanical merge, no behaviour change. Land it as its own commit so the next tasks read as design rather than as a move.
+Mechanical merge, no behaviour change. Landed as its own commit so the next tasks read as design rather than as a move.
+
+**Scope correction made while implementing: three packages merged, not four.** `primary-web-search` value-imports `nishi-dsh-codex` and `nishi-dsh-antigravity`, which import the core — merging it now would make the core depend on the packages that depend on it, and neither `pnpm -r build` nor `tsc` can order a cycle. It stays a separate package until Task 9 inverts that dependency, then folds in. Family is 6 packages now (`core`, `codex`, `antigravity`, `primary-web-search`, `project-memory`, `suite`), 6 again after Task 9 folds web-search in and Task 12 adds `claude`.
 
 **Files:**
 - Create: `packages/core/` — `package.json`, `tsconfig.json`, `tsdown.config.ts`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `src/`, `test/`
-- Delete: `packages/provider-kit/`, `packages/primary-web-search/`, `packages/usage-limits/`, `packages/usage-limits-host/`
-- Modify: `pnpm-workspace.yaml`, `packages/suite/package.json`, `packages/suite/cordis.patch.yml`, `packages/codex/package.json`, `packages/antigravity/package.json`
-- Modify: `scripts/check-npm-names.mjs`, `scripts/pack-local.mjs`, `scripts/verify-bundle-install.mjs`, `scripts/verify-release-family.mjs`, `scripts/verify-package-contracts.mjs`
+- Delete: `packages/provider-kit/`, `packages/usage-limits/`, `packages/usage-limits-host/`
+- Modify: `packages/suite/{package.json,cordis.patch.yml,src/index.ts,test/*}`, `packages/codex/package.json`, `packages/antigravity/package.json`
+- Modify: `scripts/{check-npm-names,pack-local,verify-bundle-install,verify-release-family,verify-package-contracts,smoke-vendor-cli}.mjs`
 
 **Steps:**
-- [ ] 7.1 Move sources into one tree with the merged boundaries visible in the layout: `src/registry/`, `src/runtime/` (executable, process, stderr, workspace, failure), `src/web-search/`, `src/usage/` (domain, collectors, projection, service), `src/host/` (composition, rpc, authorization-rpc), `src/client/`.
-- [ ] 7.2 Exports: `.` (host plane), `./client` (browser, carrying the `dsh.client` manifest block verbatim), `./web-search` (agent plane), `./package.json`.
-- [ ] 7.3 Build with **tsdown** for the whole package — the CSS-module client half already requires it; the plain-`tsc` packages being merged in do not. Keep `check` as `tsc --noEmit`.
-- [ ] 7.4 Union the dependency sets: peer deps from all four, `react` and the client UI peers from the host half, and the `test` script's `--import ./test/register-css.mjs` so CSS-module tests keep running. Merge the test trees keeping filenames distinct.
-- [ ] 7.5 Update the five scripts' family lists, the bundle patch row, and the Suite's dependencies. Bump every package to `0.1.0-rc.3`.
-- [ ] 7.6 Do not change the web-search dependency inversion yet — the core still imports the provider packages at the end of this task, and Task 9 removes that.
+- [x] 7.1 One tree with the merged boundaries visible: `src/runtime/` (executable, process, stderr, workspace, failure, registration, and the two vendor usage sources until Tasks 10/12 move them out), `src/usage/` (contract, collectors, service, projection), `src/host/` (composition, rpc, authorization-rpc, and the Antigravity local source until Task 10), `src/client/`. `src/registry/` arrives with Task 8.
+- [x] 7.2 Exports: `.` (host plane), `./client` (browser, carrying the `dsh.client` manifest block verbatim), `./package.json`, plus **`./runtime`** — added beyond the plan: provider packages need the vendor runtime and the registration contract, and importing `.` would drag them into the host graph and its browser-adjacent peer set. `./web-search` arrives with Task 9. The host entry also re-exports the usage domain, which the live smoke and the tests consume across what used to be a package boundary.
+- [x] 7.3 tsdown builds the whole package (`index`, `runtime`, `client`); `check` stays `tsc --noEmit`. The client purity gate lost its `nishi-dsh-usage-limits` exception — no `nishi-dsh-*` value import is legal in the browser bundle now — and the CSS/module-loader plugin ids became `nishi-dsh-core`.
+- [x] 7.4 Dependency sets unioned; the merged package has **no** runtime dependencies at all, since its three former inter-package edges were internal. Test trees merged with no filename collisions; the CSS-module import hook is kept in the `test` script.
+- [x] 7.5 Family lists, bundle row (`nishi-usage-limits-host` → `nishi-core`), Suite dependencies and `NISHI_DSH_SUITE_PACKAGES` updated; the three retired names were added to the retired-boundary guards so they cannot reappear. Everything bumped to `0.1.0-rc.3`.
+- [x] 7.6 The web-search dependency inversion is untouched, as planned — it now happens in its own package, in Task 9.
 
 **Verify:**
-- [ ] `pnpm install`, then `pnpm verify:local`; `echo $?` must be `0`.
-- [ ] `pnpm check:npm-names` for `nishi-dsh-core`; `echo $?` must be `0`.
-
----
+- [x] `pnpm install` exit `0`, `pnpm verify:local` exit `0` — 6 tarballs at `0.1.0-rc.3`.
+- [x] `pnpm smoke:vendor-cli` exit `0`, 3/3 against the installed CLIs (`claude 2.1.246`, `codex-cli 0.150.0`, `agy 1.1.22`) — the check that catches a normalizer broken by the move. It first failed on missing exports, which is exactly what it exists for.
+- [ ] `pnpm check:npm-names` for `nishi-dsh-core` — deferred to Task 12, which adds the other new name.
 
 ### Task 8: The registry service
 

@@ -2,13 +2,11 @@ import assert from 'node:assert/strict'
 import { access, readFile } from 'node:fs/promises'
 
 const packageDirs = [
+  'core',
   'codex',
   'antigravity',
-  'provider-kit',
   'primary-web-search',
   'project-memory',
-  'usage-limits',
-  'usage-limits-host',
   'suite',
 ]
 

@@ -37,11 +37,11 @@
  *   - claude:      spawns `claude --print --verbose --input-format stream-json
  *                  --output-format stream-json --no-session-persistence
  *                  --tools '' --strict-mcp-config` (the exact argv from
- *                  provider-kit's claudeUsageCliArgv), issues one
+ *                  the core runtime's claudeUsageCliArgv), issues one
  *                  `control_request` of subtype `get_usage` after the CLI's
  *                  `system`/`init` message, and feeds the raw response
  *                  through the production `normalizeClaudeUsage()`
- *                  normalizer from @nishi/usage-limits. No model turn is
+ *                  normalizer from the core usage domain. No model turn is
  *                  ever sent.
  *   - codex:       spawns `codex app-server --stdio` (codexAppServerArgv),
  *                  performs the JSON-RPC `initialize` -> `initialized` ->
@@ -105,7 +105,7 @@ process.on('SIGTERM', () => {
 
 // ---------------------------------------------------------------------------
 // Executable resolution -- mirrors the bare-name-on-PATH resolution used by
-// packages/provider-kit/src/executable.ts (resolveVendorExecutable),
+// packages/core/src/runtime/executable.ts (resolveVendorExecutable),
 // generalized for all three vendor CLIs. Only used to DETECT installs and to
 // feed a resolved absolute path to the real production spawn code.
 // ---------------------------------------------------------------------------
@@ -392,10 +392,10 @@ async function checkClaude() {
   console.log(`  claude version: ${redactHome(versionText)}`)
 
   const { OfficialClaudeUsageSource } = await loadBuiltModule(
-    'packages/provider-kit/lib/index.js',
+    'packages/core/lib/runtime.js',
     provider,
   )
-  const { normalizeClaudeUsage } = await loadBuiltModule('packages/usage-limits/lib/index.js', provider)
+  const { normalizeClaudeUsage } = await loadBuiltModule('packages/core/lib/index.js', provider)
 
   try {
     const source = new OfficialClaudeUsageSource({
@@ -437,10 +437,10 @@ async function checkCodex() {
   console.log(`  codex version: ${redactHome(versionText)}`)
 
   const { OfficialCodexRateLimitsSource } = await loadBuiltModule(
-    'packages/provider-kit/lib/index.js',
+    'packages/core/lib/runtime.js',
     provider,
   )
-  const { normalizeCodexRateLimits } = await loadBuiltModule('packages/usage-limits/lib/index.js', provider)
+  const { normalizeCodexRateLimits } = await loadBuiltModule('packages/core/lib/index.js', provider)
 
   try {
     const source = new OfficialCodexRateLimitsSource({

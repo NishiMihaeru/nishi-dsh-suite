@@ -15,7 +15,7 @@ import {
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
-import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-provider-kit'
+import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
 
 export const ANTIGRAVITY_PRIMARY_PROVIDER = 'antigravity-cli'
 const AGENT_NAME = 'dsh-primary'
