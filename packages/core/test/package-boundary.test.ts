@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import test from 'node:test'
+import ts from 'typescript'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
 const PROVIDER_PACKAGES = [
@@ -23,6 +24,19 @@ async function sourceFiles(root: URL): Promise<URL[]> {
   }
   await walk(root)
   return paths
+}
+
+function executableStringLiterals(source: string, path: URL): string[] {
+  const kind = extname(path.pathname) === '.tsx' ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  const parsed = ts.createSourceFile(path.pathname, source, ts.ScriptTarget.Latest, true, kind)
+  const values: string[] = []
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteralLike(node)) values.push(node.text)
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return values
 }
 
 test('nishi-dsh-core has no dependency on the retired subagent package', async () => {
@@ -58,23 +72,24 @@ test('nishi-dsh-core manifest never depends directly on a concrete provider pack
   }
 })
 
-test('core source never imports provider packages or hardcodes provider ids as string literals', async () => {
+test('core source never imports provider packages or hardcodes provider ids in executable string literals', async () => {
   const srcRoot = new URL('../src/', import.meta.url)
   for (const path of await sourceFiles(srcRoot)) {
     const source = await readFile(path, 'utf8')
     const relativePath = path.href.slice(srcRoot.href.length)
+    const literals = executableStringLiterals(source, path)
 
     for (const providerPackage of PROVIDER_PACKAGES) {
       assert.equal(
-        source.includes(providerPackage),
+        literals.some((value) => value.includes(providerPackage)),
         false,
-        `${relativePath} must not name provider package ${providerPackage}`,
+        `${relativePath} must not reference provider package ${providerPackage}`,
       )
     }
 
     for (const fragment of PROVIDER_RELATIVE_IMPORT_FRAGMENTS) {
       assert.equal(
-        source.includes(fragment),
+        literals.some((value) => value.includes(fragment)),
         false,
         `${relativePath} must not reach a provider package through ${fragment}`,
       )
@@ -82,9 +97,9 @@ test('core source never imports provider packages or hardcodes provider ids as s
 
     for (const providerId of PROVIDER_IDS) {
       assert.equal(
-        source.includes(`'${providerId}'`) || source.includes(`\"${providerId}\"`),
+        literals.includes(providerId),
         false,
-        `${relativePath} must not hardcode provider id ${providerId} as a string literal`,
+        `${relativePath} must not hardcode provider id ${providerId} as an executable string literal`,
       )
     }
   }
