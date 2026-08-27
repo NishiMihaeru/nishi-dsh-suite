@@ -10,7 +10,7 @@ The package value-imports and therefore installs exact prerelease versions of:
 
 - `nishi-dsh-usage-limits` — normalized public usage contract and collectors;
 - `nishi-dsh-codex-usage-source` — official Codex app-server rate-limit source;
-- `nishi-dsh-claude-code` — Claude usage source exposed by the Claude integration.
+- `nishi-dsh-claude-usage-source` — official Claude CLI usage/limits source.
 
 DeepSeek Harness platform packages remain peer dependencies so the plugin shares the host's rc.2 Cordis/services rather than installing duplicate framework instances.
 
@@ -21,7 +21,7 @@ The browser entry registers:
 - `Usage & Limits` in the sidebar/settings surfaces;
 - `Model Accounts` as a status/removal surface for supported vendor-owned authentication state.
 
-Direct subscription OAuth is not initiated by this package. Codex, Claude Code, and Antigravity authentication remains owned by their vendor clients.
+Direct subscription OAuth is not initiated by this package. Codex, Claude, and Antigravity authentication remains owned by their vendor clients.
 
 ## Safety properties
 

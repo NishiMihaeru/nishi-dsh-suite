@@ -8,8 +8,7 @@ It preserves the accepted DSH rc.2 Codex subagent lifecycle, package-local manag
 
 - DSH subagent provider ID: `codex`
 - primary provider: `codex-app-server` (vendored source snapshot from `wingoo/codex-plugin-dsh` @ `79fe7503390d641680bad8efade52782a3c31ced`, MIT License, not an official OpenAI plugin)
-- `@openai/codex`: `0.147.0`
-- `@openai/codex-sdk`: `0.147.0`
+- Codex runtime: the user's installed official `codex` CLI, located through `DSH_CODEX_EXECUTABLE` or `PATH`; no `@openai/codex*` package is bundled
 - native Codex authentication remains vendor-owned
 - native memory generation is suppressed with `memories.use_memories=false`, `memories.generate_memories=false`, and `project_doc_max_bytes=0`
 - `CODEX-GLOBAL-AGENTS-001` remains `ACCEPTED_WITH_KNOWN_UPSTREAM_DEBT`

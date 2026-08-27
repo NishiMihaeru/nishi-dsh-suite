@@ -6,7 +6,7 @@ The security and integrity of user environments, credentials, project state, and
 
 This policy applies to Suite-owned provider/subagent bridges, project-scoped Shared Project Memory, Usage Limits collectors/UI projection, bundle composition, presets, diagnostics, and release tooling.
 
-Vulnerabilities in DeepSeek Harness or vendor runtimes such as Claude Code / Claude Agent SDK, OpenAI Codex, or Google Antigravity `agy` should be reported to the corresponding upstream/vendor security channel when the issue is not caused by Suite-owned code.
+Vulnerabilities in DeepSeek Harness or vendor runtimes such as the Claude Code CLI, OpenAI Codex, or Google Antigravity `agy` should be reported to the corresponding upstream/vendor security channel when the issue is not caused by Suite-owned code.
 
 ## Reporting a vulnerability
 
@@ -18,7 +18,7 @@ Never include live credentials, raw authentication databases, private tokens, co
 
 Nishi DSH Suite does not intentionally collect, copy, store, migrate, or persist raw vendor credentials in Suite-managed state.
 
-- Claude authentication remains owned by Claude Code / the Claude Agent SDK.
+- Claude authentication remains owned by the installed official Claude Code CLI.
 - Codex authentication remains owned by the official Codex client/account state.
 - Antigravity authentication remains owned by official `agy` and its product/system authentication flow.
 - Suite code must not copy credential stores, replace vendor homes to bridge authentication, scrape cookies/keyrings, or replay vendor tokens through custom HTTP clients.

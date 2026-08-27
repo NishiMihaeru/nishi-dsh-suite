@@ -6,24 +6,24 @@ Compatibility target: **DeepSeek Harness 0.1.1-rc.2**, Node.js 24, pnpm 11.21.0 
 
 ## Runtime modules
 
-Installing this bundle brings the exact `0.1.0-rc.1` prerelease family:
+Installing this bundle brings the exact `0.1.0-rc.2` prerelease family:
 
 - `nishi-dsh-codex` — Codex primary/subagent integration (with `codex-app-server` provider via pinned `codex-plugin-dsh`);
 - `nishi-dsh-antigravity` — Antigravity primary/subagent integration through `agy`;
-- `nishi-dsh-claude-code` — Claude Code subagent through the official Agent SDK;
 - `nishi-dsh-primary-web-search` — the single `web_search` tool routed by the active primary provider;
 - `nishi-dsh-project-memory` — project-scoped DSH memory and memory tools;
 - `nishi-dsh-usage-limits` — normalized usage/limits domain library;
 - `nishi-dsh-usage-limits-host` — host/RPC/browser Usage & Limits integration;
-- `nishi-dsh-codex-usage-source` — official Codex app-server rate-limit source adapter.
+- `nishi-dsh-codex-usage-source` — official Codex app-server rate-limit source adapter;
+- `nishi-dsh-claude-usage-source` — official Claude CLI usage/limits source adapter.
 
 The Suite also installs the official `@deepseek-ai/dsh-authorization@0.1.1-rc.2` service because Usage Limits Host injects `authorization` and stock rc.2 base/web profiles do not mount that service themselves.
 
-`cordis.patch.yml` mounts host-plane plugins: the official authorization seam, Project Memory, the three managed provider packages, and Usage Limits Host. `nishi-dsh-primary-web-search` remains an installed dependency but is mounted on the **agent plane** by the Orchestrator preset, matching DSH Web's rc.2 ownership model. The usage domain and Codex usage source are library dependencies and are not Cordis rows.
+`cordis.patch.yml` mounts host-plane plugins: the official authorization seam, Project Memory, the two managed provider packages, and Usage Limits Host. `nishi-dsh-primary-web-search` remains an installed dependency but is mounted on the **agent plane** by the Orchestrator preset, matching DSH Web's rc.2 ownership model. The usage domain and the Codex/Claude usage sources are library dependencies and are not Cordis rows.
 
 ## Authentication boundary
 
-The authorization service is only the DSH service seam required by the Model Accounts/legacy-grant status surface. The Suite does not install vendor clients and does not copy vendor OAuth/session/token databases. Codex, Claude Code, and Antigravity continue to use their vendor-owned local runtimes and authentication state.
+The authorization service is only the DSH service seam required by the Model Accounts/legacy-grant status surface. The Suite does not install vendor clients and does not copy vendor OAuth/session/token databases. Codex, Claude, and Antigravity continue to use their vendor-owned local runtimes and authentication state.
 
 ## Orchestrator preset on DSH 0.1.1-rc.2
 

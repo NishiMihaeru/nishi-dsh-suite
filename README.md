@@ -10,11 +10,11 @@ The Suite is split into independently owned runtime packages:
 
 - `nishi-dsh-codex` — Codex primary/subagent integration with a `codex-app-server` provider compiled from the reviewed MIT `wingoo/codex-plugin-dsh` source snapshot pinned at `79fe7503390d641680bad8efade52782a3c31ced`;
 - `nishi-dsh-antigravity` — Antigravity primary/subagent integration through the official `agy` client boundary;
-- `nishi-dsh-claude-code` — Claude Code subagent integration through the official Agent SDK;
 - `nishi-dsh-primary-web-search` — one `web_search` tool routed by the active Codex/Antigravity primary;
 - `nishi-dsh-project-memory` — project-scoped Shared Project Memory;
 - `nishi-dsh-usage-limits` — normalized usage/limits domain;
 - `nishi-dsh-codex-usage-source` — Codex app-server rate-limit source;
+- `nishi-dsh-claude-usage-source` — Claude usage/limits source through the installed official `claude` CLI;
 - `nishi-dsh-usage-limits-host` — host/RPC/browser Usage & Limits integration.
 
 `nishi-dsh-suite` is a thin composition bundle over those packages. It does not reimplement provider behavior.
@@ -34,7 +34,7 @@ Because these are newly created npm packages, the registry also attached `latest
 Nishi DSH Suite does not install vendor clients and does not copy, broker, scrape, or replay vendor credentials.
 
 - Codex authentication remains owned by the official Codex CLI/App Server product boundary.
-- Claude Code authentication remains owned by the official Claude Code/Agent SDK boundary.
+- Claude authentication remains owned by the installed official Claude Code CLI.
 - Antigravity authentication remains owned by the official `agy` client.
 
 A missing vendor client should disable only the corresponding integration rather than prevent DSH startup.
@@ -54,7 +54,6 @@ The Suite intentionally has no DeepSeek/Exa/Perplexity fallback for its routed `
 The accepted Orchestrator preset is packaged inside the Market artifact at `packages/suite/presets/orchestrator` with fixed tools:
 
 - `subagent_codex`
-- `subagent_claude_code`
 - `subagent_antigravity`
 - routed `web_search`
 
@@ -81,7 +80,7 @@ pnpm verify:local
 
 `pnpm verify:local` runs release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local package creation.
 
-The accepted source passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Claude Code, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates also pass on CachyOS.
+The accepted source passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates also pass on CachyOS.
 
 The published `0.1.0-rc.1` family additionally passed a fresh public-registry-only DSH smoke: Suite resolution from npm, all eight exact leaf versions, managed Codex/Claude/DSH dependency versions, Orchestrator preset install/status/remove, and normal Suite removal. Evidence: `docs/acceptance/2026-08-27-registry-smoke.md`.
 

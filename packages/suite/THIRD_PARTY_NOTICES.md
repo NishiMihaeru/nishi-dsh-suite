@@ -11,13 +11,13 @@ Nishi DSH Suite composes migrated derivative provider integrations originally ba
 
 Upstream MIT notices and permission terms are retained in the leaf packages that contain derived code.
 
-## Anthropic Claude Agent SDK
+## Anthropic Claude Code
 
-The Claude Code integration uses `@anthropic-ai/claude-agent-sdk` as a runtime dependency. This bundle does not copy Anthropic SDK source code or authentication material.
+The Claude usage/limits source drives the user's installed official Claude Code CLI (`claude`) as an external process. No Anthropic SDK, runtime, or model client is bundled or redistributed, and no Anthropic authentication material is copied. Users remain responsible for terms applicable to their Claude Code installation and account.
 
 ## OpenAI Codex
 
-The Codex integrations depend on official OpenAI Codex packages and the user's vendor-owned authentication state. This bundle does not redistribute vendor credentials or authentication stores.
+The Codex integrations drive the user's installed official Codex CLI (`codex`) and its vendor-owned authentication state. No OpenAI runtime package is bundled, and this bundle does not redistribute vendor credentials or authentication stores.
 
 ## Codex Primary Provider Adapter (`codex-plugin-dsh`)
 
