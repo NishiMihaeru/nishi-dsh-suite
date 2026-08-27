@@ -67,9 +67,9 @@ export interface ProviderPresentation {
 /** What a usage capability may ask the core to do on its behalf. */
 export interface UsageCapabilityHooks {
   /**
-   * Drop this provider's cached snapshot. A vendor that pushes fresh usage
-   * mid-session (Codex does, on every turn) calls this so the next read is
-   * not served from a snapshot the vendor has already superseded.
+   * Drop this provider's cached snapshot. A provider that receives fresher
+   * usage information asynchronously can call this so the next read is not
+   * served from a snapshot the vendor has already superseded.
    */
   invalidate(): void
 }
@@ -91,7 +91,7 @@ export interface UsageCapability<TConfig> {
  * `SharedProviderConfig` fields plus whatever is specific to that provider.
  */
 export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
-  /** Canonical provider id, one per provider, also the diagnostic prefix (e.g. `codex`). */
+  /** Canonical provider id, one per provider, also used as its diagnostic prefix. */
   readonly id: string
   /** How this provider appears in the browser. Data, not code. */
   readonly presentation: ProviderPresentation
