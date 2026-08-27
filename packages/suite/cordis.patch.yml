@@ -1,6 +1,9 @@
 # Nishi DSH Suite host-plane runtime composition.
 # Agent-plane routed web_search is an installed dependency used by the Orchestrator preset.
 # Orchestrator preset discovery is not patched here because DSH 0.1.1-rc.2 overwrites third-party preset roots.
+# The authorization row is retained as a Suite compatibility seam for the surrounding DSH profile;
+# nishi-dsh-core itself no longer injects or imports the authorization service and reads Model Accounts
+# state only through the credentials service.
 
 - insert:
     - id: nishi-authorization
