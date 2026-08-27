@@ -88,13 +88,61 @@ export function resolveSharedProviderConfig(
   return config
 }
 
+async function rollbackRegistration(
+  providerId: string,
+  originalError: unknown,
+  disposeAdapter: (() => void) | undefined,
+  disposeRegistryEffect: (() => void | Promise<void>) | undefined,
+  forgetRegistry: (() => void) | undefined,
+): Promise<never> {
+  const rollbackErrors: unknown[] = []
+
+  if (disposeAdapter !== undefined) {
+    try {
+      disposeAdapter()
+    } catch (error) {
+      rollbackErrors.push(error)
+    }
+  }
+
+  if (disposeRegistryEffect !== undefined) {
+    try {
+      await disposeRegistryEffect()
+    } catch (error) {
+      rollbackErrors.push(error)
+    }
+  } else if (forgetRegistry !== undefined) {
+    // `ctx.effect()` itself may fail after the registry entry was recorded.
+    // In that case no effect disposer exists yet, so withdraw directly.
+    try {
+      forgetRegistry()
+    } catch (error) {
+      rollbackErrors.push(error)
+    }
+  }
+
+  if (rollbackErrors.length > 0) {
+    throw new AggregateError(
+      [originalError, ...rollbackErrors],
+      `${providerId}: provider registration failed and rollback did not complete cleanly`,
+      { cause: originalError },
+    )
+  }
+  throw originalError
+}
+
 /**
  * The single registration path every provider goes through: validate its
- * identity first, record the provider in the core's registry, register its
- * LLM adapter under the declared routes, then run provider-specific extras.
+ * identity first, construct provider-owned search/usage capabilities, record
+ * the provider, register its model route, then run provider-specific install.
  *
- * Identity validation happens before any capability factory runs. A malformed
- * descriptor must therefore have no subprocess/backend/adapter side effects.
+ * Identity validation happens before any capability factory runs. Once core
+ * state starts mutating, registration is transactional for the resources the
+ * core directly owns: the registry entry and the LLM registration. A failure
+ * in model creation, adapter registration, or install withdraws both before
+ * the rejection escapes. Factory/install effects that providers register on
+ * their own Cordis fiber remain fiber-owned and are cleaned when the rejected
+ * provider plugin unloads.
  */
 export async function registerProvider<TConfig extends SharedProviderConfig>(
   ctx: Context,
@@ -143,18 +191,38 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
           : { refreshPolicy: descriptor.usage.refreshPolicy }),
       }
 
-  const forget = registry.record({
-    id: providerId,
-    presentation: descriptor.presentation,
-    routes,
-    descriptor: descriptor as ProviderDescriptor<never>,
-    ...(webSearch === undefined ? {} : { webSearch }),
-    ...(usage === undefined ? {} : { usage }),
-  })
-  ctx.effect(() => forget, `${providerId}: withdraw provider registration`)
+  let forgetRegistry: (() => void) | undefined
+  let disposeRegistryEffect: (() => void | Promise<void>) | undefined
+  let disposeAdapter: (() => void) | undefined
 
-  if (descriptor.model) {
-    ctx.llm.registerAdapter(routes, descriptor.model.create(ctx, config))
+  try {
+    forgetRegistry = registry.record({
+      id: providerId,
+      presentation: descriptor.presentation,
+      routes,
+      descriptor: descriptor as ProviderDescriptor<never>,
+      ...(webSearch === undefined ? {} : { webSearch }),
+      ...(usage === undefined ? {} : { usage }),
+    })
+
+    disposeRegistryEffect = ctx.effect(
+      () => forgetRegistry!,
+      `${providerId}: withdraw provider registration`,
+    )
+
+    if (descriptor.model) {
+      const adapter = descriptor.model.create(ctx, config)
+      disposeAdapter = ctx.llm.registerAdapter(routes, adapter)
+    }
+
+    await descriptor.install?.(ctx, config)
+  } catch (error) {
+    await rollbackRegistration(
+      providerId,
+      error,
+      disposeAdapter,
+      disposeRegistryEffect,
+      forgetRegistry,
+    )
   }
-  await descriptor.install?.(ctx, config)
 }
