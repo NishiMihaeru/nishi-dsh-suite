@@ -1,7 +1,7 @@
 {
   "name": "nishi-dsh-suite",
   "version": "0.1.0-rc.3",
-  "description": "Nishi DSH Suite bundle for DeepSeek Harness Market",
+  "description": "Nishi DSH Suite bundle for DeepSeek Harness: provider-independent core, provider plugins, project memory, and Orchestrator preset bridge",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
