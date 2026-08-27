@@ -23,7 +23,7 @@
     "test:orchestrator": "node scripts/validate-orchestrator.mjs",
     "verify:package-contracts": "node scripts/verify-package-contracts.mjs",
     "verify:release-family": "node scripts/verify-release-family.mjs",
-    "verify:local": "pnpm verify:release-family && pnpm verify:package-contracts && pnpm test:orchestrator && pnpm check && pnpm test && pnpm build && pnpm pack:local",
+    "verify:local": "pnpm verify:release-family && pnpm verify:package-contracts && pnpm test:orchestrator && pnpm build && pnpm check && pnpm test && pnpm pack:local",
     "check:npm-names": "node scripts/check-npm-names.mjs --require-available",
     "pack:packages": "pnpm -r --if-present pack",
     "pack:local": "node scripts/pack-local.mjs",
