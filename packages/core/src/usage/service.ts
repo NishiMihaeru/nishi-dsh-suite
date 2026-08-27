@@ -25,6 +25,11 @@ export interface RefreshProviderOptions {
   force?: boolean;
 }
 
+interface InFlightRefresh {
+  registration: UsageProviderRegistration;
+  promise: Promise<ProviderUsageSnapshot>;
+}
+
 function assertPlainObject(value: unknown, context: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new UsageContractError(`${context} must be a non-null plain object`);
@@ -58,7 +63,7 @@ export class UsageLimitsService {
   private readonly registrationOrder: string[] = [];
   private readonly clock: UsageClock;
   private readonly cache = new Map<string, ProviderUsageSnapshot>();
-  private readonly inFlight = new Map<string, Promise<ProviderUsageSnapshot>>();
+  private readonly inFlight = new Map<string, InFlightRefresh>();
   private readonly invalidationTokens = new Map<string, symbol>();
 
   constructor(registrations: readonly UsageProviderRegistration[], clock: UsageClock) {
@@ -79,6 +84,12 @@ export class UsageLimitsService {
    * argument. It is derived from registrations, which is also what lets a
    * provider mounted later appear in the UI and an unmounted one leave no
    * placeholder behind.
+   *
+   * The registration object itself is also the provider generation token.
+   * Re-registering the same provider id creates a new object identity, so an
+   * async refresh started by an older generation can be recognized after an
+   * unload/reload and prevented from touching the replacement generation's
+   * cache or in-flight state.
    */
   register(registration: UsageProviderRegistration, context = 'registration'): () => void {
     const obj = assertPlainObject(registration, context);
@@ -107,7 +118,8 @@ export class UsageLimitsService {
       const at = this.registrationOrder.indexOf(providerId);
       if (at >= 0) this.registrationOrder.splice(at, 1);
       this.cache.delete(providerId);
-      this.inFlight.delete(providerId);
+      const active = this.inFlight.get(providerId);
+      if (active?.registration === entry) this.inFlight.delete(providerId);
       this.invalidationTokens.delete(providerId);
     };
   }
@@ -130,7 +142,9 @@ export class UsageLimitsService {
     }
     const force = options?.force === true;
     const existingInFlight = this.inFlight.get(providerId);
-    if (existingInFlight) return parseProviderUsageSnapshot(await existingInFlight);
+    if (existingInFlight?.registration === reg) {
+      return parseProviderUsageSnapshot(await existingInFlight.promise);
+    }
 
     const now = this.sampleClock();
     const cached = this.cache.get(providerId);
@@ -161,16 +175,24 @@ export class UsageLimitsService {
         staleAtMs = candidate;
       }
       const finalSnapshot = parseProviderUsageSnapshot({ ...validated, staleAtMs });
+
+      if (this.registrations.get(providerId) !== reg) {
+        throw new UsageContractError(`Provider "${providerId}" registration changed during refresh`);
+      }
+
       this.cache.set(providerId, finalSnapshot);
       if (this.invalidationTokens.get(providerId) === invalidationTokenAtStart) this.invalidationTokens.delete(providerId);
       return finalSnapshot;
     })();
 
-    this.inFlight.set(providerId, refreshPromise);
+    this.inFlight.set(providerId, { registration: reg, promise: refreshPromise });
     try {
       return parseProviderUsageSnapshot(await refreshPromise);
     } finally {
-      this.inFlight.delete(providerId);
+      const active = this.inFlight.get(providerId);
+      if (active?.registration === reg && active.promise === refreshPromise) {
+        this.inFlight.delete(providerId);
+      }
     }
   }
 
