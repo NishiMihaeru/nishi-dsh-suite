@@ -24,8 +24,8 @@ test('Antigravity invariant owns nishi-dsh-antigravity', async () => {
 test('Antigravity source does not opt into dangerous permission bypass', async () => {
   const source = [
     await readFile(new URL('../src/index.ts', import.meta.url), 'utf8'),
-    await readFile(new URL('../src/antigravity-subagent.ts', import.meta.url), 'utf8'),
     await readFile(new URL('../src/antigravity-primary.ts', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/web-search-backend.ts', import.meta.url), 'utf8'),
   ].join('\n')
   assert.doesNotMatch(source, /--dangerously-skip-permissions/)
 })

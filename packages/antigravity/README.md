@@ -5,11 +5,9 @@ Independent Antigravity integration package for Nishi DSH Suite.
 It owns only the official `agy` process boundary:
 
 - primary provider ID `antigravity-cli`;
-- subagent provider ID `antigravity`;
-- default subagent model `gemini-3.7-flash-medium`;
-- default effort `medium`;
-- read-only DSH Project Memory bootstrap;
 - native `search_web` backend seam exported from `./web-search-backend`.
+
+Delegation was removed in `0.1.0-rc.3`: the managed Antigravity child agent could not use tools at all in headless mode, because the CLI auto-denied every permission it could not prompt for, and its project-memory access was a prompt prefix rather than a tool. Project memory is now DSH's own tool surface on the primary plane, identical for every provider, and this package no longer touches it.
 
 The package never passes `--dangerously-skip-permissions`, never copies Google/Antigravity credentials, and does not install or manage `agy`.
 

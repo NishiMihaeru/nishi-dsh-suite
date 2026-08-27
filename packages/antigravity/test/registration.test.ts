@@ -15,22 +15,21 @@ function fakeContext() {
         async resolveExecutable(value: string) { return value },
       },
       llm: { registerAdapter(names: string[], adapter: unknown) { for (const name of names) adapters.set(name, adapter) } },
-      projectMemory: { async createSubagentContext() { return { projectRoot: '/repo', renderedBootstrap: null, async readTopic(topic: string) { return { topic, exists: false, content: null } } } } },
       effect() {},
       logger: { warn() {} },
     } as any,
   }
 }
 
-test('Antigravity package registers only the antigravity subagent provider', () => {
+test('Antigravity package registers the antigravity-cli primary and no subagent provider', async () => {
   const fixture = fakeContext()
-  antigravity.apply(fixture.ctx, {})
-  assert.deepEqual([...fixture.providers.keys()], ['antigravity'])
-  assert.equal(fixture.providers.has('codex'), false)
+  await antigravity.apply(fixture.ctx, {})
+  assert.deepEqual([...fixture.adapters.keys()], ['antigravity-cli'])
+  assert.deepEqual([...fixture.providers.keys()], [], 'delegation was removed in 0.1.0-rc.3')
 })
 
 test('Antigravity package exposes the independent plugin surface', () => {
   assert.equal(antigravity.name, 'subagent-antigravity')
-  assert.deepEqual(antigravity.inject, ['subagents', 'subprocess', 'llm', 'projectMemory'])
+  assert.deepEqual(antigravity.inject, ['subprocess', 'llm'])
   assert.equal(typeof antigravity.apply, 'function')
 })
