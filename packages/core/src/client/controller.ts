@@ -19,11 +19,20 @@ export interface UsageLimitsControllerSnapshot {
   lastRefreshedAtMs?: number
 }
 
+interface InFlightRefresh {
+  generation: number
+  promise: Promise<PublicProviderUsage>
+}
+
 export class UsageLimitsClientController {
   private snapshot: UsageLimitsControllerSnapshot = { phase: 'idle', roster: [], providers: {} }
   private readonly listeners = new Set<() => void>()
-  private readonly inFlightRefreshes = new Map<string, Promise<PublicProviderUsage>>()
+  private readonly inFlightRefreshes = new Map<string, InFlightRefresh>()
   private initializePromise?: Promise<void>
+  /** Every accepted roster response establishes a new topology generation. */
+  private rosterGeneration = 0
+  /** Prevent an older concurrent getRoster response from replacing a newer one. */
+  private rosterRequestSerial = 0
 
   constructor(private readonly rpc: UsageLimitsBrowserRpc) {}
 
@@ -33,6 +42,11 @@ export class UsageLimitsClientController {
     return () => this.listeners.delete(listener)
   }
   private notify(): void { for (const listener of this.listeners) listener() }
+
+  private hasProvider(providerId: string, generation = this.rosterGeneration): boolean {
+    return generation === this.rosterGeneration
+      && this.snapshot.roster.some((entry) => entry.providerId === providerId)
+  }
 
   initialize(): Promise<void> {
     if (this.initializePromise) return this.initializePromise
@@ -50,17 +64,29 @@ export class UsageLimitsClientController {
   }
 
   /**
-   * Learn the roster, then seed one loading row per provider. A failed roster
-   * call leaves the surface empty rather than inventing providers.
+   * Learn the current roster and seed one loading row per provider.
+   *
+   * Only the newest concurrent roster request may publish. Every accepted
+   * response advances `rosterGeneration`, even when the visible ids are the
+   * same: a provider may have been unloaded and re-registered between two
+   * polls while keeping its canonical id. Async work captured under an older
+   * generation must therefore never mutate the new topology.
+   *
+   * A failed roster refresh preserves the last-known-good roster rather than
+   * inventing a topology change the host did not confirm.
    */
   async loadRoster(): Promise<void> {
+    const requestSerial = ++this.rosterRequestSerial
     let roster: readonly ProviderRosterEntry[]
     try {
       roster = await this.rpc.getRoster()
     } catch {
-      this.notify()
+      if (requestSerial === this.rosterRequestSerial) this.notify()
       return
     }
+    if (requestSerial !== this.rosterRequestSerial) return
+
+    this.rosterGeneration++
     const providers: Record<string, ProviderEntryState> = {}
     for (const entry of roster) {
       const prior = this.snapshot.providers[entry.providerId]
@@ -71,10 +97,17 @@ export class UsageLimitsClientController {
   }
 
   async loadCached(): Promise<void> {
+    const generation = this.rosterGeneration
     try {
       const providers = await this.rpc.getProviders()
+      if (generation !== this.rosterGeneration) return
+
+      const rosterIds = new Set(this.snapshot.roster.map((entry) => entry.providerId))
       const newProviders = { ...this.snapshot.providers }
-      for (const item of providers) newProviders[item.providerId] = { status: 'ready', usage: item }
+      for (const item of providers) {
+        if (!rosterIds.has(item.providerId)) continue
+        newProviders[item.providerId] = { status: 'ready', usage: item }
+      }
       this.snapshot = {
         phase: 'ready',
         roster: this.snapshot.roster,
@@ -82,6 +115,7 @@ export class UsageLimitsClientController {
         lastRefreshedAtMs: this.snapshot.lastRefreshedAtMs,
       }
     } catch {
+      if (generation !== this.rosterGeneration) return
       this.snapshot = { ...this.snapshot, phase: 'ready' }
     }
     this.notify()
@@ -106,39 +140,55 @@ export class UsageLimitsClientController {
   }
 
   private async doRefresh(providerId: string, force: boolean): Promise<void> {
+    const generation = this.rosterGeneration
+    if (!this.hasProvider(providerId, generation)) return
+
     const active = this.inFlightRefreshes.get(providerId)
-    if (active) { await active.catch(() => {}); return }
+    if (active?.generation === generation) {
+      await active.promise.catch(() => {})
+      return
+    }
+
     const prior = this.snapshot.providers[providerId]
     this.snapshot = {
       ...this.snapshot,
       providers: { ...this.snapshot.providers, [providerId]: { status: 'loading', usage: prior?.usage } },
     }
     this.notify()
+
+    let record!: InFlightRefresh
     const promise = (async () => {
       try {
         const usage = await this.rpc.refreshProvider(providerId, { force })
-        this.snapshot = {
-          ...this.snapshot,
-          providers: { ...this.snapshot.providers, [providerId]: { status: 'ready', usage } },
-          lastRefreshedAtMs: Date.now(),
+        if (this.hasProvider(providerId, generation)) {
+          this.snapshot = {
+            ...this.snapshot,
+            providers: { ...this.snapshot.providers, [providerId]: { status: 'ready', usage } },
+            lastRefreshedAtMs: Date.now(),
+          }
+          this.notify()
         }
-        this.notify()
         return usage
       } catch {
-        this.snapshot = {
-          ...this.snapshot,
-          providers: {
-            ...this.snapshot.providers,
-            [providerId]: { status: 'error', usage: prior?.usage, errorMessage: 'Usage data is unavailable.' },
-          },
+        if (this.hasProvider(providerId, generation)) {
+          this.snapshot = {
+            ...this.snapshot,
+            providers: {
+              ...this.snapshot.providers,
+              [providerId]: { status: 'error', usage: prior?.usage, errorMessage: 'Usage data is unavailable.' },
+            },
+          }
+          this.notify()
         }
-        this.notify()
         throw new Error('Usage data is unavailable.')
       } finally {
-        this.inFlightRefreshes.delete(providerId)
+        if (this.inFlightRefreshes.get(providerId) === record) {
+          this.inFlightRefreshes.delete(providerId)
+        }
       }
     })()
-    this.inFlightRefreshes.set(providerId, promise)
+    record = { generation, promise }
+    this.inFlightRefreshes.set(providerId, record)
     await promise.catch(() => {})
   }
 }
