@@ -1,6 +1,6 @@
 {
   "name": "nishi-dsh-usage-limits-host",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "description": "Host-lifetime usage limits service and public RPC/UI bridge for Nishi DSH Suite",
   "type": "module",
   "main": "lib/index.js",
@@ -37,9 +37,9 @@
     "test": "tsx --import ./test/register-css.mjs --test test/*.test.ts"
   },
   "dependencies": {
-    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.1",
-    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.1",
-    "nishi-dsh-claude-code": "workspace:0.1.0-rc.1"
+    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.2",
+    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.2",
+    "nishi-dsh-claude-code": "workspace:0.1.0-rc.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -72,9 +72,9 @@
     "@deepseek-ai/dsh-host-apiproxy": "0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "0.1.1-rc.2",
     "@deepseek-ai/dsh-subprocess": "0.1.1-rc.2",
-    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.1",
-    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.1",
-    "nishi-dsh-claude-code": "workspace:0.1.0-rc.1",
+    "nishi-dsh-codex-usage-source": "workspace:0.1.0-rc.2",
+    "nishi-dsh-usage-limits": "workspace:0.1.0-rc.2",
+    "nishi-dsh-claude-code": "workspace:0.1.0-rc.2",
     "@types/jsdom": "^30.0.0",
     "@types/node": "24.13.3",
     "@types/react": "~18.3.1",
