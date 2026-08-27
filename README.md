@@ -1,95 +1,137 @@
 # Nishi DSH Suite
 
-Nishi DSH Suite is a public, modular extension suite for DeepSeek Harness distributed through the standard DSH plugin/bundle mechanism.
+Nishi DSH Suite is a modular extension suite for DeepSeek Harness. The current development family is `0.1.0-rc.3`, targeting DeepSeek Harness `0.1.1-rc.2` and Node.js 24.
 
-The migration targets DeepSeek Harness `0.1.1-rc.2`, Node.js 24, and one Market-facing package: `nishi-dsh-suite`.
+The product goal is simple: switching subscription providers should be a route change, not an environment change. DSH keeps the same tools, project memory, Usage & Limits surface, browser profile and session context while provider-specific protocol code stays behind a common core contract.
 
-Architecture: **one provider-independent core plugin plus one plugin per provider**. The core owns project-memory composition, the routed `web_search` tool and the usage/limits surface, and names no provider; a provider is a plugin that injects the core's registry and contributes a descriptor. Working across subscription providers is a route change and nothing else — same tools, same project memory, same limits surface.
+## Current architecture
 
-## Modules
+The rc.3 family contains six packages:
 
-The Suite is one provider-independent core plus one plugin per provider:
+- `nishi-dsh-core` — provider-independent registry/registration, shared vendor CLI runtime, routed `web_search`, normalized usage/limits, host RPC and browser surfaces;
+- `nishi-dsh-codex` — canonical provider id `codex`, primary route `codex-app-server`, Codex App Server adapter, primary-history bridge, Codex-native search backend and rate-limits source;
+- `nishi-dsh-antigravity` — canonical provider id `antigravity`, primary route `antigravity-cli`, official `agy`-backed primary adapter, native `search_web` backend and local usage visibility;
+- `nishi-dsh-claude` — canonical provider id `claude`, usage-only capability through the installed official Claude CLI; it declares no model route and no web-search backend;
+- `nishi-dsh-project-memory` — provider-agnostic project memory, context injection, `memory_read` / `memory_write` / `memory_edit`, plus `/memory` and `/consolidate` maintenance commands;
+- `nishi-dsh-suite` — the Market-facing composition bundle and managed Orchestrator preset bridge.
 
-- `nishi-dsh-core` — the core: shared vendor CLI runtime, the provider registry, the routed `web_search` tool, the normalized usage/limits domain, and the host/RPC/browser Usage & Limits surface. It names no provider;
-- `nishi-dsh-codex` — Codex primary provider with a `codex-app-server` route compiled from the reviewed MIT `wingoo/codex-plugin-dsh` source snapshot pinned at `79fe7503390d641680bad8efade52782a3c31ced`;
-- `nishi-dsh-antigravity` — Antigravity primary provider through the official `agy` client boundary;
-- `nishi-dsh-project-memory` — project-scoped Shared Project Memory, provider-agnostic by construction.
+The former `nishi-dsh-provider-kit`, `nishi-dsh-usage-limits`, `nishi-dsh-usage-limits-host`, and `nishi-dsh-primary-web-search` boundaries were folded into `nishi-dsh-core` for rc.3.
 
-`nishi-dsh-suite` is a thin composition bundle over those packages. It does not reimplement provider behavior.
+Adding a provider must not require a change to `core`, `project-memory`, or browser logic. A shipping provider still needs the expected declarative packaging changes in the Suite: dependency/bundle row and release-family metadata.
 
-In `0.1.0-rc.3` the former `nishi-dsh-provider-kit`, `nishi-dsh-usage-limits`, `nishi-dsh-usage-limits-host`, and `nishi-dsh-primary-web-search` merged into `nishi-dsh-core`: they were four packages describing one core.
+## Core lifecycle
 
-## Distribution model
+`nishi-dsh-core` has separate host, agent and browser surfaces:
 
-Normal installation is through DSH plugin reconciliation; there is no portable DSH home, custom runtime installer, cross-machine session sync, or cross-OS state migration.
+- host entry `nishi-dsh-core`: an outer plugin with no external service injection publishes `NishiProvidersService`, then mounts an internal host child that injects `nishiProviders`, `connection`, and `credentials`;
+- agent entry `nishi-dsh-core/web-search`: mounted by the Orchestrator preset and resolves the current primary route through the provider registry on every call;
+- browser entry `nishi-dsh-core/client`: renders Usage & Limits and Model Accounts from host RPC data;
+- library entries `nishi-dsh-core/runtime` and `nishi-dsh-core/usage`: consumed by provider packages without importing the host/browser graph.
 
-CachyOS/Linux has completed the full Node 24 live-runtime acceptance for the current prerelease. Windows is intentionally **not tested for `0.1.0-rc.1`** and no Windows compatibility claim is made for this prerelease. Project Memory stays inside each project checkout and is not transported by the Suite.
+The core does not depend on a provider package. Provider plugins inject `nishiProviders` and use the shared `registerProvider()` path, which owns canonical identity validation, registry recording, adapter registration, capability construction and transactional rollback.
 
-The nine-package prerelease family `0.1.0-rc.1` is published to npm and has passed a fresh registry-only DSH install/preset/remove smoke with no local tarball overrides. The documented prerelease channel is `next`, and exact-version installs are supported.
+## Project memory
 
-Because these are newly created npm packages, the registry also attached `latest` to the first published version and rejected authenticated attempts to remove that bootstrap tag. This does **not** represent a stable-release claim; see `docs/release/prerelease.md` for the recorded registry behavior.
+Project memory stays in the project rather than in a provider runtime:
 
-## Authentication boundary
+- `DSH.md` — project contract;
+- `.dsh/memory/MEMORY.md` — bounded bootstrap;
+- `.dsh/memory/<topic>.md` — durable topic memories;
+- `.dsh/local/` — transient local state.
 
-Nishi DSH Suite does not install vendor clients and does not copy, broker, scrape, or replay vendor credentials.
+A session started from a nested directory first resolves the nearest Git project root, so context injection and memory tools cannot split into different `.dsh/memory` trees. Non-Git workspaces use the explicit absolute session `cwd` as their root.
 
-- Codex authentication remains owned by the official Codex CLI/App Server product boundary.
-- Claude authentication remains owned by the installed official Claude Code CLI.
-- Antigravity authentication remains owned by the official `agy` client.
+Replacement writes use `@deepseek-ai/dsh-atomic-write` while the package keeps its canonical-directory and symlink/junction refusal checks. Project memory is repository content: maintenance directives explicitly reject secrets, quota snapshots, raw chain-of-thought, transient logs and personal facts about the operator.
 
-A missing vendor client should disable only the corresponding integration rather than prevent DSH startup.
+## Provider boundaries
+
+### Codex
+
+The Suite uses the user's installed official `codex` CLI/App Server. The primary invocation disables vendor-native memories and project-document injection with:
+
+- `memories.use_memories=false`;
+- `memories.generate_memories=false`;
+- `project_doc_max_bytes=0`.
+
+The Codex adapter source is based on the reviewed MIT `wingoo/codex-plugin-dsh` snapshot pinned in the package; it is not an official OpenAI plugin.
+
+### Antigravity
+
+The Suite uses the official `agy` executable boundary. It does not install or copy Antigravity credentials and never passes `--dangerously-skip-permissions`.
+
+### Claude
+
+Claude is deliberately usage-only in rc.3. A short-lived official `claude` CLI control session reads usage; the Suite does not register a Claude model adapter or search backend.
+
+No package bundles `@openai/codex*` or `@anthropic-ai/*` runtime packages.
 
 ## Web search
 
-The Suite intentionally has no DeepSeek/Exa/Perplexity fallback for its routed `web_search` tool:
+There is one model-facing `web_search` tool. The current session route selects a provider's declared native backend through the registry.
 
-- Codex primary → Codex-native search backend;
-- Antigravity primary → `agy search_web` backend;
-- a primary that declares no search capability, or a route no provider serves → explicit unsupported error.
+- a valid route with a search backend uses that backend;
+- a registered provider without search capability, or an unknown canonical route, returns `WEB_SEARCH_UNSUPPORTED`;
+- malformed/non-canonical primary-route metadata returns `WEB_SEARCH_ROUTE_UNAVAILABLE`;
+- there is no DeepSeek/Exa/Perplexity fallback.
 
-The core resolves the backend through the provider registry, so it never names a provider and a new provider needs no edit here.
+The tool re-reads the current request header per call, so a route change does not require rebuilding the tool instance.
 
-`DEEPSEEK_API_KEY` is not required by this routed search path.
+## Authentication boundary
 
-## Orchestrator
+Nishi DSH Suite does not copy, broker, scrape, migrate, or replay vendor credential/session/token stores.
 
-The accepted Orchestrator preset is packaged inside the Market artifact at `packages/suite/presets/orchestrator` with:
+The core's Model Accounts host reads the DSH `credentials` service directly. It no longer injects or imports `@deepseek-ai/dsh-authorization`. The Suite currently retains the official authorization row as a surrounding-profile compatibility seam; that row is not a core dependency.
+
+Vendor sign-in remains owned by each installed vendor product.
+
+## Orchestrator preset
+
+The packaged Orchestrator preset contains:
 
 - routed `web_search`;
-- shared project memory (`memory_read` / `memory_write` / `memory_edit`);
-- DSH-native delegation (`subagent`, `subagent_fork`) on the session's primary route.
+- shared project-memory tools;
+- DSH-native `subagent` / `subagent_fork` delegation on the primary route.
 
-Vendor delegation tools were removed in `0.1.0-rc.3`: a vendor CLI agent brought its own tools and its own memory access, which is the environment switch this Suite exists to avoid.
-
-Automatic third-party preset discovery is blocked by the DSH `0.1.1-rc.2` launcher, which overwrites contributed preset roots with its shipped root after bundle/user overlays. Tracking: issue #2.
-
-For rc.2 the Suite provides an explicit managed bridge into DSH's supported user preset root:
+Vendor-specific delegation tools were removed in rc.3. The current DSH `0.1.1-rc.2` launcher does not reliably preserve third-party contributed preset roots, so the Suite exposes an explicit managed bridge:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install
 dsh plugin --profile web exec nishi-dsh-suite preset status
 ```
 
-After a Suite update run `preset update`; before removing the Suite run `preset remove`. The only persistent directory owned by the bridge is `$DSH_HOME/.agent-presets/orchestrator`; atomic install/update may use transient stage/backup siblings under `.agent-presets`, which are removed after the operation. Unmanaged or locally edited `orchestrator` directories are never overwritten or removed automatically.
+After a Suite update use `preset update`; before Suite removal use `preset remove`. The bridge refuses to overwrite or remove an unmanaged/locally edited Orchestrator directory.
 
-## Verification
+## Verification status
 
-Repository gates:
+The current rc.3 branch has completed the provider-independent Core and Project Memory stabilization passes.
 
-```bash
-corepack enable
-pnpm install --frozen-lockfile
-pnpm verify:local
-```
+Core final acceptance proved, from fresh local tarballs in a disposable DSH home:
 
-`pnpm verify:local` runs release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local package creation.
+- `pnpm verify:local` PASS;
+- vendor protocol smoke PASS for installed Codex, Antigravity and Claude CLIs at the recorded acceptance versions;
+- six-package rc.3 bundle install/reinstall closure PASS;
+- installed imports for `nishi-dsh-core`, `/runtime`, `/usage`, `/web-search`, `/client` PASS;
+- real DSH host boot and HTTP readiness PASS;
+- agent-plane `nishi-dsh-core/web-search` mount PASS;
+- unload/remount without duplicate registry/RPC services PASS.
 
-The accepted source passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates pass on CachyOS **for `0.1.0-rc.2`**.
+Project Memory final acceptance additionally proved:
 
-`0.1.0-rc.3` restructures the family (see *Modules* above) and is verified so far by `pnpm verify:local` and `pnpm smoke:vendor-cli` — the latter driving the production usage sources against the installed `claude 2.1.246`, `codex-cli 0.150.0` and `agy 1.1.22`. Its live acceptance run has **not** been performed yet; the outstanding gates, the remaining work and the traps found while building it are recorded in `docs/HANDOFF.md`.
+- root-consistent nested-cwd read/write/edit behavior;
+- `@deepseek-ai/dsh-atomic-write` resolution in an installed Suite profile;
+- symlink/junction refusal and external-target preservation;
+- real Cordis `commands + llm` maintenance-command injection;
+- real disposable DSH boot PASS.
 
-The published `0.1.0-rc.1` family additionally passed a fresh public-registry-only DSH smoke: Suite resolution from npm, all eight exact leaf versions, managed Codex/Claude/DSH dependency versions, Orchestrator preset install/status/remove, and normal Suite removal. Evidence: `docs/acceptance/2026-08-27-registry-smoke.md`.
+Core and Project Memory are therefore treated as **DONE / FROZEN**. The remaining rc.3 work is provider-specific cleanup and the product-level live acceptance: provider turns/search, Antigravity catalog honesty, cross-provider route switching with memory continuity, live dynamic-roster/browser checks, and release gates.
 
-GitHub-hosted Actions are currently unavailable because jobs are blocked before execution by an account billing lock; no hosted-CI PASS is claimed.
+Canonical current status and next work:
 
-See `docs/acceptance/windows-cachyos.md` and `docs/release/prerelease.md` for the exact scope and release gates.
+- `docs/HANDOFF.md`
+- `docs/ROADMAP.md`
+- `docs/superpowers/plans/2026-08-27-core-and-provider-plugins.md`
+- `docs/SESSION-SUMMARY-2026-08-28.md`
+
+Historical rc.1/rc.2 release and acceptance records remain under `docs/release/` and `docs/acceptance/` and should be read as records of those versions, not as the current rc.3 state.
+
+Windows remains **NOT TESTED** for rc.3. No Windows compatibility claim is made.
