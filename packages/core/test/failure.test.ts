@@ -179,7 +179,7 @@ test('malformed recognizers fail closed instead of silently becoming non-matches
     /recognizer\.pattern must be a RegExp/,
   )
   assert.throws(
-    () => recognizeVendorStderr('anything', [{ category: 'x', pattern: /x/, message: () => '' }]),
+    () => recognizeVendorStderr('x', [{ category: 'x', pattern: /x/, message: () => '' }]),
     /recognizer\.message must return a non-empty string/,
   )
 })
