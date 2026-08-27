@@ -106,12 +106,13 @@ export class UsageLimitsHostService extends Service {
   readonly #service: UsageLimitsService
   readonly #publicFacade: UsageLimitsPublicFacade
   readonly #ctx: Context
+  readonly #clock: () => number
 
   constructor(ctx: Context, config?: UsageLimitsHostConfig) {
     super(ctx, 'usageLimits')
     this.#ctx = ctx
-    const clock = config?.clock ?? (() => Date.now())
-    const { service, facade } = composeUsageLimitsHost(ctx, config, clock)
+    this.#clock = config?.clock ?? (() => Date.now())
+    const { service, facade } = composeUsageLimitsHost(ctx, config, this.#clock)
     this.#service = service
     this.#publicFacade = facade
     this.getRosterPublic = this.getRosterPublic.bind(this)
@@ -123,35 +124,69 @@ export class UsageLimitsHostService extends Service {
   }
 
   /**
-   * Which providers the browser should render, derived from registrations.
-   * Only providers that declare a usage capability appear: a provider with no
-   * usage source has nothing to show in this surface, and an empty row would
-   * be the grey blank this record exists to remove.
+   * Which providers the browser should render, derived from all live provider
+   * registrations. Capability absence is itself meaningful data: a provider
+   * without a usage collector still gets a row whose public usage status is
+   * `UNSUPPORTED`, rather than disappearing from the surface.
    */
   getRosterPublic(): ProviderRosterRow[] {
     return this.#ctx.nishiProviders.all()
-      .filter((provider) => provider.usage !== undefined)
       .map((provider) => ({ providerId: provider.id, presentation: provider.presentation }))
   }
 
+  /** Project the descriptor-level absence of usage into the normal public DTO. */
+  #unsupportedProvider(providerId: string, displayName: string): PublicProviderUsage {
+    return {
+      providerId,
+      displayName,
+      status: 'UNSUPPORTED',
+      observedAtMs: this.#clock(),
+      freshness: 'UNKNOWN',
+      windows: [],
+    }
+  }
+
   getCachedProvidersPublic(): PublicProviderUsage[] {
-    return this.#publicFacade.getCachedProviders()
+    const cached = new Map(
+      this.#publicFacade.getCachedProviders().map((usage) => [usage.providerId, usage] as const),
+    )
+    const result: PublicProviderUsage[] = []
+    for (const provider of this.#ctx.nishiProviders.all()) {
+      if (provider.usage === undefined) {
+        result.push(this.#unsupportedProvider(provider.id, provider.presentation.displayName))
+        continue
+      }
+      const usage = cached.get(provider.id)
+      if (usage !== undefined) result.push(usage)
+    }
+    return result
   }
 
   getCachedProviderPublic(providerId: string): PublicProviderUsage | undefined {
+    const provider = this.#ctx.nishiProviders.byId(providerId)
+    if (provider === undefined) return undefined
+    if (provider.usage === undefined) {
+      return this.#unsupportedProvider(provider.id, provider.presentation.displayName)
+    }
     return this.#publicFacade.getCachedProvider(providerId)
   }
 
   async refreshProviderPublic(providerId: string, options?: { force?: boolean }): Promise<PublicProviderUsage> {
+    const provider = this.#ctx.nishiProviders.byId(providerId)
+    if (provider === undefined) throw new Error(`Provider "${providerId}" is not registered`)
+    if (provider.usage === undefined) {
+      return this.#unsupportedProvider(provider.id, provider.presentation.displayName)
+    }
     return this.#publicFacade.refreshProvider(providerId, options)
   }
 
   isRegisteredProvider(providerId: string): boolean {
-    if (typeof providerId !== 'string' || providerId.trim().length === 0) return false
-    return this.#service.getRegisteredProviderIds().includes(providerId.trim())
+    return typeof providerId === 'string' && this.#ctx.nishiProviders.byId(providerId) !== undefined
   }
 
   invalidateProvider(providerId: string): void {
+    const provider = this.#ctx.nishiProviders.byId(providerId)
+    if (provider?.usage === undefined) return
     this.#service.invalidate(providerId)
   }
 }
