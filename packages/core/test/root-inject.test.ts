@@ -1,10 +1,32 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { inject, NishiCorePlugin } from '../src/index.ts'
+import type { Context } from '@deepseek-ai/cordis'
+import { apply, inject, NishiCorePlugin, NishiProvidersService } from '../src/index.ts'
 
-test('the root core plugin waits only for services consumed by its host apply path', () => {
-  assert.deepEqual(inject, ['connection', 'credentials'])
+test('the outer core plugin has no impossible dependency on the service it publishes', () => {
+  assert.deepEqual(inject, [])
   assert.deepEqual(NishiCorePlugin.inject, inject)
-  assert.equal(inject.includes('subprocess' as never), false)
-  assert.equal(inject.includes('authorization' as never), false)
+})
+
+test('root apply publishes the registry before mounting a host child with explicit service access', () => {
+  const mounted: unknown[] = []
+  const ctx = {
+    plugin(plugin: unknown) {
+      mounted.push(plugin)
+      return undefined
+    },
+  } as unknown as Context
+
+  assert.doesNotThrow(() => apply(ctx))
+  assert.equal(mounted.length, 2)
+  assert.equal(mounted[0], NishiProvidersService)
+
+  const host = mounted[1] as {
+    name?: unknown
+    inject?: unknown
+    apply?: unknown
+  }
+  assert.equal(host.name, 'nishi-core-host')
+  assert.deepEqual(host.inject, ['nishiProviders', 'connection', 'credentials'])
+  assert.equal(typeof host.apply, 'function')
 })
