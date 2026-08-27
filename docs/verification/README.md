@@ -1,22 +1,117 @@
-# Verification reports
+# Verification ledger
 
-This directory contains validation evidence, not the active roadmap.
+This file is the compact durable validation record. It owns **what was accepted**, not the active task plan.
 
-Gemini reports under `docs/verification/gemini/` record a specific tested commit, environment, commands, targeted review and PASS/FAIL verdict. They are intentionally kept after later fixes so the sequence of failures and corrections remains auditable.
-
-Do not infer current implementation state by reading an old report in isolation. Use:
-
-- `docs/HANDOFF.md` for current state;
-- `docs/ROADMAP.md` for remaining work;
-- `docs/superpowers/plans/2026-08-27-core-and-provider-plugins.md` for execution order.
-
-Current final provider-independent reports:
+Raw local Gemini output lives only in:
 
 ```text
-docs/verification/gemini/core-14-final-acceptance.md
-docs/verification/gemini/project-memory-02-final-acceptance.md
+docs/verification/gemini/LATEST.md
 ```
 
-Core and Project Memory are DONE / FROZEN after those PASS results.
+`LATEST.md` is overwritten on every validation run. After a PASS, fold the durable result into this ledger. Older raw reports and removed acceptance documents remain available through git history; do not recreate them as new dated files.
 
-A report may legitimately contain an earlier FAIL that was later superseded. Do not edit historical report text to make it appear that the failure never happened.
+## Environment baseline
+
+Accepted provider-independent validation uses:
+
+- Node `v24.19.0` from fnm;
+- pnpm `11.21.0`;
+- DSH `0.1.1-rc.2`;
+- Linux/CachyOS local environment;
+- GitHub Actions/hosted CI: not used;
+- Windows: **NOT TESTED**.
+
+## Core stabilization
+
+Core 01–14 are complete and the package is **DONE / FROZEN**.
+
+| Gate | Accepted result |
+|---|---|
+| Core 01 | usage lifecycle/race safety PASS |
+| Core 02 | UTF-8 streaming split-chunk decoding PASS |
+| Core 03 | canonical provider ids/routes PASS |
+| Core 04 | workspace confinement PASS |
+| Core 05 | transactional provider registration rollback PASS |
+| Core 06 | registered provider without usage capability remains visible as unsupported PASS |
+| Core 07 | browser/client stale async lifecycle protection PASS |
+| Core 08 | shared `VendorFailure` contract/recognizer behavior PASS |
+| Core 09 | direct core `dsh-subagent` dependency removed PASS |
+| Core 10 | provider-neutral boundary + unfamiliar fourth-provider extension proof PASS |
+| Core 11 | root injection/lifecycle boundary PASS after correction |
+| Core 12 | direct core `dsh-authorization` dependency removed PASS |
+| Core 13 | canonical Web Search route parsing/error taxonomy PASS |
+| Core 14 | final package/install/real DSH boot/unload-remount acceptance PASS |
+
+Core 14 final acceptance included:
+
+- full local workspace gate;
+- six rc.3 tarballs;
+- disposable Suite installation;
+- installed imports for Core public subpaths;
+- real DSH host boot + HTTP readiness;
+- real agent-plane `nishi-dsh-core/web-search` mount;
+- unload/remount without duplicate registry/usage/RPC services.
+
+The real boot gate caught the registry-injection lifecycle bug that unit tests had missed. Final accepted lifecycle is recorded in `docs/ARCHITECTURE.md`.
+
+## Project Memory stabilization
+
+Project Memory is **DONE / FROZEN**.
+
+| Gate | Accepted result |
+|---|---|
+| PM01 | one root policy for context/tools; nested Git/worktree/non-Git cases PASS |
+| PM02 | package/workspace + atomic-write + Cordis commands/llm + disposable real DSH boot PASS |
+
+Accepted behavior includes:
+
+- no nested split-brain `.dsh/memory` tree;
+- canonical path/symlink refusal;
+- `@deepseek-ai/dsh-atomic-write` replacement writes;
+- `/memory` and `/consolidate` require `commands + llm`;
+- repository-shared memory policy excludes secret/transient/operator-personal data.
+
+## Historical release/acceptance baseline
+
+Published `0.1.0-rc.1` historically passed Linux/CachyOS local and registry-only installation smoke, including Suite resolution, managed preset lifecycle and normal removal. rc.2 was intentionally parked unpublished after local/live work.
+
+Those old package layouts and vendor-specific subagent surfaces are historical only. Exact old acceptance/release documents were removed from the current tree to prevent agents treating them as active instructions; they remain in git history.
+
+## Current open validation
+
+Provider-independent foundation is complete. Open rc.3 validation is only:
+
+1. Codex provider cleanup + focused/local/live provider acceptance.
+2. Antigravity provider cleanup/catalog tests + focused/local/live provider acceptance.
+3. Claude usage-only provider cleanup/smoke.
+4. Repository-wide provider invariant sweep.
+5. Cross-provider/product live acceptance.
+6. Final profile/install/release gates.
+
+See `docs/ROADMAP.md` for task order and `docs/HANDOFF.md` for the immediate next run.
+
+## Validation workflow
+
+For each issue Gemini should:
+
+1. pull the current branch;
+2. use the exact Node 24.19.0 fnm path;
+3. run only the requested local gates/review;
+4. not modify implementation unless explicitly permitted;
+5. overwrite `docs/verification/gemini/LATEST.md` with Tested commit, environment, commands, findings and PASS/FAIL;
+6. commit/push only the allowed report/generated files.
+
+After PASS, update this ledger only with durable facts. Do not append raw command transcripts or create a permanent file per validation.
+
+## Recovering removed evidence
+
+Use git history instead of restoring duplicate docs into the current tree:
+
+```bash
+git log -- docs/verification/gemini
+git log -- docs/acceptance
+git show <commit>:docs/verification/gemini/<old-report>.md
+git show <commit>:docs/acceptance/<old-record>.md
+```
+
+This keeps current agent context small while preserving the complete audit trail.

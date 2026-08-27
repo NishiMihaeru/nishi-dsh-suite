@@ -1,14 +1,10 @@
-# `0.1.0-rc.3` handoff
+# Handoff
 
-Updated 2026-08-28 after Core and Project Memory final acceptance.
+Updated for `0.1.0-rc.3` after Core and Project Memory final acceptance.
 
-This is the canonical short handoff for the next session. Historical implementation detail remains in git history and the dated verification reports; do not reconstruct current state from older unchecked roadmap items.
+This is the **only session handoff file**. Update it in place when the active task changes. Do not create dated session-summary or handoff documents.
 
-## Goal
-
-Provider switching should be a route change, not an environment change: the same DSH tools, project memory, Usage & Limits surface, profile and session context remain available while only provider protocol translation changes.
-
-## Current branch and release state
+## Current branch/state
 
 Development branch:
 
@@ -16,248 +12,137 @@ Development branch:
 feat/core-provider-plugins-rc3
 ```
 
-Current family: six packages at `0.1.0-rc.3`:
+Current family: six packages at `0.1.0-rc.3`.
 
-1. `nishi-dsh-core`
-2. `nishi-dsh-codex`
-3. `nishi-dsh-antigravity`
-4. `nishi-dsh-claude`
-5. `nishi-dsh-project-memory`
-6. `nishi-dsh-suite`
+`0.1.0-rc.3` is in-repo and unpublished. Published `0.1.0-rc.1` remains the public npm family. No publish, merge, tag or release is authorized by this handoff.
 
-`0.1.0-rc.3` is **in-repo and unpublished**. `0.1.0-rc.1` remains the published npm family; rc.2 was deliberately parked unpublished.
+Core and Project Memory are **DONE / FROZEN**. The next active stage is **Codex provider cleanup and acceptance**.
 
-No publish, merge, release or tag is authorized by this handoff.
+## Read before editing
 
-## Frozen packages
+1. `docs/README.md`
+2. this file
+3. `docs/ROADMAP.md`
+4. `docs/ARCHITECTURE.md`
+5. `packages/codex/README.md`, then the exact source/tests being changed
 
-### Core — DONE / FROZEN
+Do not reconstruct current work from old commits or deleted historical docs unless a specific regression requires archaeology.
 
-Core stabilization finished with `docs/verification/gemini/core-14-final-acceptance.md` = PASS.
+## Next task: Codex
 
-The accepted contract includes:
+Scope provider-local work first. Do not reopen Core or Project Memory without a reproducible blocker.
 
-- provider-independent registry and `registerProvider()` transaction;
-- canonical provider ids/routes;
-- transactional rollback;
-- late provider registration/withdrawal;
-- provider-without-usage support;
-- stale browser async protection;
-- shared `VendorFailure` contract;
-- no direct core dependency on `dsh-subagent` or `dsh-authorization`;
-- provider-neutral core boundary with a synthetic fourth-provider proof;
-- canonical Web Search request-header routing and error taxonomy;
-- final registry-first Cordis lifecycle:
-  - outer `nishi-core`: `inject: []`;
-  - publishes `NishiProvidersService`;
-  - mounts `nishi-core-host` with `['nishiProviders', 'connection', 'credentials']`.
+Target outcomes:
 
-Final Core acceptance proved:
+- inspect remaining Codex-local failure classes/string builders and migrate only behavior that belongs to the shared core `VendorFailure` contract;
+- inspect duplicate generic helpers and reuse core helpers only where the contract is actually provider-neutral;
+- preserve Codex-specific protocol translation in the Codex package;
+- focused Codex tests/check/build;
+- then live primary/search/vendor-memory-suppression acceptance;
+- freeze Codex before moving to Antigravity.
 
-- full local workspace gate;
-- six rc.3 tarballs;
-- disposable Suite installation;
-- installed core subpath imports including `/web-search`;
-- real DSH host boot + HTTP readiness;
-- real agent-plane `nishi-dsh-core/web-search` mount;
-- unload/remount without duplicate registry/RPC services.
+Important provider boundary:
 
-Do not change `packages/core` unless a new reproducible blocker requires reopening the frozen package.
+- canonical provider id: `codex`;
+- model route: `codex-app-server`;
+- model: yes;
+- native search backend: yes;
+- usage/rate limits: yes;
+- primary-history bridge: yes;
+- vendor-specific subagent: no.
 
-### Project Memory — DONE / FROZEN
+## Frozen invariants
 
-Project Memory finished with:
+Do not accidentally regress these while working on providers:
 
-- `docs/verification/gemini/project-memory-01-root-consistency.md` = PASS;
-- `docs/verification/gemini/project-memory-02-final-acceptance.md` = PASS.
+- providers register through the shared `registerProvider()` path;
+- Core has no provider-package dependency;
+- outer `nishi-core` has no external injection and publishes `NishiProvidersService` before the inner host child;
+- inner host child injects `nishiProviders`, `connection`, `credentials`;
+- Core does not depend on `dsh-authorization`;
+- web search routes by the exact current request-header route and never silently falls back;
+- capability absence is legal;
+- Project Memory context/tools use one root policy;
+- Project Memory replacement writes remain atomic and path-confined;
+- vendor-specific delegation tools stay removed.
 
-Accepted behavior:
+See `ARCHITECTURE.md` for the full contract. Do not duplicate architecture text here.
 
-- context injection and memory tools use one `findProjectRoot()` policy;
-- nested cwd resolves to nearest `.git` root;
-- worktree-style `.git` files work;
-- non-Git fallback is normalized explicit cwd;
-- no nested split-brain `.dsh/memory` tree;
-- replacement writes use `@deepseek-ai/dsh-atomic-write` after canonical path/symlink checks;
-- `/memory` and `/consolidate` register through `ctx.inject(['commands', 'llm'], ...)`;
-- memory policy rejects secrets, quota snapshots, chain-of-thought, transient logs and operator-personal facts;
-- disposable Suite install and real DSH boot pass with the atomic-write peer dependency.
+## Development workflow
 
-Do not change `packages/project-memory` unless a new reproducible blocker requires reopening it.
+The assistant edits GitHub; Gemini validates on the maintainer's local machine where the real Node/DSH/vendor environment exists.
 
-## Current architecture
+For each narrow issue:
 
-Canonical spec:
-
-```text
-docs/superpowers/specs/provider-bridge-design.md
-```
-
-Providers are Cordis plugins that inject `nishiProviders` and call the shared `registerProvider()` path.
-
-Actual descriptor shape:
-
-- `id`
-- `presentation`
-- `executable`
-- optional `model` with `model.routes`
-- optional `webSearch`
-- optional `usage`
-- optional `install`
-
-A new provider must not require edits to core, Project Memory, generic usage/search composition or browser identity logic. Shipping it still requires declarative Suite packaging: dependency/bundle row and release-family metadata.
-
-Canonical ids/routes:
-
-- `codex` → `codex-app-server`
-- `antigravity` → `antigravity-cli`
-- `claude` → no model route, usage-only
-
-Vendor-specific subagent integrations are gone. Orchestrator delegation is DSH-native `subagent` / `subagent_fork` on the current primary route.
-
-## Remaining rc.3 work
-
-Continue in this order.
-
-### 1. Codex provider
-
-Scope only `packages/codex` plus provider-level tests/docs when required.
-
-Remaining:
-
-- migrate remaining provider-local failure classes/string builders to the core `VendorFailure` contract;
-- deduplicate remaining provider-local generic helpers when a core helper already owns the contract;
-- run focused tests/check/build;
-- live acceptance: primary turn, routed `web_search`, vendor-memory/project-doc suppression on the primary invocation.
-
-Freeze Codex after its final provider acceptance.
-
-### 2. Antigravity provider
-
-Remaining:
-
-- migrate remaining provider-local failure helpers to core contracts;
-- remove hardcoded model-family catalog filtering while retaining malformed-entry rejection;
-- add catalog parser/model-list coverage;
-- run focused tests/check/build;
-- live acceptance: primary turn, model switch in one session, routed `web_search`.
-
-Freeze Antigravity after its final provider acceptance.
-
-### 3. Claude provider
-
-Claude stays usage-only.
-
-Remaining:
-
-- provider-local failure/helper cleanup as applicable;
-- focused tests/check/build and usage-source smoke;
-- release acceptance only; no Claude primary route is planned for rc.3.
-
-Freeze Claude after its provider acceptance.
-
-### 4. Repository-wide/provider invariants
-
-Core-specific fourth-provider extension was already proved with an unfamiliar synthetic provider (`nebula`). Do not redo that as core work.
-
-Before final rc.3 acceptance, finish/confirm repository-wide guards that:
-
-- provider packages do not directly register LLM adapters outside `registerProvider()`;
-- no vendor subagent registration/tool returns;
-- core remains independent of provider packages;
-- a model capability always has at least one canonical route;
-- provider absence/capability absence remain supported.
-
-A shipping fourth provider may require a Suite dependency/bundle row. That is expected declarative packaging and is not a failure of core neutrality.
-
-### 5. Product-level live acceptance
-
-One deliberate quota-spending run should cover:
-
-- Codex primary + routed search + memory;
-- Antigravity primary + model switch + routed search;
-- **Codex → Antigravity route switch inside one session**;
-- project memory written before the switch and read after it;
-- Usage & Limits with all providers;
-- profile without Antigravity;
-- provider appearing after the browser surface is already active;
-- fresh/local-tarball Suite install/upgrade lifecycle preserving the existing `dsh-chatgpt-web` link;
-- managed preset install/status/update/remove;
-- normal Suite removal.
-
-### 6. Release gates
-
-Before any publish proposal:
-
-```bash
-pnpm install --frozen-lockfile
-pnpm verify:local
-pnpm smoke:vendor-cli
-pnpm verify:bundle-install
-pnpm check:npm-names
-```
-
-Read exit codes directly; do not hide them through pipes.
-
-Then finish `docs/release/2026-08-28-rc3-prerelease.md` with the live-provider results.
-
-Publishing still requires separate explicit maintainer approval.
-
-## Working workflow used in this stabilization session
-
-This workflow is deliberate because the assistant can edit GitHub but cannot run the maintainer's local DSH/vendor environment.
-
-1. Assistant fetches the current GitHub file and blob SHA from `feat/core-provider-plugins-rc3`.
-2. Assistant makes one narrow source/test/documentation change directly on the branch.
-3. Assistant supplies a complete Gemini validation prompt.
-4. Gemini runs locally with exact Node 24.19.0 path:
+1. Assistant fetches the current target file and SHA from `feat/core-provider-plugins-rc3`.
+2. Assistant edits source/tests/docs directly on the branch.
+3. Assistant provides one complete Gemini validation prompt.
+4. Gemini uses:
 
    ```bash
    export PATH="$HOME/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH"
    ```
 
-5. Gemini does not fix implementation unless a prompt explicitly allows one deterministic generated file such as `pnpm-lock.yaml`.
-6. Gemini writes one designated Markdown report under `docs/verification/gemini/`, commits allowed files and pushes the same branch even on FAIL.
-7. Maintainer replies only `готово`.
-8. Assistant reads the report directly from GitHub, validates tested SHA / Node / commands / review and either:
-   - patches the blocker and issues a rerun prompt; or
-   - explicitly closes the issue and moves on.
-9. No GitHub Actions/CI are used.
+5. Gemini validates but does not repair implementation unless explicitly allowed.
+6. Gemini **overwrites only**:
 
-This workflow caught blockers unit tests alone missed, most importantly the real Core Cordis boot failure caused by accessing `ctx.nishiProviders` without injection.
+   ```text
+   docs/verification/gemini/LATEST.md
+   ```
 
-## Environment / hard constraints
+   Do not create a new report file per issue.
+7. Gemini commits/pushes `LATEST.md` even on FAIL.
+8. Maintainer replies only `готово`.
+9. Assistant reads `LATEST.md` from GitHub and either patches the blocker or closes the issue and continues.
+10. After PASS, assistant folds durable validation status into `docs/verification/README.md`, updates this handoff/roadmap only if status changed, then reuses `LATEST.md` for the next validation.
 
-- Node: `v24.19.0` through fnm.
-- pnpm: `11.21.0`.
-- DSH: `0.1.1-rc.2`.
+This keeps one raw report and one compact validation ledger instead of an ever-growing report archive. Exact older reports remain recoverable from git history.
+
+## Validation baseline
+
+- Node `v24.19.0` through fnm.
+- pnpm `11.21.0`.
+- DSH `0.1.1-rc.2`.
 - `/usr/bin/node` may be v22; do not use it for acceptance.
-- GitHub-hosted CI/Actions are prohibited for this work and no hosted-CI PASS may be claimed.
-- Do not inspect or edit `.github/workflows/*`.
-- Do not copy/parse/migrate/delete vendor credential/session/token stores.
+
+Typical focused provider gates:
+
+```bash
+pnpm --filter <package> test
+pnpm --filter <package> check
+pnpm --filter <package> build
+```
+
+Run broader gates only when the scope justifies them. Final release gates are owned by `RELEASE.md`.
+
+## Hard constraints
+
+- GitHub Actions/hosted CI are not used. Do not inspect or edit `.github/workflows/*`.
+- Do not copy, parse, migrate or delete vendor credential/session/token stores.
 - `@openai/codex*` and `@anthropic-ai/*` stay absent from the Suite runtime lock graph.
 - Windows remains **NOT TESTED**.
-- No publish / merge / tag / release without explicit approval.
+- No publish / merge / tag / release without explicit maintainer approval.
+- Live provider tests consume real subscription quota; group them deliberately.
 
-## Useful traps already learned
+## Operational traps
 
-- Cordis service access is injection-protected. `as any` does not bypass the runtime proxy.
-- A service reached through the Cordis proxy cannot safely use unbound methods that rely on `#private` fields; the core services bind public methods in their constructors.
-- Provider registrations arrive after the core publishes `nishiProviders`; any roster must be dynamic.
-- Provider package checks can see stale built core declarations after a core type edit; rebuild core first if core is ever intentionally reopened.
-- DSH `0.1.1-rc.2` overwrites contributed preset roots, so the Suite's managed preset bridge remains required.
-- Vendor CLI drift is only caught by `pnpm smoke:vendor-cli` / live provider tests, not ordinary unit tests.
-- Live provider tests consume real subscription quota. Group them deliberately.
+- Cordis service access is injection-protected; type casts do not bypass the runtime proxy.
+- Provider registrations arrive after Core publishes the registry, so provider rosters must remain dynamic.
+- If Core types are intentionally changed after reopening, rebuild Core before trusting provider typecheck results that may read built declarations.
+- DSH `0.1.1-rc.2` overwrites contributed third-party preset roots; the managed Suite preset bridge is still required.
+- Vendor CLI drift is caught by vendor smoke/live tests, not ordinary unit tests.
+- Read command exit codes directly; avoid pipelines that mask the failing command.
 
-## Canonical current docs
+## After Codex
 
-Read these in order:
+The fixed order is:
 
-1. `docs/HANDOFF.md`
-2. `docs/ROADMAP.md`
-3. `docs/superpowers/specs/provider-bridge-design.md`
-4. `docs/superpowers/plans/2026-08-27-core-and-provider-plugins.md`
-5. `docs/SESSION-SUMMARY-2026-08-28.md`
-6. `docs/release/2026-08-28-rc3-prerelease.md`
+1. Codex
+2. Antigravity
+3. Claude
+4. repository-wide provider invariants
+5. cross-provider/product live acceptance
+6. install/profile lifecycle
+7. release gate
 
-Historical rc.1/rc.2 release records and older dated plans/specs intentionally retain period-specific package names and assumptions.
+`ROADMAP.md` owns details and completion status for that sequence.
