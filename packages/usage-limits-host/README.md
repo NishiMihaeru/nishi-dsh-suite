@@ -9,8 +9,7 @@ This package owns the DSH host service, safe RPC projection, browser Usage & Lim
 The package value-imports and therefore installs exact prerelease versions of:
 
 - `nishi-dsh-usage-limits` — normalized public usage contract and collectors;
-- `nishi-dsh-codex-usage-source` — official Codex app-server rate-limit source;
-- `nishi-dsh-claude-usage-source` — official Claude CLI usage/limits source.
+- `nishi-dsh-provider-kit` — shared vendor CLI runtime, including the official Codex app-server rate-limit source and the official Claude CLI usage/limits source.
 
 DeepSeek Harness platform packages remain peer dependencies so the plugin shares the host's rc.2 Cordis/services rather than installing duplicate framework instances.
 

@@ -3,12 +3,10 @@ const names = [
   'nishi-dsh-provider-kit',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
-  'nishi-dsh-claude-usage-source',
   'nishi-dsh-primary-web-search',
   'nishi-dsh-project-memory',
   'nishi-dsh-usage-limits',
   'nishi-dsh-usage-limits-host',
-  'nishi-dsh-codex-usage-source',
   'nishi-dsh-suite',
 ]
 

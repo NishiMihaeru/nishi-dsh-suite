@@ -7,12 +7,10 @@ const packages = [
   ['packages/provider-kit', 'nishi-dsh-provider-kit'],
   ['packages/codex', 'nishi-dsh-codex'],
   ['packages/antigravity', 'nishi-dsh-antigravity'],
-  ['packages/claude-usage-source', 'nishi-dsh-claude-usage-source'],
   ['packages/primary-web-search', 'nishi-dsh-primary-web-search'],
   ['packages/project-memory', 'nishi-dsh-project-memory'],
   ['packages/usage-limits', 'nishi-dsh-usage-limits'],
   ['packages/usage-limits-host', 'nishi-dsh-usage-limits-host'],
-  ['packages/codex-usage-source', 'nishi-dsh-codex-usage-source'],
   ['packages/suite', 'nishi-dsh-suite'],
 ]
 

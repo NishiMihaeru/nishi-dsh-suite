@@ -37,7 +37,7 @@
  *   - claude:      spawns `claude --print --verbose --input-format stream-json
  *                  --output-format stream-json --no-session-persistence
  *                  --tools '' --strict-mcp-config` (the exact argv from
- *                  claude-usage-source's claudeUsageCliArgv), issues one
+ *                  provider-kit's claudeUsageCliArgv), issues one
  *                  `control_request` of subtype `get_usage` after the CLI's
  *                  `system`/`init` message, and feeds the raw response
  *                  through the production `normalizeClaudeUsage()`
@@ -105,10 +105,9 @@ process.on('SIGTERM', () => {
 
 // ---------------------------------------------------------------------------
 // Executable resolution -- mirrors the bare-name-on-PATH resolution used by
-// packages/claude-usage-source/src/executable.ts and
-// packages/codex-usage-source/src/executable.ts, generalized for all three
-// vendor CLIs. Only used to DETECT installs and to feed a resolved absolute
-// path to the real production spawn code.
+// packages/provider-kit/src/executable.ts (resolveVendorExecutable),
+// generalized for all three vendor CLIs. Only used to DETECT installs and to
+// feed a resolved absolute path to the real production spawn code.
 // ---------------------------------------------------------------------------
 
 function isExecutableFile(candidate) {
@@ -393,7 +392,7 @@ async function checkClaude() {
   console.log(`  claude version: ${redactHome(versionText)}`)
 
   const { OfficialClaudeUsageSource } = await loadBuiltModule(
-    'packages/claude-usage-source/lib/index.js',
+    'packages/provider-kit/lib/index.js',
     provider,
   )
   const { normalizeClaudeUsage } = await loadBuiltModule('packages/usage-limits/lib/index.js', provider)
@@ -438,7 +437,7 @@ async function checkCodex() {
   console.log(`  codex version: ${redactHome(versionText)}`)
 
   const { OfficialCodexRateLimitsSource } = await loadBuiltModule(
-    'packages/codex-usage-source/lib/index.js',
+    'packages/provider-kit/lib/index.js',
     provider,
   )
   const { normalizeCodexRateLimits } = await loadBuiltModule('packages/usage-limits/lib/index.js', provider)

@@ -14,8 +14,6 @@ const expectedNishiDependencies = [
   'nishi-dsh-project-memory',
   'nishi-dsh-usage-limits',
   'nishi-dsh-usage-limits-host',
-  'nishi-dsh-codex-usage-source',
-  'nishi-dsh-claude-usage-source',
 ].sort()
 
 test('suite manifest is a DSH bundle with the exact prerelease package family', async () => {

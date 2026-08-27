@@ -6,8 +6,9 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import {
   claudeUsageCliArgv,
+  DEFAULT_USAGE_REQUEST_TIMEOUT_MS,
   OfficialClaudeUsageSource,
-} from '../src/usage.js'
+} from '../src/claude-usage.ts'
 
 function fakeUsageChild(received: any[], emitInit = true) {
   const stdin = new PassThrough()
@@ -89,6 +90,7 @@ test('Claude usage argv opens a stream-json control session without a model prom
     '--tools', '',
     '--strict-mcp-config',
   ])
+  assert.equal(DEFAULT_USAGE_REQUEST_TIMEOUT_MS, 30_000)
 })
 
 test('Claude usage source asks the external CLI for get_usage without sending a user turn', { timeout: 2_000 }, async () => {

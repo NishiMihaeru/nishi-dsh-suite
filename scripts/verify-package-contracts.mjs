@@ -5,12 +5,10 @@ const packageDirs = [
   'codex',
   'antigravity',
   'provider-kit',
-  'claude-usage-source',
   'primary-web-search',
   'project-memory',
   'usage-limits',
   'usage-limits-host',
-  'codex-usage-source',
   'suite',
 ]
 

@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
-import { OfficialCodexRateLimitsSource } from '../src/index.ts'
+import {
+  codexAppServerArgv,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  OfficialCodexRateLimitsSource,
+} from '../src/codex-usage.ts'
 
 function fakeAppServerChild() {
   const stdin = new PassThrough()
@@ -62,6 +66,15 @@ function fakeAppServerChild() {
     },
   } as any
 }
+
+test('external executable uses only the official app-server stdio command', () => {
+  assert.deepEqual(codexAppServerArgv('/vendor/codex'), [
+    '/vendor/codex',
+    'app-server',
+    '--stdio',
+  ])
+  assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 30_000)
+})
 
 test('usage source resolves external Codex and launches app-server directly', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nishi-codex-usage-runtime-'))

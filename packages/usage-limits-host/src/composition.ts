@@ -19,11 +19,9 @@ import { HostAntigravityLocalUsageSource } from './antigravity-local-source.js'
 import {
   OfficialClaudeUsageSource,
   DEFAULT_USAGE_REQUEST_TIMEOUT_MS,
-} from 'nishi-dsh-claude-usage-source'
-import {
   OfficialCodexRateLimitsSource,
   DEFAULT_REQUEST_TIMEOUT_MS as DEFAULT_CODEX_REQUEST_TIMEOUT_MS,
-} from 'nishi-dsh-codex-usage-source'
+} from 'nishi-dsh-provider-kit'
 
 export const DEFAULT_USAGE_REFRESH_POLICY: UsageRefreshPolicy = Object.freeze({
   minRefreshIntervalMs: 60_000,

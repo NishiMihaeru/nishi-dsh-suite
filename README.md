@@ -13,8 +13,7 @@ The Suite is split into independently owned runtime packages:
 - `nishi-dsh-primary-web-search` — one `web_search` tool routed by the active Codex/Antigravity primary;
 - `nishi-dsh-project-memory` — project-scoped Shared Project Memory;
 - `nishi-dsh-usage-limits` — normalized usage/limits domain;
-- `nishi-dsh-codex-usage-source` — Codex app-server rate-limit source;
-- `nishi-dsh-claude-usage-source` — Claude usage/limits source through the installed official `claude` CLI;
+- `nishi-dsh-provider-kit` — shared vendor CLI runtime, including the Codex app-server rate-limit source and the Claude usage/limits source through the installed official `claude` CLI;
 - `nishi-dsh-usage-limits-host` — host/RPC/browser Usage & Limits integration.
 
 `nishi-dsh-suite` is a thin composition bundle over those packages. It does not reimplement provider behavior.

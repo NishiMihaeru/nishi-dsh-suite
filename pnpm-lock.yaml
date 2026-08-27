@@ -45,25 +45,6 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
-  packages/claude-usage-source:
-    dependencies:
-      '@deepseek-ai/dsh-subprocess':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
-      '@deepseek-ai/dsh-timeout':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
-    devDependencies:
-      '@types/node':
-        specifier: 24.13.3
-        version: 24.13.3
-      tsx:
-        specifier: 4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-
   packages/codex:
     dependencies:
       '@deepseek-ai/cordis':
@@ -96,25 +77,6 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
         version: 3.18.1
-    devDependencies:
-      '@types/node':
-        specifier: 24.13.3
-        version: 24.13.3
-      tsx:
-        specifier: 4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: 5.9.2
-        version: 5.9.2
-
-  packages/codex-usage-source:
-    dependencies:
-      '@deepseek-ai/dsh-subprocess':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
-      '@deepseek-ai/dsh-timeout':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
     devDependencies:
       '@types/node':
         specifier: 24.13.3
@@ -211,15 +173,9 @@ importers:
       nishi-dsh-antigravity:
         specifier: workspace:0.1.0-rc.2
         version: link:../antigravity
-      nishi-dsh-claude-usage-source:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../claude-usage-source
       nishi-dsh-codex:
         specifier: workspace:0.1.0-rc.2
         version: link:../codex
-      nishi-dsh-codex-usage-source:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../codex-usage-source
       nishi-dsh-primary-web-search:
         specifier: workspace:0.1.0-rc.2
         version: link:../primary-web-search
@@ -263,12 +219,9 @@ importers:
 
   packages/usage-limits-host:
     dependencies:
-      nishi-dsh-claude-usage-source:
+      nishi-dsh-provider-kit:
         specifier: workspace:0.1.0-rc.2
-        version: link:../claude-usage-source
-      nishi-dsh-codex-usage-source:
-        specifier: workspace:0.1.0-rc.2
-        version: link:../codex-usage-source
+        version: link:../provider-kit
       nishi-dsh-usage-limits:
         specifier: workspace:0.1.0-rc.2
         version: link:../usage-limits
@@ -313,6 +266,9 @@ importers:
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
       '@deepseek-ai/dsh-subprocess':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
+      '@deepseek-ai/dsh-timeout':
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
       '@types/jsdom':

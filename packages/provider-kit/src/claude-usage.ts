@@ -1,4 +1,12 @@
-/** Claude usage/limits source over the official external CLI control protocol. */
+/**
+ * Official Claude CLI usage/limits source adapter.
+ *
+ * Uses the already-installed external Claude CLI and performs a short-lived
+ * stream-json control session that issues exactly one `get_usage` request
+ * without a model turn, tools, MCP servers, or credential copying.
+ *
+ * @module nishi-dsh-provider-kit/claude-usage
+ */
 
 import { randomUUID } from 'node:crypto'
 import {
@@ -7,12 +15,20 @@ import {
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { resolveClaudeExecutable } from './executable.js'
-import { claudeOutputLines, disposeClaudeCliChild } from './process.js'
+import { resolveVendorExecutable, type VendorExecutableDescriptor } from './executable.js'
+import { disposeVendorChild, outputLines } from './process.js'
 
-export const DEFAULT_DISPOSE_GRACE_MS = 3000
-export const DEFAULT_USAGE_REQUEST_TIMEOUT_MS = 30_000
+const CLAUDE_DESCRIPTOR: VendorExecutableDescriptor = {
+  id: 'claude-usage',
+  defaultName: 'claude',
+  envOverride: 'DSH_CLAUDE_EXECUTABLE',
+}
+
+const MAX_CLAUDE_STREAM_LINE_BYTES = 1024 * 1024
+const DEFAULT_DISPOSE_GRACE_MS = 3000
 const DEFAULT_STDERR_MAX_BYTES = 16 * 1024
+
+export const DEFAULT_USAGE_REQUEST_TIMEOUT_MS = 30_000
 
 export interface OfficialClaudeUsageSourceSpec {
   readonly cwd: string
@@ -27,7 +43,7 @@ function positiveTimer(value: number | undefined, name: string, fallback: number
   if (value === undefined) return fallback
   if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_TIMER_DELAY_MS) {
     throw new Error(
-      `claude-usage-source: ${name} must be a positive finite integer <= ${MAX_TIMER_DELAY_MS}`,
+      `claude-usage: ${name} must be a positive finite integer <= ${MAX_TIMER_DELAY_MS}`,
     )
   }
   return value
@@ -39,6 +55,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
+/** Build the argv for a Claude usage control session: no model prompt, no tools, no MCP servers. */
 export function claudeUsageCliArgv(executable: string): string[] {
   return [
     executable,
@@ -73,11 +90,12 @@ export class OfficialClaudeUsageSource {
 
   async read(): Promise<unknown> {
     if (this.spec.spawn === undefined) {
-      throw new Error('claude-usage-source: usage source requires the DSH subprocess spawn service')
+      throw new Error('claude-usage: usage source requires the DSH subprocess spawn service')
     }
 
     const env = { ...process.env, ...this.spec.env }
-    const executable = this.spec.executable ?? resolveClaudeExecutable({ env }).executable
+    const executable = this.spec.executable
+      ?? resolveVendorExecutable(CLAUDE_DESCRIPTOR, { env }).executable
     const controller = new AbortController()
     const child = this.spec.spawn({
       argv: claudeUsageCliArgv(executable),
@@ -100,8 +118,8 @@ export class OfficialClaudeUsageSource {
     const stdin = child.stdin
     const stdout = child.stdout
     if (!stdin || !stdout) {
-      await disposeClaudeCliChild(child).catch(() => {})
-      throw new Error('claude-usage-source: Claude usage control session did not expose stdio pipes')
+      await disposeVendorChild(child).catch(() => {})
+      throw new Error('claude-usage: Claude usage control session did not expose stdio pipes')
     }
     stdin.on('error', () => {})
     stdout.on('error', () => {})
@@ -124,7 +142,7 @@ export class OfficialClaudeUsageSource {
 
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        const error = new Error('claude-usage-source: usage request timed out')
+        const error = new Error('claude-usage: usage request timed out')
         if (!controller.signal.aborted) controller.abort(error)
         reject(error)
       }, this.timeoutMs)
@@ -133,13 +151,13 @@ export class OfficialClaudeUsageSource {
     void timeout.catch(() => {})
 
     const protocol = (async (): Promise<unknown> => {
-      for await (const line of claudeOutputLines(stdout)) {
+      for await (const line of outputLines(stdout, MAX_CLAUDE_STREAM_LINE_BYTES)) {
         if (line.trim().length === 0) continue
         let parsed: unknown
         try {
           parsed = JSON.parse(line)
         } catch (error) {
-          throw new Error('claude-usage-source: Claude usage control stream emitted malformed JSON', { cause: error })
+          throw new Error('claude-usage: Claude usage control stream emitted malformed JSON', { cause: error })
         }
         const message = record(parsed)
         if (!message || typeof message.type !== 'string') continue
@@ -147,11 +165,11 @@ export class OfficialClaudeUsageSource {
         const response = record(message.response)
         if (response?.request_id !== requestId) continue
         if (response.subtype !== 'success') {
-          throw new Error('claude-usage-source: Claude usage control request failed')
+          throw new Error('claude-usage: Claude usage control request failed')
         }
         return response.response
       }
-      throw new Error('claude-usage-source: Claude usage control session ended before get_usage response')
+      throw new Error('claude-usage: Claude usage control session ended before get_usage response')
     })()
     void protocol.catch(() => {})
 
@@ -163,14 +181,14 @@ export class OfficialClaudeUsageSource {
       requestError = error
     } finally {
       if (timer !== undefined) clearTimeout(timer)
-      if (!controller.signal.aborted) controller.abort(new Error('claude-usage-source: usage request complete'))
+      if (!controller.signal.aborted) controller.abort(new Error('claude-usage: usage request complete'))
       try {
-        await disposeClaudeCliChild(child)
+        await disposeVendorChild(child)
       } catch (cleanupError) {
         if (requestError !== undefined) {
           throw new AggregateError(
             [requestError, cleanupError],
-            'claude-usage-source: usage request failed and CLI cleanup also failed',
+            'claude-usage: usage request failed and CLI cleanup also failed',
           )
         }
         throw cleanupError

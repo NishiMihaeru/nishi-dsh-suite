@@ -14,12 +14,11 @@ Installing this bundle brings the exact `0.1.0-rc.2` prerelease family:
 - `nishi-dsh-project-memory` — project-scoped DSH memory and memory tools;
 - `nishi-dsh-usage-limits` — normalized usage/limits domain library;
 - `nishi-dsh-usage-limits-host` — host/RPC/browser Usage & Limits integration;
-- `nishi-dsh-codex-usage-source` — official Codex app-server rate-limit source adapter;
-- `nishi-dsh-claude-usage-source` — official Claude CLI usage/limits source adapter.
+- `nishi-dsh-provider-kit` — shared vendor CLI runtime, including the official Claude CLI and Codex app-server usage/limits source adapters.
 
 The Suite also installs the official `@deepseek-ai/dsh-authorization@0.1.1-rc.2` service because Usage Limits Host injects `authorization` and stock rc.2 base/web profiles do not mount that service themselves.
 
-`cordis.patch.yml` mounts host-plane plugins: the official authorization seam, Project Memory, the two managed provider packages, and Usage Limits Host. `nishi-dsh-primary-web-search` remains an installed dependency but is mounted on the **agent plane** by the Orchestrator preset, matching DSH Web's rc.2 ownership model. The usage domain and the Codex/Claude usage sources are library dependencies and are not Cordis rows.
+`cordis.patch.yml` mounts host-plane plugins: the official authorization seam, Project Memory, the two managed provider packages, and Usage Limits Host. `nishi-dsh-primary-web-search` remains an installed dependency but is mounted on the **agent plane** by the Orchestrator preset, matching DSH Web's rc.2 ownership model. The usage domain and provider-kit's usage sources are library dependencies and are not Cordis rows.
 
 ## Authentication boundary
 

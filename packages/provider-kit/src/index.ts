@@ -34,3 +34,16 @@ export {
   type VendorFailureSpec,
   type VendorStderrRecognizer,
 } from './failure.js'
+export {
+  claudeUsageCliArgv,
+  DEFAULT_USAGE_REQUEST_TIMEOUT_MS,
+  OfficialClaudeUsageSource,
+  type OfficialClaudeUsageSourceSpec,
+} from './claude-usage.js'
+export {
+  codexAppServerArgv,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  OfficialCodexRateLimitsSource,
+  type CodexRateLimitsSourceLike,
+  type OfficialCodexRateLimitsSourceSpec,
+} from './codex-usage.js'

@@ -8,9 +8,7 @@ const LOCAL_FAMILY_PACKAGES = [
   'nishi-dsh-project-memory',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
-  'nishi-dsh-claude-usage-source',
   'nishi-dsh-usage-limits',
-  'nishi-dsh-codex-usage-source',
   'nishi-dsh-primary-web-search',
   'nishi-dsh-usage-limits-host',
 ]
