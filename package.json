@@ -27,6 +27,7 @@
     "check:npm-names": "node scripts/check-npm-names.mjs --require-available",
     "pack:packages": "pnpm -r --if-present pack",
     "pack:local": "node scripts/pack-local.mjs",
-    "verify:bundle-install": "node scripts/verify-bundle-install.mjs"
+    "verify:bundle-install": "node scripts/verify-bundle-install.mjs",
+    "smoke:vendor-cli": "node scripts/smoke-vendor-cli.mjs"
   }
 }
