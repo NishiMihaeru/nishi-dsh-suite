@@ -31,13 +31,13 @@ The gap is not the contract. It is that the code behind it is written three time
 
 ## Stage 0 — Ship `0.1.0-rc.2`
 
-*In flight. `pnpm verify:local` passes end to end; 9 tarballs pack; lock graph clean. Work is staged but uncommitted.*
+*Everything except the publication gate is complete. `pnpm verify:local` green; nine tarballs pack; lock graph clean. Live acceptance run against real CLIs: Codex primary + subagent 2/2, Antigravity primary 8/8 including model switch and shared memory, `smoke:vendor-cli` 3/3.*
 
-- [ ] **0.1** Commit the Claude cut as three reviewable commits: `feat(claude)!: replace Claude Code subagent with a usage-only source package`, `fix(release): build before check in verify:local`, `docs: describe external CLI runtimes instead of bundled vendor SDKs`.
-- [ ] **0.2** Write `docs/release/2026-08-27-rc2-prerelease.md`. Record the breaking change explicitly: upgrading from rc.1 removes the `subagent_claude_code` tool. Claude usage/limits remain visible. Name the accepted CLI versions (`claude 2.1.246`, `codex-cli 0.150.0`, `agy 1.1.21`).
-- [ ] **0.3** Extend `scripts/verify-bundle-install.mjs` to assert no foreign-platform vendor binaries appear in the installed closure.
-- [ ] **0.4** Live acceptance: Codex primary + routed `web_search` + memory read/write; Antigravity primary + mid-conversation model switch + `agy search_web`; three usage rows render; Claude row degrades explicitly when the `claude` CLI is absent.
-- [ ] **0.5** `pnpm check:npm-names`.
+- [x] **0.1** Commit the Claude cut as three reviewable commits: `feat(claude)!: replace Claude Code subagent with a usage-only source package`, `fix(release): build before check in verify:local`, `docs: describe external CLI runtimes instead of bundled vendor SDKs`.
+- [x] **0.2** Write `docs/release/2026-08-27-rc2-prerelease.md`. Record the breaking change explicitly: upgrading from rc.1 removes the `subagent_claude_code` tool. Claude usage/limits remain visible. Name the accepted CLI versions (`claude 2.1.246`, `codex-cli 0.150.0`, `agy 1.1.21`).
+- [x] **0.3** Extend `scripts/verify-bundle-install.mjs` to assert no foreign-platform vendor binaries appear in the installed closure.
+- [x] **0.4** Live acceptance: Codex primary + routed `web_search` + memory read/write; Antigravity primary + mid-conversation model switch + `agy search_web`; three usage rows render; Claude row degrades explicitly when the `claude` CLI is absent.
+- [x] **0.5** `pnpm check:npm-names`.
 - [ ] **0.6 — GATE.** Present roster and evidence; **wait for explicit approval**. Then publish leaves-first under `next` and verify registry resolution at exact versions.
 - [ ] **0.7** `npm deprecate nishi-dsh-claude-code@0.1.0-rc.1` → `nishi-dsh-claude-usage-source`.
 - [ ] **0.8** Upgrade `~/.dsh/profiles/web` rc.1 → rc.2 **preserving the `dsh-chatgpt-web` link**; run `preset update`; confirm nothing unrelated was touched.
@@ -48,7 +48,7 @@ The gap is not the contract. It is that the code behind it is written three time
 
 `MEMORY_MAINTENANCE_DIRECTIVE` (`project-memory/src/commands.ts:5`) forbids saving secrets, credentials, quota values, and transient state — but says nothing about personal facts, because there is nowhere else to put them. A durable fact about the operator's shell, platform, or working preferences legitimately matches the approved category "durable workflows", and therefore lands in a committed file that ships to every collaborator with the repository.
 
-- [ ] **1.1** Extend the NEVER list so personal facts about the operator are dropped rather than silently committed, until the personal store of Stage 6 exists.
+- [x] **1.1** Extend the NEVER list so personal facts about the operator are dropped rather than silently committed, until the personal store of Stage 6 exists.
 
 ## Stage 2 — The provider bridge
 
@@ -103,7 +103,7 @@ The gap is not the contract. It is that the code behind it is written three time
 
 Not gated on anything above; each is worth doing whenever it is cheapest.
 
-- [ ] **R1 — No regression net against vendor protocol drift.** Every integration rides a private wire protocol with no stability guarantee, and **no test in `pnpm test` spawns a real `claude`/`codex`/`agy`**. A patch release of any vendor CLI can break the product silently. Add an opt-in smoke script asserting response shape for each usage source and each primary, and make it a required manual gate before every publish. *This is the largest unmitigated risk in the project.*
+- [x] **R1 — No regression net against vendor protocol drift.** Every integration rides a private wire protocol with no stability guarantee, and **no test in `pnpm test` spawns a real `claude`/`codex`/`agy`**. A patch release of any vendor CLI can break the product silently. `pnpm smoke:vendor-cli` drives the production source objects against the installed CLIs and pipes each response through the real normalizer. It found a live regression on its first run — the Claude usage source waiting for an init line CLI 2.1.246 never sends, deadlocking until timeout while every unit test stayed green. Still to do: make it a required manual gate in the publish runbook, and extend it beyond usage sources and model listing.
 - [ ] **R2 — Untested surface.** `antigravity-primary.ts` is 774 lines with zero unit tests (schema validation, concatenated-JSON parsing, catalog heuristics, effort-unsupported detection). Cover the pure functions at minimum.
 - [ ] **R3 — Memory has no deletion path.** Only read/write/edit are registered; `commands.ts:44` instructs the model not to substitute shell deletion for the missing operation. A wholly obsolete topic can be emptied but never removed. Decide: a guarded `memory_delete`, or declare consolidation-by-rewrite the only sanctioned pruning path.
 - [ ] **R4 — Antigravity memory suppression is half-enforced.** Codex's is enforced by CLI config; Antigravity's rests partly on config and partly on prompt instructions, which is guidance to a model, not enforcement. Determine whether `agy` offers a config-level guarantee; if not, record it as an accepted risk rather than leaving it to read as enforced.
