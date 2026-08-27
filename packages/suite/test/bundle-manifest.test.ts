@@ -7,6 +7,7 @@ const presetUrl = new URL('../presets/orchestrator/preset.yml', import.meta.url)
 const compositionUrl = new URL('../presets/orchestrator/agent.cordis.yml', import.meta.url)
 
 const expectedNishiDependencies = [
+  'nishi-dsh-provider-kit',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-primary-web-search',

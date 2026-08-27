@@ -44,6 +44,7 @@ test('bundle patch mounts each host runtime plugin exactly once', async () => {
     'nishi-dsh-usage-limits',
     'nishi-dsh-codex-usage-source',
     'nishi-dsh-claude-usage-source',
+    'nishi-dsh-provider-kit',
   ]) {
     assert.ok(!seenNames.has(dependencyOnly), `${dependencyOnly} must not be mounted as a host Cordis row`)
   }

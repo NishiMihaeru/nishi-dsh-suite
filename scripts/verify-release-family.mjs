@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 const VERSION = '0.1.0-rc.2'
 const DSH_VERSION = '0.1.1-rc.2'
 const packages = [
+  ['packages/provider-kit', 'nishi-dsh-provider-kit'],
   ['packages/codex', 'nishi-dsh-codex'],
   ['packages/antigravity', 'nishi-dsh-antigravity'],
   ['packages/claude-usage-source', 'nishi-dsh-claude-usage-source'],

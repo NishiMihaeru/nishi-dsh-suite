@@ -1,5 +1,6 @@
 const VERSION = '0.1.0-rc.2'
 const names = [
+  'nishi-dsh-provider-kit',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-claude-usage-source',

@@ -4,6 +4,7 @@ import { lstat, readdir, readFile, readlink, realpath, stat, writeFile } from 'n
 import { extname, isAbsolute, join, resolve } from 'node:path'
 
 const LOCAL_FAMILY_PACKAGES = [
+  'nishi-dsh-provider-kit',
   'nishi-dsh-project-memory',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',

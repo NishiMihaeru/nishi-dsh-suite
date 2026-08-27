@@ -8,6 +8,7 @@ const outputDir = resolve(root, '.artifacts', 'packs')
 const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 
 const packageOrder = [
+  'nishi-dsh-provider-kit',
   'nishi-dsh-project-memory',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
