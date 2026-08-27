@@ -88,6 +88,18 @@ test('outputLines decodes fragmented NDJSON across chunk boundaries without alte
   ])
 })
 
+test('outputLines preserves a UTF-8 code point split across Buffer chunk boundaries', async () => {
+  const stdout = new PassThrough()
+  const collected = collectLines(outputLines(stdout, 1024))
+  const euro = Buffer.from('€', 'utf8')
+
+  assert.equal(euro.length, 3, 'fixture must use a multi-byte UTF-8 code point')
+  stdout.write(Buffer.concat([Buffer.from('{"text":"', 'utf8'), euro.subarray(0, 2)]))
+  stdout.end(Buffer.concat([euro.subarray(2), Buffer.from('"}\n', 'utf8')]))
+
+  assert.deepEqual(await collected, ['{"text":"€"}'])
+})
+
 test('outputLines strips a trailing CR so CRLF streams decode the same as LF streams', async () => {
   const stdout = new PassThrough()
   const collected = collectLines(outputLines(stdout, 1024))
