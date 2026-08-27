@@ -1,14 +1,10 @@
 /**
  * The single registration path every subscription-CLI provider plugin uses.
  *
- * Before this module existed, `nishi-dsh-codex` and `nishi-dsh-antigravity`
- * each hand-rolled the same steps in their `apply()`: merge raw config over
- * defaults field-by-field, validate the timer/byte-count fields with the
- * same rules and near-identical message wording, then register their seams.
- * This module is that sequence, written once: `resolveSharedProviderConfig`
- * owns the merge-and-validate step for the six config fields every provider
- * shares, and `registerProvider` owns the model-then-extras registration
- * order both providers already followed by hand.
+ * Before this module existed, provider packages each hand-rolled the same
+ * merge/validate/register sequence. This module owns that sequence once:
+ * `resolveSharedProviderConfig` owns the six shared configuration fields and
+ * `registerProvider` owns provider identity/capability registration order.
  *
  * Delegation left the contract in `0.1.0-rc.3`: no provider contributes a
  * subagent provider any more, so there is no subagent step here to run.
@@ -23,6 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { assertPositiveFinite } from '@deepseek-ai/dsh-subagent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ProviderDescriptor } from '../registry/descriptor.js'
+import { canonicalProviderId, canonicalProviderRoute } from '../registry/identity.js'
 
 /** Config fields every subscription-CLI provider plugin shares. */
 export interface SharedProviderConfig {
@@ -57,10 +54,6 @@ export type SharedProviderDefaults = Required<SharedProviderConfig>
  *   timers above.
  * - `env` passes through unvalidated; `Config` schemas already constrain it
  *   to a string dictionary.
- *
- * Every diagnostic is prefixed with `id` — the calling plugin's name (e.g.
- * `codex`) — exactly as both providers' hand-written checks did before this
- * module existed.
  */
 export function resolveSharedProviderConfig(
   id: string,
@@ -96,63 +89,69 @@ export function resolveSharedProviderConfig(
 }
 
 /**
- * The single registration path every provider goes through: record the
- * provider in the core's registry, register its LLM adapter under the routes
- * it declares, then run provider-specific extras.
+ * The single registration path every provider goes through: validate its
+ * identity first, record the provider in the core's registry, register its
+ * LLM adapter under the declared routes, then run provider-specific extras.
  *
- * The provider's own `ctx` does the registering, not the core's: the adapter
- * binds session listeners and a dispose effect, and those must belong to the
- * provider plugin so unloading it takes them with it. The registry entry is
- * removed by the same effect for the same reason.
- *
- * Extras run last because they may assume the adapter is already registered —
- * the Codex primary history bridge does.
+ * Identity validation happens before any capability factory runs. A malformed
+ * descriptor must therefore have no subprocess/backend/adapter side effects.
  */
 export async function registerProvider<TConfig extends SharedProviderConfig>(
   ctx: Context,
   descriptor: ProviderDescriptor<TConfig>,
   config: TConfig,
 ): Promise<void> {
+  const providerId = canonicalProviderId(descriptor.id, 'provider descriptor.id')
   const registry = ctx.nishiProviders
   if (registry === undefined) {
     throw new Error(
-      `${descriptor.id}: the nishi-dsh-core row must be mounted before a provider plugin — declare inject: ['nishiProviders']`,
+      `${providerId}: the nishi-dsh-core row must be mounted before a provider plugin — declare inject: ['nishiProviders']`,
     )
   }
 
-  const routes = descriptor.model ? [...descriptor.model.routes] : []
-  if (descriptor.model && routes.length === 0) {
-    throw new Error(`${descriptor.id}: a provider declaring a model capability must declare at least one route`)
-  }
-
-  if (descriptor.presentation.id !== descriptor.id) {
+  const presentationId = canonicalProviderId(descriptor.presentation.id, `${providerId}: presentation.id`)
+  if (presentationId !== providerId) {
     throw new Error(
-      `${descriptor.id}: presentation.id must match the provider id (got "${descriptor.presentation.id}")`,
+      `${providerId}: presentation.id must match the provider id (got "${descriptor.presentation.id}")`,
     )
   }
+
+  const routes: string[] = []
+  const seenRoutes = new Set<string>()
+  for (const [index, rawRoute] of (descriptor.model?.routes ?? []).entries()) {
+    const route = canonicalProviderRoute(rawRoute, `${providerId}: model.routes[${index}]`)
+    if (seenRoutes.has(route)) {
+      throw new Error(`${providerId}: model.routes declares duplicate route "${route}"`)
+    }
+    seenRoutes.add(route)
+    routes.push(route)
+  }
+
+  if (descriptor.model && routes.length === 0) {
+    throw new Error(`${providerId}: a provider declaring a model capability must declare at least one route`)
+  }
+
+  const webSearch = descriptor.webSearch?.create(ctx, config)
+  const usage = descriptor.usage === undefined
+    ? undefined
+    : {
+        collector: descriptor.usage.create(ctx, config, {
+          invalidate: () => registry.invalidate(providerId),
+        }),
+        ...(descriptor.usage.refreshPolicy === undefined
+          ? {}
+          : { refreshPolicy: descriptor.usage.refreshPolicy }),
+      }
 
   const forget = registry.record({
-    id: descriptor.id,
+    id: providerId,
     presentation: descriptor.presentation,
     routes,
     descriptor: descriptor as ProviderDescriptor<never>,
-    ...(descriptor.webSearch === undefined
-      ? {}
-      : { webSearch: descriptor.webSearch.create(ctx, config) }),
-    ...(descriptor.usage === undefined
-      ? {}
-      : {
-          usage: {
-            collector: descriptor.usage.create(ctx, config, {
-              invalidate: () => registry.invalidate(descriptor.id),
-            }),
-            ...(descriptor.usage.refreshPolicy === undefined
-              ? {}
-              : { refreshPolicy: descriptor.usage.refreshPolicy }),
-          },
-        }),
+    ...(webSearch === undefined ? {} : { webSearch }),
+    ...(usage === undefined ? {} : { usage }),
   })
-  ctx.effect(() => forget, `${descriptor.id}: withdraw provider registration`)
+  ctx.effect(() => forget, `${providerId}: withdraw provider registration`)
 
   if (descriptor.model) {
     ctx.llm.registerAdapter(routes, descriptor.model.create(ctx, config))
