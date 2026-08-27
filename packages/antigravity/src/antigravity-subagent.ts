@@ -233,6 +233,59 @@ async function disposeChild(child: SubprocessHandle | undefined, stream?: AgyStr
   await child.done.catch(() => undefined)
 }
 
+
+/**
+ * The Antigravity CLI auto-denies tool permissions in headless mode because it
+ * cannot prompt, and reports that clearly on stderr while ending the turn as
+ * CANCELED. Without this the run surfaced as a bare "aborted" with no
+ * diagnostic at all, which is indistinguishable from a user cancellation.
+ *
+ * Only the recognised condition is turned into a message; raw vendor stderr is
+ * never forwarded, so local paths and vendor output still cannot escape.
+ */
+const PERMISSION_DENIED_PATTERN = /required the "([a-z_]+)" permission that headless mode cannot prompt for/i
+
+export function headlessPermissionDenial(stderrText: string | undefined): string | undefined {
+  if (typeof stderrText !== 'string' || stderrText.length === 0) return undefined
+  const match = PERMISSION_DENIED_PATTERN.exec(stderrText)
+  if (!match) return undefined
+  return `Product subagent failure (product: Antigravity CLI; stage: turn; category: permission-denied). `
+    + `The CLI auto-denied the ${JSON.stringify(match[1])} tool permission because headless mode cannot ask for approval. `
+    + `Allow it in the Antigravity CLI permission settings, then retry.`
+}
+
+function vendorStderrText(child: SubprocessHandle): string | undefined {
+  try {
+    return (child as any).collected?.stderr?.readFrom?.(0)?.text
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The CLI writes its explanation to stderr AFTER emitting the terminal result
+ * frame, so reading stderr the moment the frame arrives always sees an empty
+ * buffer. Wait a bounded amount for the process to finish before looking.
+ */
+async function settledVendorStderr(
+  child: SubprocessHandle,
+  graceMs: number,
+): Promise<string | undefined> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    await Promise.race([
+      child.done.then(() => undefined, () => undefined),
+      new Promise<void>((resolveWait) => {
+        timer = setTimeout(resolveWait, graceMs)
+        timer.unref?.()
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+  return vendorStderrText(child)
+}
+
 export async function startAntigravitySubagentRun(
   request: SubagentStartRequest,
   spec: AntigravitySubagentRunSpec,
@@ -330,11 +383,17 @@ export async function startAntigravitySubagentRun(
         const status = typeof rawStatus === 'string' ? rawStatus.toUpperCase() : String(rawStatus ?? '')
 
         if (status === 'CANCELED' || status === 'INTERRUPTED') {
+          const denial = headlessPermissionDenial(await settledVendorStderr(publishedChild, spec.disposeGraceMs))
+          if (denial !== undefined) {
+            diagnostic = denial
+            throw new Error('subagent-antigravity: agy auto-denied a tool permission in headless mode')
+          }
           return { output: partialOutput, stopReason: 'aborted' as const }
         }
 
         if (status !== 'SUCCESS') {
-          diagnostic = 'Product subagent failure (product: Antigravity CLI; stage: turn; category: provider-error)'
+          diagnostic = headlessPermissionDenial(await settledVendorStderr(publishedChild, spec.disposeGraceMs))
+            ?? 'Product subagent failure (product: Antigravity CLI; stage: turn; category: provider-error)'
           const detail = typeof terminal.error === 'string' && terminal.error.length > 0
             ? terminal.error
             : `status ${status || 'UNKNOWN'}`

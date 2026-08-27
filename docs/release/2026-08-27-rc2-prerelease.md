@@ -156,3 +156,26 @@ Same caveat as rc.1: a real version-to-version registry/profile update is only m
 ## Rollback
 
 Do not unpublish a version merely because an acceptance issue is found after release. Prefer fixing forward with the next prerelease. If this RC is found unsafe to install, change the prerelease channel or document the affected version according to npm policy rather than rewriting publication history.
+
+## Known limitation: Antigravity delegated subagent cannot use tools
+
+`subagent_antigravity` can only answer prompts that need no tools. The Antigravity
+CLI cannot prompt for tool permission in headless mode and auto-denies instead, so
+any delegated task that reads a file, greps, or runs a command ends the turn as
+CANCELED. Verified live against `agy 1.1.21`; a prompt needing no tools completes
+normally, and the same prompt with a file read does not. The workspace being listed
+in the CLI's trusted workspaces makes no difference.
+
+The Suite does not pass `--dangerously-skip-permissions`, because the managed agent
+definition's tool list is not honoured by the CLI -- its session announces the full
+native toolset -- so skipping permissions would hand a delegated run the browser,
+shell, and native subagent tools rather than the seven the definition names.
+
+Operators who want Antigravity delegation must allow the tools in the Antigravity
+CLI's own permission settings. The failure now reports
+`category: permission-denied` and names the denied tool instead of surfacing as a
+bare abort.
+
+Codex delegation is unaffected, and Antigravity remains fully functional as a
+primary provider: catalog, turns, tool loop, project memory, session reopen, model
+switch, and web search all pass live.
