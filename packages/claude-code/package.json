@@ -1,7 +1,7 @@
 {
   "name": "nishi-dsh-claude-code",
   "description": "Claude Code subagent provider for DeepSeek Harness using the installed official Claude CLI",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
