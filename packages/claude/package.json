@@ -1,7 +1,7 @@
 {
   "name": "nishi-dsh-claude",
   "version": "0.1.0-rc.3",
-  "description": "Claude usage/limits provider plugin for Nishi DSH Suite, reading through the installed official Claude CLI",
+  "description": "Claude usage-only provider plugin for Nishi DSH Suite, reading limits through the installed official Claude CLI",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
