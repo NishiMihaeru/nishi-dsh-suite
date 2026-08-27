@@ -2,11 +2,10 @@
 
 Independent Codex integration package for Nishi DSH Suite.
 
-It preserves the accepted DSH rc.2 Codex subagent lifecycle, package-local managed Codex runtime resolution, Codex primary-history bridge, read-only Project Memory access, and the Codex-native web-search backend seam.
+It contributes the Codex primary provider: the external Codex App Server bridge, the Codex primary-history bridge, and the Codex-native web-search backend seam. Delegation was removed in `0.1.0-rc.3`, so this package no longer registers a subagent provider and no longer reaches project memory itself — project memory is DSH's own tool surface, identical on every provider.
 
 ## Runtime boundaries
 
-- DSH subagent provider ID: `codex`
 - primary provider: `codex-app-server` (vendored source snapshot from `wingoo/codex-plugin-dsh` @ `79fe7503390d641680bad8efade52782a3c31ced`, MIT License, not an official OpenAI plugin)
 - Codex runtime: the user's installed official `codex` CLI, located through `DSH_CODEX_EXECUTABLE` or `PATH`; no `@openai/codex*` package is bundled
 - native Codex authentication remains vendor-owned

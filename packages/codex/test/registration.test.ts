@@ -18,7 +18,6 @@ function fakeContext() {
           }
         },
       },
-      projectMemory: { async createSubagentContext() { return { projectRoot: '/repo', renderedBootstrap: null, async readTopic(topic: string) { return { topic, exists: false, content: null } } } } },
       effect() {},
       on() {},
       logger: { warn() {} },
@@ -26,21 +25,18 @@ function fakeContext() {
   }
 }
 
-test('Codex package registers only the codex subagent provider and codex-app-server primary', async () => {
+test('Codex package registers the codex-app-server primary and no subagent provider', async () => {
   const fixture = fakeContext()
   await codex.apply(fixture.ctx, { env: {}, disposeGraceMs: 3000 })
-  assert.deepEqual([...fixture.providers.keys()], ['codex'])
-  assert.equal(fixture.providers.has('antigravity'), false)
   assert.deepEqual([...fixture.adapters.keys()], ['codex-app-server'])
+  assert.deepEqual([...fixture.providers.keys()], [], 'delegation was removed in 0.1.0-rc.3')
 })
 
 test('Codex package keeps the accepted plugin surface', () => {
   assert.equal(codex.name, 'subagent-codex')
   assert.deepEqual(codex.inject, [
-    'subagents',
     'subprocess',
     'llm',
-    'projectMemory',
     'sessions',
     'attachments',
   ])
