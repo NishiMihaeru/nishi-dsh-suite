@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { MAX_PROVIDER_ROUTE_LENGTH } from '../src/registry/identity.js'
 import { PrimaryWebSearchError } from '../src/web-search/errors.js'
 import { normalizeProviderResult } from '../src/web-search/result.js'
 import { resolvePrimarySearchRoute, type PrimarySearchRoute } from '../src/web-search/route.js'
@@ -32,6 +33,10 @@ function backends(calls: string[]): PrimarySearchBackendResolver {
   return (providerRoute) => byRoute.get(providerRoute)
 }
 
+function isRouteUnavailable(error: unknown): boolean {
+  return error instanceof PrimaryWebSearchError && error.code === 'WEB_SEARCH_ROUTE_UNAVAILABLE'
+}
+
 test('primary route follows the live session request header without caching', () => {
   const exec = execFixture({
     cwd: 'C:/dsh-workspace',
@@ -54,26 +59,43 @@ test('primary route follows the live session request header without caching', ()
   })
 })
 
-test('missing route fails closed with WEB_SEARCH_ROUTE_UNAVAILABLE', () => {
-  assert.throws(
-    () => resolvePrimarySearchRoute({} as any),
-    (error: unknown) => error instanceof PrimaryWebSearchError && error.code === 'WEB_SEARCH_ROUTE_UNAVAILABLE',
-  )
-  assert.throws(
-    () => resolvePrimarySearchRoute(execFixture()),
-    (error: unknown) => error instanceof PrimaryWebSearchError && error.code === 'WEB_SEARCH_ROUTE_UNAVAILABLE',
-  )
+test('missing or malformed route fails closed with WEB_SEARCH_ROUTE_UNAVAILABLE', () => {
+  assert.throws(() => resolvePrimarySearchRoute({} as any), isRouteUnavailable)
+  assert.throws(() => resolvePrimarySearchRoute(execFixture()), isRouteUnavailable)
   assert.throws(
     () => resolvePrimarySearchRoute(execFixture({ config: { model: 'gpt-5.6-sol' } })),
-    (error: unknown) => error instanceof PrimaryWebSearchError && error.code === 'WEB_SEARCH_ROUTE_UNAVAILABLE',
+    isRouteUnavailable,
   )
   assert.throws(
     () => resolvePrimarySearchRoute(execFixture({ config: { provider: 'codex-app-server' } })),
-    (error: unknown) => error instanceof PrimaryWebSearchError && error.code === 'WEB_SEARCH_ROUTE_UNAVAILABLE',
+    isRouteUnavailable,
   )
   assert.throws(
     () => resolvePrimarySearchRoute(execFixture({ config: { provider: '  ', model: '' } })),
-    (error: unknown) => error instanceof PrimaryWebSearchError && error.code === 'WEB_SEARCH_ROUTE_UNAVAILABLE',
+    isRouteUnavailable,
+  )
+
+  for (const provider of [
+    ' codex-app-server ',
+    'codex app-server',
+    'codex\tapp-server',
+    'codex\u0000app-server',
+    'r'.repeat(MAX_PROVIDER_ROUTE_LENGTH + 1),
+  ]) {
+    assert.throws(
+      () => resolvePrimarySearchRoute(execFixture({ config: { provider, model: 'gpt-5.6-sol' } })),
+      isRouteUnavailable,
+      `malformed provider route ${JSON.stringify(provider)} must fail before dispatch`,
+    )
+  }
+
+  assert.throws(
+    () => resolvePrimarySearchRoute(execFixture({ config: null as any })),
+    isRouteUnavailable,
+  )
+  assert.throws(
+    () => resolvePrimarySearchRoute(execFixture({ config: [] as any })),
+    isRouteUnavailable,
   )
 })
 
