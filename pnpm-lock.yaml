@@ -134,9 +134,6 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.1
         version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
-      '@deepseek-ai/dsh-authorization':
-        specifier: 0.1.1-rc.2
-        version: 0.1.1-rc.2(e0350187351f9d964689a3e0122aa410)
       '@deepseek-ai/dsh-client-connection':
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(9b40f28fccfb9ee3f86188afc9586c29)
