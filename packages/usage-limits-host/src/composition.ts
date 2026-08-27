@@ -25,15 +25,7 @@ import {
   DEFAULT_REQUEST_TIMEOUT_MS as DEFAULT_CODEX_REQUEST_TIMEOUT_MS,
 } from 'nishi-dsh-codex-usage-source'
 
-export const DEFAULT_CLAUDE_REFRESH_POLICY: UsageRefreshPolicy = Object.freeze({
-  minRefreshIntervalMs: 60_000,
-  staleAfterMs: 300_000,
-})
-export const DEFAULT_CODEX_REFRESH_POLICY: UsageRefreshPolicy = Object.freeze({
-  minRefreshIntervalMs: 60_000,
-  staleAfterMs: 300_000,
-})
-export const DEFAULT_ANTIGRAVITY_REFRESH_POLICY: UsageRefreshPolicy = Object.freeze({
+export const DEFAULT_USAGE_REFRESH_POLICY: UsageRefreshPolicy = Object.freeze({
   minRefreshIntervalMs: 60_000,
   staleAfterMs: 300_000,
 })
@@ -61,13 +53,13 @@ export class HostClaudeUsageSource implements ClaudeUsageSource {
     private readonly requestTimeoutMs: number = DEFAULT_USAGE_REQUEST_TIMEOUT_MS,
   ) {}
 
-  async getUsage(): Promise<unknown> {
+  async read(): Promise<unknown> {
     const source = new OfficialClaudeUsageSource({
       cwd: this.cwd,
       requestTimeoutMs: this.requestTimeoutMs,
       spawn: (spec) => this.ctx.subprocess.spawn(spec),
     })
-    return source.getUsage()
+    return source.read()
   }
 }
 
@@ -79,14 +71,14 @@ export class HostCodexRateLimitsSource implements CodexRateLimitsSource {
     private readonly requestTimeoutMs: number = DEFAULT_CODEX_REQUEST_TIMEOUT_MS,
   ) {}
 
-  async readRateLimits(): Promise<unknown> {
+  async read(): Promise<unknown> {
     const source = new OfficialCodexRateLimitsSource({
       cwd: this.cwd,
       requestTimeoutMs: this.requestTimeoutMs,
       spawn: (spec) => this.ctx.subprocess.spawn(spec),
       onRateLimitsUpdated: this.onRateLimitsUpdated,
     })
-    return source.readRateLimits()
+    return source.read()
   }
 }
 
@@ -112,23 +104,20 @@ export function composeUsageLimitsHost(
   )
   const antigravitySource = config?.antigravitySource ?? new HostAntigravityLocalUsageSource()
 
-  const registrations: UsageProviderRegistration[] = [
-    {
-      providerId: CLAUDE_PROVIDER_ID,
-      collector: new ClaudeUsageCollector(claudeSource),
-      policy: config?.refreshPolicies?.claude ?? DEFAULT_CLAUDE_REFRESH_POLICY,
-    },
-    {
-      providerId: CODEX_PROVIDER_ID,
-      collector: new CodexUsageCollector(codexSource),
-      policy: config?.refreshPolicies?.codex ?? DEFAULT_CODEX_REFRESH_POLICY,
-    },
-    {
-      providerId: ANTIGRAVITY_PROVIDER_ID,
-      collector: new AntigravityUsageCollector(antigravitySource),
-      policy: config?.refreshPolicies?.antigravity ?? DEFAULT_ANTIGRAVITY_REFRESH_POLICY,
-    },
+  const descriptors: readonly {
+    providerId: string
+    collector: UsageProviderRegistration['collector']
+    policy?: UsageRefreshPolicy
+  }[] = [
+    { providerId: CLAUDE_PROVIDER_ID, collector: new ClaudeUsageCollector(claudeSource), policy: config?.refreshPolicies?.claude },
+    { providerId: CODEX_PROVIDER_ID, collector: new CodexUsageCollector(codexSource), policy: config?.refreshPolicies?.codex },
+    { providerId: ANTIGRAVITY_PROVIDER_ID, collector: new AntigravityUsageCollector(antigravitySource), policy: config?.refreshPolicies?.antigravity },
   ]
+  const registrations: UsageProviderRegistration[] = descriptors.map((descriptor) => ({
+    providerId: descriptor.providerId,
+    collector: descriptor.collector,
+    policy: descriptor.policy ?? DEFAULT_USAGE_REFRESH_POLICY,
+  }))
 
   const service = new UsageLimitsService(registrations, clock)
   const facade = new UsageLimitsPublicFacade(service, clock)

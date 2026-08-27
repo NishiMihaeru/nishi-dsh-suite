@@ -112,7 +112,7 @@ test('Claude usage source asks the external CLI for get_usage without sending a 
       },
     } as any)
 
-    const usage = await source.getUsage()
+    const usage = await source.read()
     assert.deepEqual(usage, {
       rate_limits_available: true,
       rate_limits: {
@@ -133,7 +133,7 @@ test('Claude usage source asks the external CLI for get_usage without sending a 
 })
 
 // Regression guard for a live protocol drift the unit fixtures had encoded away.
-// getUsage() used to withhold the control request until it saw a system/init
+// read() used to withhold the control request until it saw a system/init
 // line, and the fixture obligingly emitted one. Claude CLI 2.1.246 emits nothing
 // on stdout until it receives stdin input, so against the real CLI that wait
 // deadlocked until the request timeout while every unit test stayed green.
@@ -145,7 +145,7 @@ test('usage request does not wait for a system/init line that never arrives', { 
     spawn: () => fakeUsageChild(received, false),
   } as any)
 
-  const usage = await source.getUsage()
+  const usage = await source.read()
   assert.equal((usage as any).rate_limits_available, true)
   assert.equal(received.length, 1)
   assert.equal(received[0].type, 'control_request')

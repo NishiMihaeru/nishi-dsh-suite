@@ -448,7 +448,7 @@ export class HostAntigravityLocalUsageSource implements AntigravityUsageCapabili
 
   getDiagnostics(): AntigravityDiagnostics { return { ...this.diagnostics }; }
 
-  async readCapability(): Promise<AntigravityObservation> {
+  async read(): Promise<AntigravityObservation> {
     this.diagnostics = { sourceKind: 'UNKNOWN', methodUsed: 'NONE', summaryCallCount: 0, userStatusCallCount: 0, commandConfigsCallCount: 0, modelGenerationCalls: 0 };
     let candidates: AntigravityCandidate[];
     try { candidates = await this.platformDiscovery.discoverCandidates(); }

@@ -15,6 +15,7 @@ import {
   type LimitScopeKind,
   type LimitWindowKind,
 } from '../contract.js';
+import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from './vendor-collector.js';
 
 export const ANTIGRAVITY_PROVIDER_ID = 'antigravity';
 export const ANTIGRAVITY_DISPLAY_NAME = 'Antigravity';
@@ -63,9 +64,9 @@ export class AntigravityUsageSourceError extends Error {
   }
 }
 
-export interface AntigravityUsageCapabilitySource { readCapability(): Promise<AntigravityObservation>; }
+export type AntigravityUsageCapabilitySource = VendorUsageSource<AntigravityObservation>;
 export class AntigravityUnsupportedUsageSource implements AntigravityUsageCapabilitySource {
-  async readCapability(): Promise<AntigravityCapabilityObservation> {
+  async read(): Promise<AntigravityCapabilityObservation> {
     return { kind: 'NUMERIC_USAGE_UNSUPPORTED' };
   }
 }
@@ -171,36 +172,16 @@ export function normalizeAntigravityCapability(observation: unknown, observedAtM
   });
 }
 
-export class AntigravityUsageCollector {
-  constructor(protected readonly source: AntigravityUsageCapabilitySource) {}
+const ANTIGRAVITY_COLLECTOR_SPEC: VendorUsageCollectorSpec<AntigravityObservation> = {
+  providerId: ANTIGRAVITY_PROVIDER_ID,
+  displayName: ANTIGRAVITY_DISPLAY_NAME,
+  sourceMetadata: defaultSourceMetadata,
+  sourceErrorCode: (err) => (err instanceof AntigravityUsageSourceError ? err.code : undefined),
+  normalize: normalizeAntigravityCapability,
+};
 
-  async collect(observedAtMs: number): Promise<ProviderUsageSnapshot> {
-    if (typeof observedAtMs !== 'number' || !Number.isFinite(observedAtMs) || !Number.isInteger(observedAtMs) || observedAtMs < 0) {
-      throw new UsageContractError(`observedAtMs must be a non-negative finite integer number (got ${observedAtMs})`);
-    }
-    let observation: AntigravityObservation;
-    try {
-      observation = await this.source.readCapability();
-    } catch (err) {
-      if (err instanceof AntigravityUsageSourceError) {
-        return parseProviderUsageSnapshot({
-          providerId: ANTIGRAVITY_PROVIDER_ID,
-          displayName: ANTIGRAVITY_DISPLAY_NAME,
-          status: err.code,
-          observedAtMs,
-          windows: [],
-          source: defaultSourceMetadata(),
-        });
-      }
-      return parseProviderUsageSnapshot({
-        providerId: ANTIGRAVITY_PROVIDER_ID,
-        displayName: ANTIGRAVITY_DISPLAY_NAME,
-        status: 'ERROR',
-        observedAtMs,
-        windows: [],
-        source: defaultSourceMetadata(),
-      });
-    }
-    return normalizeAntigravityCapability(observation, observedAtMs);
+export class AntigravityUsageCollector extends VendorUsageCollector<AntigravityObservation> {
+  constructor(source: AntigravityUsageCapabilitySource) {
+    super(source, ANTIGRAVITY_COLLECTOR_SPEC);
   }
 }

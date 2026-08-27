@@ -29,7 +29,7 @@ export interface OfficialCodexRateLimitsSourceSpec {
 }
 
 export interface CodexRateLimitsSourceLike {
-  readRateLimits(): Promise<unknown>
+  read(): Promise<unknown>
 }
 
 export function codexAppServerArgv(executable: string): string[] {
@@ -93,7 +93,7 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
     this.spec = spec
   }
 
-  async readRateLimits(): Promise<unknown> {
+  async read(): Promise<unknown> {
     const timeoutMs = this.spec.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     const graceMs = this.spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
     const executable = resolvedExecutable(this.spec)

@@ -7,6 +7,7 @@ import {
   type ExtraUsage,
   type UsageSourceMetadata,
 } from '../contract.js';
+import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from './vendor-collector.js';
 
 export const CLAUDE_PROVIDER_ID = 'claude';
 export const CLAUDE_DISPLAY_NAME = 'Claude';
@@ -28,7 +29,7 @@ export class ClaudeUsageSourceError extends Error {
     this.code = code;
   }
 }
-export interface ClaudeUsageSource { getUsage(): Promise<unknown>; }
+export type ClaudeUsageSource = VendorUsageSource;
 
 function assertPlainObject(val: unknown, context: string): Record<string, unknown> {
   if (!val || typeof val !== 'object' || Array.isArray(val)) throw new UsageContractError(`${context} must be a non-null plain object`);
@@ -158,16 +159,16 @@ export function normalizeClaudeUsage(payload: unknown, observedAtMs: number): Pr
   return parseProviderUsageSnapshot(snapshot);
 }
 
-export class ClaudeUsageCollector {
-  constructor(protected readonly source: ClaudeUsageSource) {}
-  async collect(observedAtMs: number): Promise<ProviderUsageSnapshot> {
-    if (typeof observedAtMs !== 'number' || !Number.isFinite(observedAtMs) || !Number.isInteger(observedAtMs) || observedAtMs < 0) throw new UsageContractError(`observedAtMs must be a non-negative finite integer number (got ${observedAtMs})`);
-    let payload: unknown;
-    try { payload = await this.source.getUsage(); }
-    catch (err) {
-      if (err instanceof ClaudeUsageSourceError) return parseProviderUsageSnapshot({ providerId: CLAUDE_PROVIDER_ID, displayName: CLAUDE_DISPLAY_NAME, status: err.code, observedAtMs, windows: [], source: defaultSourceMetadata() });
-      return parseProviderUsageSnapshot({ providerId: CLAUDE_PROVIDER_ID, displayName: CLAUDE_DISPLAY_NAME, status: 'ERROR', observedAtMs, windows: [], source: defaultSourceMetadata() });
-    }
-    return normalizeClaudeUsage(payload, observedAtMs);
+const CLAUDE_COLLECTOR_SPEC: VendorUsageCollectorSpec<unknown> = {
+  providerId: CLAUDE_PROVIDER_ID,
+  displayName: CLAUDE_DISPLAY_NAME,
+  sourceMetadata: defaultSourceMetadata,
+  sourceErrorCode: (err) => (err instanceof ClaudeUsageSourceError ? err.code : undefined),
+  normalize: normalizeClaudeUsage,
+};
+
+export class ClaudeUsageCollector extends VendorUsageCollector<unknown> {
+  constructor(source: ClaudeUsageSource) {
+    super(source, CLAUDE_COLLECTOR_SPEC);
   }
 }

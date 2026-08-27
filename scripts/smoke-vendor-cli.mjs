@@ -406,7 +406,7 @@ async function checkClaude() {
       requestTimeoutMs: USAGE_REQUEST_TIMEOUT_MS,
       disposeGraceMs: DISPOSE_GRACE_MS,
     })
-    const payload = await withHardDeadline(source.getUsage(), HARD_DEADLINE_MS)
+    const payload = await withHardDeadline(source.read(), HARD_DEADLINE_MS)
     const snapshot = normalizeClaudeUsage(payload, Date.now())
     record(
       provider,
@@ -451,7 +451,7 @@ async function checkCodex() {
       requestTimeoutMs: USAGE_REQUEST_TIMEOUT_MS,
       disposeGraceMs: DISPOSE_GRACE_MS,
     })
-    const payload = await withHardDeadline(source.readRateLimits(), HARD_DEADLINE_MS)
+    const payload = await withHardDeadline(source.read(), HARD_DEADLINE_MS)
     const snapshot = normalizeCodexRateLimits(payload, Date.now())
     record(
       provider,

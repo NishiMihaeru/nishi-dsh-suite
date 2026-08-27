@@ -71,7 +71,7 @@ export class OfficialClaudeUsageSource {
     this.spec = spec
   }
 
-  async getUsage(): Promise<unknown> {
+  async read(): Promise<unknown> {
     if (this.spec.spawn === undefined) {
       throw new Error('claude-usage-source: usage source requires the DSH subprocess spawn service')
     }

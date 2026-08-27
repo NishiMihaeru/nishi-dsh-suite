@@ -9,6 +9,7 @@ import {
   type LimitScope,
   type LimitWindowKind,
 } from '../contract.js';
+import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from './vendor-collector.js';
 
 export const CODEX_PROVIDER_ID = 'codex';
 export const CODEX_DISPLAY_NAME = 'Codex';
@@ -29,7 +30,7 @@ export class CodexRateLimitsSourceError extends Error {
   }
 }
 
-export interface CodexRateLimitsSource { readRateLimits(): Promise<unknown>; }
+export type CodexRateLimitsSource = VendorUsageSource;
 interface ValidatedCreditsSnapshot { hasCredits: boolean; unlimited: boolean; balance?: string; }
 
 function assertPlainObject(val: unknown, context: string): Record<string, unknown> {
@@ -162,19 +163,16 @@ export function normalizeCodexRateLimits(payload: unknown, observedAtMs: number)
   return parseProviderUsageSnapshot(snapshot);
 }
 
-export class CodexUsageCollector {
-  constructor(protected readonly source: CodexRateLimitsSource) {}
-  async collect(observedAtMs: number): Promise<ProviderUsageSnapshot> {
-    if (typeof observedAtMs !== 'number' || !Number.isFinite(observedAtMs) || !Number.isInteger(observedAtMs) || observedAtMs < 0) throw new UsageContractError(`observedAtMs must be a non-negative finite integer number (got ${observedAtMs})`);
-    let payload: unknown;
-    try {
-      payload = await this.source.readRateLimits();
-    } catch (err) {
-      if (err instanceof CodexRateLimitsSourceError) {
-        return parseProviderUsageSnapshot({ providerId: CODEX_PROVIDER_ID, displayName: CODEX_DISPLAY_NAME, status: err.code, observedAtMs, windows: [], source: defaultSourceMetadata() });
-      }
-      return parseProviderUsageSnapshot({ providerId: CODEX_PROVIDER_ID, displayName: CODEX_DISPLAY_NAME, status: 'ERROR', observedAtMs, windows: [], source: defaultSourceMetadata() });
-    }
-    return normalizeCodexRateLimits(payload, observedAtMs);
+const CODEX_COLLECTOR_SPEC: VendorUsageCollectorSpec<unknown> = {
+  providerId: CODEX_PROVIDER_ID,
+  displayName: CODEX_DISPLAY_NAME,
+  sourceMetadata: defaultSourceMetadata,
+  sourceErrorCode: (err) => (err instanceof CodexRateLimitsSourceError ? err.code : undefined),
+  normalize: normalizeCodexRateLimits,
+};
+
+export class CodexUsageCollector extends VendorUsageCollector<unknown> {
+  constructor(source: CodexRateLimitsSource) {
+    super(source, CODEX_COLLECTOR_SPEC);
   }
 }

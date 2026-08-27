@@ -83,7 +83,7 @@ test('usage source resolves external Codex and launches app-server directly', as
       },
     })
 
-    const result = await source.readRateLimits()
+    const result = await source.read()
     assert.deepEqual(result, { primary: { usedPercent: 17 } })
     assert.equal(spawned.length, 1)
     assert.deepEqual(spawned[0].argv, [executable, 'app-server', '--stdio'])

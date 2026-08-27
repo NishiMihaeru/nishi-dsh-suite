@@ -4,9 +4,7 @@ import {
   composeUsageLimitsHost,
   type UsageLimitsHostConfig,
   type UsageLimitsHostDependencies,
-  DEFAULT_CLAUDE_REFRESH_POLICY,
-  DEFAULT_CODEX_REFRESH_POLICY,
-  DEFAULT_ANTIGRAVITY_REFRESH_POLICY,
+  DEFAULT_USAGE_REFRESH_POLICY,
 } from './composition.js'
 import {
   USAGE_LIMITS_CHANNEL,
@@ -54,9 +52,7 @@ export {
   type UsageLimitsRpcHost,
   type UsageLimitsHostConfig,
   type UsageLimitsHostDependencies,
-  DEFAULT_CLAUDE_REFRESH_POLICY,
-  DEFAULT_CODEX_REFRESH_POLICY,
-  DEFAULT_ANTIGRAVITY_REFRESH_POLICY,
+  DEFAULT_USAGE_REFRESH_POLICY,
   AUTHORIZATION_RPC_CHANNEL,
   AUTH_GET_FLOWS_ENDPOINT,
   AUTH_GET_STATUS_ENDPOINT,
