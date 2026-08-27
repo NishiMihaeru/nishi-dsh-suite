@@ -25,8 +25,10 @@ Instructions:
    - secrets, tokens, passwords, or credentials
    - current quota or usage values
    - transient provider status
-7. Do not make unrelated code or project file edits.
-8. Finish with a concise user-facing summary of memory files actually changed.`
+   - personal facts about the operator: their identity, accounts, machine or OS details, shell and tool preferences, or working habits
+7. Project memory is committed to the repository and travels with it to everyone who has access. Durable knowledge about the OPERATOR belongs to the operator, not to the project: drop it rather than filing it under an approved category such as durable workflows.
+8. Do not make unrelated code or project file edits.
+9. Finish with a concise user-facing summary of memory files actually changed.`
 
 export const MEMORY_CONSOLIDATION_DIRECTIVE = `[Project Memory Consolidation Directive]
 Clean up and organize existing DSH-owned project memory.
@@ -41,8 +43,9 @@ Instructions:
 7. Do NOT invent new project facts.
 8. Do NOT summarize source code merely to fill memory.
 9. Do NOT write secrets, tokens, credentials, quota, raw chain-of-thought, or transient logs.
-10. Do NOT use shell or filesystem deletion commands as a substitute for a missing memory_delete operation.
-11. Finish with a concise user-facing summary of memory content reorganized.`
+10. Do NOT write personal facts about the operator: their identity, accounts, machine or OS details, shell and tool preferences, or working habits. Remove any already present, because this store is committed and shared with everyone who has the repository.
+11. Do NOT use shell or filesystem deletion commands as a substitute for a missing memory_delete operation.
+12. Finish with a concise user-facing summary of memory content reorganized.`
 
 export interface ResolvedModelRoute {
   provider: string
