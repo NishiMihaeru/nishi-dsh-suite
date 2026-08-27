@@ -62,10 +62,8 @@ export class HostClaudeUsageSource implements ClaudeUsageSource {
   ) {}
 
   async getUsage(): Promise<unknown> {
-    const executable = await this.ctx.subprocess.resolveExecutable('claude')
     const source = new OfficialClaudeUsageSource({
       cwd: this.cwd,
-      executable,
       requestTimeoutMs: this.requestTimeoutMs,
       spawn: (spec) => this.ctx.subprocess.spawn(spec),
     })
