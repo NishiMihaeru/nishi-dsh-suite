@@ -1,11 +1,10 @@
 /**
  * The single vendor CLI executable resolver.
  *
- * Every subscription-provider package (Codex, Claude, Antigravity, ...) was
- * independently walking the same env-override-then-PATH sequence, with the
- * same win32 branch, differing only in the provider name baked into their
- * diagnostics. This module is that sequence, written once and parameterised
- * by a small per-provider descriptor.
+ * Provider packages used to independently walk the same
+ * env-override-then-PATH sequence, with the same win32 branch, differing only
+ * in the provider facts baked into their diagnostics. This module is that
+ * sequence, written once and parameterised by a small per-provider descriptor.
  *
  * The Suite never inspects npm global state, vendor homes, package-manager
  * databases, or credential stores. Runtime discovery is intentionally
@@ -20,15 +19,15 @@ import { posix, win32 } from 'node:path'
 
 /** Identity and lookup facts for one vendor executable. */
 export interface VendorExecutableDescriptor {
-  /** Stable provider id used in diagnostics, e.g. 'codex', 'antigravity', 'claude'. */
+  /** Stable provider id used in diagnostics. */
   readonly id: string
-  /** Non-Windows PATH lookup name, e.g. 'codex', 'agy', 'claude'. */
+  /** Non-Windows executable name used for PATH lookup. */
   readonly defaultName: string
-  /** Environment variable that carries an explicit override, e.g. 'DSH_CODEX_EXECUTABLE'. */
+  /** Environment variable that carries an explicit executable override. */
   readonly envOverride: string
   /** Windows PATH lookup name; defaults to `${defaultName}.exe`. */
   readonly windowsName?: string
-  /** Human-facing product name used in diagnostics, e.g. 'Codex CLI'. Defaults to 'executable'. */
+  /** Human-facing product name used in diagnostics. Defaults to 'executable'. */
   readonly productName?: string
 }
 
