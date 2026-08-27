@@ -191,6 +191,10 @@ export function registerMemoryCommands(ctx: Context): void {
       },
     })
   }
-  if (typeof ctx.inject === 'function') ctx.inject(['commands'], (commandCtx: any) => registerInto(commandCtx))
-  else if ((ctx as any).commands) registerInto(ctx)
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['commands', 'llm'], (commandCtx: any) => registerInto(commandCtx))
+  } else {
+    const fallback = ctx as any
+    if (fallback.commands && fallback.llm) registerInto(fallback)
+  }
 }
