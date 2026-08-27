@@ -182,20 +182,26 @@ No edits to the core, the usage domain, the host composition, or any browser fil
 
 ## Implementation state
 
-Measured against `HEAD` = `218f8cc`, before any rc.3 work.
+Measured at `0.1.0-rc.3` in-repo, after Tasks 0–12 of `docs/superpowers/plans/2026-08-27-core-and-provider-plugins.md`.
 
 | Concern | State |
 |---|---|
-| Executable resolution | one implementation, `productName` for specific diagnostics |
-| Stream decoding, disposal, settled stderr, ephemeral workspaces | one implementation each |
-| Usage: source interface, collector, refresh policy, registration | one interface and one collector shape; registration still branches per provider in the host |
-| Shared config and single registration path | done for model and subagent; the registry service does not exist yet |
-| Failure shape | core has `VendorFailure`; Codex and Antigravity still produce the same string themselves |
-| Delegation | present; to be removed in full |
-| Memory adaptation | duplicated between Codex and Antigravity; both copies die with delegation |
-| Codex vendor-memory suppression | injected only on the delegated path; **absent from the primary invocation** |
-| Web search | contract shape parallel, not unified; the core package imports both provider packages |
-| Presentation record | not built; the browser hardcodes three providers in three files |
-| Model catalog honesty | Antigravity still filters by pattern |
-| Core package | not merged; four packages |
-| Claude | a usage source inside the kit, not a provider plugin |
+| Core package | done — `nishi-dsh-core` merges the former kit, usage domain, usage host and web-search tool; entries `.`, `./runtime`, `./usage`, `./web-search`, `./client` |
+| Registry and connector | done — `ctx.nishiProviders`; providers declare `inject: ['nishiProviders', ...]`; duplicate id and duplicate route both refused; withdrawal bound to the provider plugin's lifetime |
+| Delegation | removed in full, including both memory transports and the two preset tools |
+| Executable resolution, stream decoding, disposal, settled stderr, ephemeral workspaces | one implementation each |
+| Model plane | one adapter per provider, registered only through `registerProvider` |
+| Web search | contract and tool in the core, resolved by route through the registry; backends provider-owned; the core imports no provider package |
+| Usage | capability on the descriptor; the host reconciles its roster against registrations; normalizers and sources live with their providers |
+| Presentation record | done — identity crosses RPC as data; the browser's Usage & Limits half names no provider; neutral mark and neutral accent are supported outcomes |
+| Dynamic roster | done — derived from registrations; late mount appears, absent provider leaves no row |
+| Claude | a provider plugin declaring `usage` alone |
+| Failure shape | **open** — the core has `VendorFailure`; providers still build the same string themselves (Task 13) |
+| Copied helpers | **open** — `record`, `thrown`, `assertPositiveFinite`, `bounded` still have several copies (Task 13) |
+| Model catalog honesty | **open** — Antigravity still filters model families by pattern (Task 14) |
+| Grep-checkable invariants | **open** — written as prose here, not yet enforced by a test (Task 15) |
+| Live acceptance of rc.3 | **open** (Task 16) |
+
+### Documented exception to "the core names no provider"
+
+`packages/core/src/host/authorization-rpc.ts` and the Model Accounts client surface name `openai-codex`, `anthropic` and `openai`. These are **DSH authorization provider ids** — a foreign id space the core reads from the harness — and the list is a security control rather than a provider branch: those ids may be read, none may start OAuth, and only legacy grants may be removed. Task 15's neutrality test must name this exception explicitly and assert it stays read/logout-only, so the carve-out cannot grow into provider branching.

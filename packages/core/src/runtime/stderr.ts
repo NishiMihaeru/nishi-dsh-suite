@@ -12,10 +12,10 @@ import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 
 function assertGraceMs(graceMs: number): void {
   if (!Number.isFinite(graceMs) || !Number.isSafeInteger(graceMs) || graceMs <= 0) {
-    throw new Error('provider-kit: graceMs must be a positive safe integer')
+    throw new Error('nishi-core: graceMs must be a positive safe integer')
   }
   if (graceMs > MAX_TIMER_DELAY_MS) {
-    throw new Error(`provider-kit: graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
+    throw new Error(`nishi-core: graceMs must be no greater than ${MAX_TIMER_DELAY_MS}`)
   }
 }
 

@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { applyPrimaryWebSearchTool, WEB_SEARCH_MAX_QUERIES, WEB_SEARCH_MAX_RESULTS } from './tool.js'
 
-export const name = 'primary-web-search'
+export const name = 'nishi-core-web-search'
 export const inject = ['nishiProviders', 'tools', 'systemPrompt']
 
 const DEFAULT_SEARCH_TIMEOUT_MS = 60_000
@@ -38,7 +38,7 @@ export const Config: Schema<Config> = Schema.object({
 
 function positiveInteger(label: string, value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) {
-    throw new Error(`primary-web-search: ${label} must be a positive integer`)
+    throw new Error(`nishi-core-web-search: ${label} must be a positive integer`)
   }
   return value
 }

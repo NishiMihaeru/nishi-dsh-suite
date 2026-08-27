@@ -12,6 +12,6 @@ It contributes the Codex primary provider: the external Codex App Server bridge,
 - native Codex memory and project-doc injection are suppressed in the app-server invocation the primary owns, with `memories.use_memories=false`, `memories.generate_memories=false`, and `project_doc_max_bytes=0`, so DSH project memory is the only durable memory a turn sees
 - `CODEX-GLOBAL-AGENTS-001` remains `ACCEPTED_WITH_KNOWN_UPSTREAM_DEBT`
 
-This package does **not** register Antigravity and does **not** register the model-facing `web_search` tool. The `./web-search-backend` export is consumed by `nishi-dsh-primary-web-search`.
+This package does **not** register Antigravity and does **not** register the model-facing `web_search` tool: it contributes a search **backend** through its descriptor, and the core owns the tool, the routing and the result contract.
 
 No credentials, API keys, session tokens, or authentication databases are copied or bundled.

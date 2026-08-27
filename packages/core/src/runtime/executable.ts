@@ -56,7 +56,7 @@ function executableByDefault(path: string): boolean {
 
 function requireNonEmpty(descriptorId: string, field: string, value: unknown): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`provider-kit: ${descriptorId}: descriptor.${field} must be a non-empty string`)
+    throw new Error(`nishi-core: ${descriptorId}: descriptor.${field} must be a non-empty string`)
   }
   return value
 }
@@ -76,13 +76,13 @@ export function resolveVendorExecutable(
   options: ResolveVendorExecutableOptions = {},
 ): ResolvedVendorExecutable {
   if (descriptor === null || typeof descriptor !== 'object') {
-    throw new Error('provider-kit: descriptor must be a non-null object')
+    throw new Error('nishi-core: descriptor must be a non-null object')
   }
   const id = requireNonEmpty('<unknown>', 'id', descriptor.id)
   const defaultName = requireNonEmpty(id, 'defaultName', descriptor.defaultName)
   const envOverride = requireNonEmpty(id, 'envOverride', descriptor.envOverride)
   if (descriptor.windowsName !== undefined && descriptor.windowsName.trim().length === 0) {
-    throw new Error(`provider-kit: ${id}: descriptor.windowsName must be a non-empty string when provided`)
+    throw new Error(`nishi-core: ${id}: descriptor.windowsName must be a non-empty string when provided`)
   }
 
   const productName = descriptor.productName ?? 'executable'

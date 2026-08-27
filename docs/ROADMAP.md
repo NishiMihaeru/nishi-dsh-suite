@@ -10,6 +10,8 @@
 
 **Tech:** TypeScript 5.9, Node.js 24.19.0 (fnm — `/usr/bin/node` is v22 and must not be used), pnpm 11.21.0, DeepSeek Harness `0.1.1-rc.2`.
 
+**State, remaining work, and the traps found while building rc.3:** `docs/HANDOFF.md`. Read it before continuing Stage 2.
+
 ## Standing constraints
 
 - No GitHub-hosted CI: `BLOCKED_BILLING`. No hosted-CI PASS may be claimed.
@@ -99,7 +101,7 @@ Vendor subagents go entirely. Delegation returns later through DSH's own child a
 
 ### 2.G — Honest model catalog
 
-- [ ] **2.G.1** Drop the `^(gemini|claude|gpt|oss)` filter at `antigravity-primary.ts:132`. For a product whose value is provider choice, silently hiding models attacks the value directly. Was **2.5**.
+- [ ] **2.G.1** Drop the family pattern at `antigravity-primary.ts:132` and the matching families in the line scanner at `:147`. For a product whose value is provider choice, silently hiding models attacks the value directly. Was **2.5**.
 
 ### 2.H — Invariants and acceptance
 

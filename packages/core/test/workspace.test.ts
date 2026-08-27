@@ -16,7 +16,7 @@ async function exists(path: string): Promise<boolean> {
 
 test('ephemeralAgentWorkspace writes the agent.md tree under a fresh temp root', async () => {
   const workspace = await ephemeralAgentWorkspace({
-    prefix: 'dsh-provider-kit-test-',
+    prefix: 'dsh-core-test-',
     agentName: 'dsh-subagent',
     agentMarkdown: '---\nname: dsh-subagent\n---\nhello\n',
   })
@@ -38,7 +38,7 @@ test('ephemeralAgentWorkspace writes the agent.md tree under a fresh temp root',
 
 test('ephemeralAgentWorkspace writes additional root-relative files, such as a JSON schema', async () => {
   const workspace = await ephemeralAgentWorkspace({
-    prefix: 'dsh-provider-kit-test-',
+    prefix: 'dsh-core-test-',
     agentName: 'dsh-web-search',
     agentMarkdown: 'agent markdown',
     files: [
@@ -58,7 +58,7 @@ test('ephemeralAgentWorkspace writes additional root-relative files, such as a J
 
 test('ephemeralAgentWorkspace dispose is idempotent and safe to call more than once', async () => {
   const workspace = await ephemeralAgentWorkspace({
-    prefix: 'dsh-provider-kit-test-',
+    prefix: 'dsh-core-test-',
     agentName: 'dsh-primary',
     agentMarkdown: 'agent markdown',
   })
@@ -73,7 +73,7 @@ test('ephemeralAgentWorkspace removes the temp root even when file provisioning 
   let capturedRoot: string | undefined
   await assert.rejects(
     ephemeralAgentWorkspace({
-      prefix: 'dsh-provider-kit-test-',
+      prefix: 'dsh-core-test-',
       agentName: 'dsh-subagent',
       agentMarkdown: 'agent markdown',
       files: [{ path: '', content: 'unused' }],
@@ -92,7 +92,7 @@ test('ephemeralAgentWorkspace removes the temp root even when file provisioning 
   // subsequent, valid provisioning under the same prefix still succeeds.
   void capturedRoot
   const workspace = await ephemeralAgentWorkspace({
-    prefix: 'dsh-provider-kit-test-',
+    prefix: 'dsh-core-test-',
     agentName: 'dsh-subagent',
     agentMarkdown: 'agent markdown',
   })
@@ -102,7 +102,7 @@ test('ephemeralAgentWorkspace removes the temp root even when file provisioning 
 test('ephemeralAgentWorkspace rejects a missing agentName before touching the filesystem', async () => {
   await assert.rejects(
     ephemeralAgentWorkspace({
-      prefix: 'dsh-provider-kit-test-',
+      prefix: 'dsh-core-test-',
       agentName: '',
       agentMarkdown: 'agent markdown',
     }),

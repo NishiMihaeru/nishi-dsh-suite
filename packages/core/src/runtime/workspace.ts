@@ -59,13 +59,13 @@ export async function ephemeralAgentWorkspace(
   spec: EphemeralAgentWorkspaceSpec,
 ): Promise<EphemeralAgentWorkspace> {
   if (typeof spec.prefix !== 'string' || spec.prefix.length === 0) {
-    throw new Error('provider-kit: spec.prefix must be a non-empty string')
+    throw new Error('nishi-core: spec.prefix must be a non-empty string')
   }
   if (typeof spec.agentName !== 'string' || spec.agentName.length === 0) {
-    throw new Error('provider-kit: spec.agentName must be a non-empty string')
+    throw new Error('nishi-core: spec.agentName must be a non-empty string')
   }
   if (typeof spec.agentMarkdown !== 'string') {
-    throw new Error('provider-kit: spec.agentMarkdown must be a string')
+    throw new Error('nishi-core: spec.agentMarkdown must be a string')
   }
 
   const tmpdirFn = spec.tmpdir ?? tmpdir
@@ -80,7 +80,7 @@ export async function ephemeralAgentWorkspace(
     const files: Record<string, string> = {}
     for (const file of spec.files ?? []) {
       if (typeof file.path !== 'string' || file.path.length === 0) {
-        throw new Error('provider-kit: workspace file.path must be a non-empty string')
+        throw new Error('nishi-core: workspace file.path must be a non-empty string')
       }
       const filePath = join(root, file.path)
       await mkdir(dirname(filePath), { recursive: true })

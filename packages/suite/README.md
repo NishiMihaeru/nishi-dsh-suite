@@ -6,23 +6,25 @@ Compatibility target: **DeepSeek Harness 0.1.1-rc.2**, Node.js 24, pnpm 11.21.0 
 
 ## Runtime modules
 
-Installing this bundle brings the exact `0.1.0-rc.2` prerelease family:
+Installing this bundle brings the exact `0.1.0-rc.3` prerelease family: one provider-independent core plus one plugin per provider.
 
-- `nishi-dsh-codex` — Codex primary provider (the `codex-app-server` route via pinned `codex-plugin-dsh`);
-- `nishi-dsh-antigravity` — Antigravity primary provider through `agy`;
-- `nishi-dsh-primary-web-search` — the single `web_search` tool routed by the active primary provider;
-- `nishi-dsh-project-memory` — project-scoped DSH memory and memory tools;
-- `nishi-dsh-usage-limits` — normalized usage/limits domain library;
-- `nishi-dsh-usage-limits-host` — host/RPC/browser Usage & Limits integration;
-- `nishi-dsh-provider-kit` — shared vendor CLI runtime, including the official Claude CLI and Codex app-server usage/limits source adapters.
+- `nishi-dsh-core` — the core: provider registry and connector, shared vendor CLI runtime, the routed `web_search` tool, the normalized usage/limits domain, and the host/RPC/browser Usage & Limits surface. It names no provider;
+- `nishi-dsh-codex` — Codex primary provider (the `codex-app-server` route via pinned `codex-plugin-dsh`), with its native search backend and rate-limits source;
+- `nishi-dsh-antigravity` — Antigravity primary provider through `agy`, with its native search backend and local usage source;
+- `nishi-dsh-claude` — Claude usage and limits through the installed official `claude` CLI, and nothing else: no model route, no search;
+- `nishi-dsh-project-memory` — project-scoped DSH memory and memory tools, provider-agnostic by construction.
 
-The Suite also installs the official `@deepseek-ai/dsh-authorization@0.1.1-rc.2` service because Usage Limits Host injects `authorization` and stock rc.2 base/web profiles do not mount that service themselves.
+The Suite also installs the official `@deepseek-ai/dsh-authorization@0.1.1-rc.2` service because the core injects `authorization` and stock rc.2 base/web profiles do not mount that service themselves.
 
-`cordis.patch.yml` mounts host-plane plugins: the official authorization seam, Project Memory, the two managed provider packages, and Usage Limits Host. `nishi-dsh-primary-web-search` remains an installed dependency but is mounted on the **agent plane** by the Orchestrator preset, matching DSH Web's rc.2 ownership model. The usage domain and provider-kit's usage sources are library dependencies and are not Cordis rows.
+`cordis.patch.yml` mounts the host plane: the official authorization seam, Project Memory, the core, and the three provider plugins. The routed `web_search` tool is mounted separately on the **agent plane** by the Orchestrator preset, as `nishi-dsh-core/web-search` — whether an agent can search at all is a preset choice, while the provider registry it resolves is a host-plane singleton.
+
+Provider plugins inject the core's registry (`nishiProviders`), so cordis defers each one until the core row is mounted and unwinds its registration when the plugin is disposed. Adding a provider is adding a plugin: no edit to the core, the composition, or the browser.
 
 ## Authentication boundary
 
 The authorization service is only the DSH service seam required by the Model Accounts/legacy-grant status surface. The Suite does not install vendor clients and does not copy vendor OAuth/session/token databases. Codex, Claude, and Antigravity continue to use their vendor-owned local runtimes and authentication state.
+
+Delegation to vendor CLI agents was removed in `0.1.0-rc.3`: the `subagent_codex` and `subagent_antigravity` tools are gone, and the Orchestrator preset delegates through DSH's own `subagent` / `subagent_fork` on the session's primary route instead.
 
 ## Orchestrator preset on DSH 0.1.1-rc.2
 
@@ -56,4 +58,4 @@ Automatic one-click discovery remains the upstream limitation; the explicit brid
 
 ## Development status
 
-This package is a prerelease migration target. Static composition and the managed preset bridge are present in the public repository; executable install/check/test/build/preset acceptance still requires a regenerated workspace lockfile and an available local/hosted runner.
+This package is a prerelease migration target. `0.1.0-rc.3` is in-repo and unpublished; `0.1.0-rc.1` remains the published family on npm. See `docs/HANDOFF.md` in the repository for the current state, the remaining work, and the pitfalls found while building it.

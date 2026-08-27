@@ -11,6 +11,6 @@ Delegation was removed in `0.1.0-rc.3`: the managed Antigravity child agent coul
 
 The package never passes `--dangerously-skip-permissions`, never copies Google/Antigravity credentials, and does not install or manage `agy`.
 
-It contains no `@openai/codex` or `@openai/codex-sdk` dependency. It also does not register the model-facing `web_search` DSH tool; that belongs to `nishi-dsh-primary-web-search`.
+It contains no `@openai/codex` or `@openai/codex-sdk` dependency. It does not register the model-facing `web_search` tool either: it contributes a search **backend** through its descriptor, and the core owns the tool, the routing and the result contract.
 
 Antigravity provider-policy status remains technically supported by the integration but policy-ambiguous; this package does not claim Google approval or Terms compliance.

@@ -4,6 +4,8 @@ Nishi DSH Suite is a public, modular extension suite for DeepSeek Harness distri
 
 The migration targets DeepSeek Harness `0.1.1-rc.2`, Node.js 24, and one Market-facing package: `nishi-dsh-suite`.
 
+Architecture: **one provider-independent core plugin plus one plugin per provider**. The core owns project-memory composition, the routed `web_search` tool and the usage/limits surface, and names no provider; a provider is a plugin that injects the core's registry and contributes a descriptor. Working across subscription providers is a route change and nothing else — same tools, same project memory, same limits surface.
+
 ## Modules
 
 The Suite is one provider-independent core plus one plugin per provider:
@@ -82,7 +84,9 @@ pnpm verify:local
 
 `pnpm verify:local` runs release/package contracts, Orchestrator validation, TypeScript checks, tests, build, and local package creation.
 
-The accepted source passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates also pass on CachyOS.
+The accepted source passed these gates locally under Node `24.19.0` / pnpm `11.21.0` on CachyOS, including fresh-profile prepublish install/reinstall/uninstall with the real Suite tarball and local leaf-package resolution. Full authenticated Codex, Antigravity, Project Memory, routed search, Usage & Limits, and uninstall/preservation live gates pass on CachyOS **for `0.1.0-rc.2`**.
+
+`0.1.0-rc.3` restructures the family (see *Modules* above) and is verified so far by `pnpm verify:local` and `pnpm smoke:vendor-cli` — the latter driving the production usage sources against the installed `claude 2.1.246`, `codex-cli 0.150.0` and `agy 1.1.22`. Its live acceptance run has **not** been performed yet; the outstanding gates, the remaining work and the traps found while building it are recorded in `docs/HANDOFF.md`.
 
 The published `0.1.0-rc.1` family additionally passed a fresh public-registry-only DSH smoke: Suite resolution from npm, all eight exact leaf versions, managed Codex/Claude/DSH dependency versions, Orchestrator preset install/status/remove, and normal Suite removal. Evidence: `docs/acceptance/2026-08-27-registry-smoke.md`.
 

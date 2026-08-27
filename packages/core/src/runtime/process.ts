@@ -9,7 +9,7 @@ import type { Readable } from 'node:stream'
 import type { SubprocessHandle, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 
 function lineTooLarge(maxBytes: number): Error {
-  return new Error(`provider-kit: stream line exceeded maximum ${maxBytes} bytes`)
+  return new Error(`nishi-core: stream line exceeded maximum ${maxBytes} bytes`)
 }
 
 /**
@@ -25,7 +25,7 @@ export async function* outputLines(
   maxBytes: number,
 ): AsyncGenerator<string, void, void> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
-    throw new Error('provider-kit: maxBytes must be a positive safe integer')
+    throw new Error('nishi-core: maxBytes must be a positive safe integer')
   }
 
   let buffered = ''

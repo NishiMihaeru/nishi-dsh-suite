@@ -32,13 +32,13 @@ export class VendorFailure extends Error {
 
   constructor(spec: VendorFailureSpec) {
     if (typeof spec.product !== 'string' || spec.product.length === 0) {
-      throw new Error('provider-kit: vendorFailure spec.product must be a non-empty string')
+      throw new Error('nishi-core: vendorFailure spec.product must be a non-empty string')
     }
     if (typeof spec.stage !== 'string' || spec.stage.length === 0) {
-      throw new Error('provider-kit: vendorFailure spec.stage must be a non-empty string')
+      throw new Error('nishi-core: vendorFailure spec.stage must be a non-empty string')
     }
     if (typeof spec.category !== 'string' || spec.category.length === 0) {
-      throw new Error('provider-kit: vendorFailure spec.category must be a non-empty string')
+      throw new Error('nishi-core: vendorFailure spec.category must be a non-empty string')
     }
     const detail = spec.detail !== undefined && spec.detail.length > 0 ? ` ${spec.detail}` : ''
     super(
