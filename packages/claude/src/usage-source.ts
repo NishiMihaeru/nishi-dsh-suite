@@ -5,7 +5,7 @@
  * stream-json control session that issues exactly one `get_usage` request
  * without a model turn, tools, MCP servers, or credential copying.
  *
- * @module nishi-dsh-core/runtime/claude-usage
+ * @module nishi-dsh-claude/usage-source
  */
 
 import { randomUUID } from 'node:crypto'
@@ -15,8 +15,8 @@ import {
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { resolveVendorExecutable, type VendorExecutableDescriptor } from './executable.js'
-import { disposeVendorChild, outputLines } from './process.js'
+import { resolveVendorExecutable, type VendorExecutableDescriptor } from 'nishi-dsh-core/runtime'
+import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
 
 const CLAUDE_DESCRIPTOR: VendorExecutableDescriptor = {
   id: 'claude-usage',

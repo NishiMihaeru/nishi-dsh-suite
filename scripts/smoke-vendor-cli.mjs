@@ -37,11 +37,11 @@
  *   - claude:      spawns `claude --print --verbose --input-format stream-json
  *                  --output-format stream-json --no-session-persistence
  *                  --tools '' --strict-mcp-config` (the exact argv from
- *                  the core runtime's claudeUsageCliArgv), issues one
+ *                  the Claude plugin's claudeUsageCliArgv), issues one
  *                  `control_request` of subtype `get_usage` after the CLI's
  *                  `system`/`init` message, and feeds the raw response
  *                  through the production `normalizeClaudeUsage()`
- *                  normalizer from the core usage domain. No model turn is
+ *                  normalizer from the provider's own collector. No model turn is
  *                  ever sent.
  *   - codex:       spawns `codex app-server --stdio` (codexAppServerArgv),
  *                  performs the JSON-RPC `initialize` -> `initialized` ->
@@ -392,10 +392,10 @@ async function checkClaude() {
   console.log(`  claude version: ${redactHome(versionText)}`)
 
   const { OfficialClaudeUsageSource } = await loadBuiltModule(
-    'packages/core/lib/runtime.js',
+    'packages/claude/lib/usage-source.js',
     provider,
   )
-  const { normalizeClaudeUsage } = await loadBuiltModule('packages/core/lib/index.js', provider)
+  const { normalizeClaudeUsage } = await loadBuiltModule('packages/claude/lib/usage.js', provider)
 
   try {
     const source = new OfficialClaudeUsageSource({
@@ -437,10 +437,10 @@ async function checkCodex() {
   console.log(`  codex version: ${redactHome(versionText)}`)
 
   const { OfficialCodexRateLimitsSource } = await loadBuiltModule(
-    'packages/core/lib/runtime.js',
+    'packages/codex/lib/usage-source.js',
     provider,
   )
-  const { normalizeCodexRateLimits } = await loadBuiltModule('packages/core/lib/index.js', provider)
+  const { normalizeCodexRateLimits } = await loadBuiltModule('packages/codex/lib/usage.js', provider)
 
   try {
     const source = new OfficialCodexRateLimitsSource({

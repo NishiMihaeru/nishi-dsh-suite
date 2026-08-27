@@ -6,8 +6,8 @@ import {
   type LimitWindow,
   type ExtraUsage,
   type UsageSourceMetadata,
-} from '../contract.js';
-import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from './vendor-collector.js';
+} from 'nishi-dsh-core/usage';
+import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from 'nishi-dsh-core/usage';
 
 export const CLAUDE_PROVIDER_ID = 'claude';
 export const CLAUDE_DISPLAY_NAME = 'Claude';

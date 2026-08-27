@@ -76,21 +76,6 @@ export {
   type RefreshRpcRequest,
 }
 
-export {
-  HostAntigravityLocalUsageSource,
-  type AntigravitySourceKind,
-  type AntigravityLocalEndpoint,
-  type AntigravityCandidate,
-  type AntigravityListener,
-  type ProcFsReader,
-  type AntigravityPlatformDiscovery,
-  type AntigravityRequestOptions,
-  type AntigravityHttpResponse,
-  type AntigravityRequestTransport,
-  type HostAntigravityLocalUsageSourceConfig,
-  type AntigravityDiagnostics,
-} from './host/antigravity-local-source.js'
-
 /**
  * The usage/limits domain is part of this package now, not a sibling one, so
  * its contract, collectors and public projection are re-exported here rather
@@ -117,7 +102,7 @@ export class UsageLimitsHostService extends Service {
   constructor(ctx: Context, config?: UsageLimitsHostConfig) {
     super(ctx, 'usageLimits')
     const clock = config?.clock ?? (() => Date.now())
-    const { service, facade } = composeUsageLimitsHost(ctx, this, config, clock)
+    const { service, facade } = composeUsageLimitsHost(ctx, config, clock)
     this.#service = service
     this.#publicFacade = facade
     this.getCachedProvidersPublic = this.getCachedProvidersPublic.bind(this)

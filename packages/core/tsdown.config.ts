@@ -99,7 +99,12 @@ export default ${JSON.stringify(classMap)};
 
 export default defineConfig([
   {
-    entry: { index: 'src/index.ts', runtime: 'src/runtime/index.ts', 'web-search': 'src/web-search/index.ts' },
+    entry: {
+      index: 'src/index.ts',
+      runtime: 'src/runtime/index.ts',
+      usage: 'src/usage/index.ts',
+      'web-search': 'src/web-search/index.ts',
+    },
     format: 'esm',
     platform: 'node',
     dts: true,

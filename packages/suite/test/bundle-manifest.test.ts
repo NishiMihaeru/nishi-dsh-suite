@@ -10,6 +10,7 @@ const expectedNishiDependencies = [
   'nishi-dsh-core',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
+  'nishi-dsh-claude',
   'nishi-dsh-project-memory',
 ].sort()
 

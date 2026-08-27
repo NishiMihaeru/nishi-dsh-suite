@@ -5,7 +5,7 @@
  * JSON-RPC read session without thread creation, model prompts, or credential
  * copying.
  *
- * @module nishi-dsh-core/runtime/codex-usage
+ * @module nishi-dsh-codex/usage-source
  */
 import {
   scrubbedParentEnv,
@@ -13,8 +13,8 @@ import {
   type SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { resolveVendorExecutable, type VendorExecutableDescriptor } from './executable.js'
-import { disposeVendorChild, outputLines } from './process.js'
+import { resolveVendorExecutable, type VendorExecutableDescriptor } from 'nishi-dsh-core/runtime'
+import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
 
 const CODEX_DESCRIPTOR: VendorExecutableDescriptor = {
   id: 'codex-usage',

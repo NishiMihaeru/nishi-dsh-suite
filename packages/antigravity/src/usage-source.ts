@@ -14,7 +14,7 @@ import {
   type AntigravityObservation,
   type AntigravityNumericUsageObservation,
   type AntigravityNumericWindowObservation,
-} from '../usage/index.js';
+} from './usage.js';
 
 const execFileAsync = promisify(execFile);
 export type AntigravitySourceKind = 'APP' | 'AGY' | 'IDE';

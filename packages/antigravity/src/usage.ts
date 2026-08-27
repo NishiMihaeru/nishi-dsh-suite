@@ -14,8 +14,8 @@ import {
   type LimitScope,
   type LimitScopeKind,
   type LimitWindowKind,
-} from '../contract.js';
-import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from './vendor-collector.js';
+} from 'nishi-dsh-core/usage';
+import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from 'nishi-dsh-core/usage';
 
 export const ANTIGRAVITY_PROVIDER_ID = 'antigravity';
 export const ANTIGRAVITY_DISPLAY_NAME = 'Antigravity';

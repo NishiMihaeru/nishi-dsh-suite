@@ -8,7 +8,7 @@ import {
   claudeUsageCliArgv,
   DEFAULT_USAGE_REQUEST_TIMEOUT_MS,
   OfficialClaudeUsageSource,
-} from '../src/runtime/claude-usage.ts'
+} from '../src/usage-source.ts'
 
 function fakeUsageChild(received: any[], emitInit = true) {
   const stdin = new PassThrough()

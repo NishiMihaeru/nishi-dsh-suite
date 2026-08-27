@@ -15,5 +15,8 @@
     - id: nishi-antigravity
       name: 'nishi-dsh-antigravity'
 
+    - id: nishi-claude
+      name: 'nishi-dsh-claude'
+
     - id: nishi-core
       name: 'nishi-dsh-core'

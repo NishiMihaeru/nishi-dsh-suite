@@ -1,8 +1,8 @@
 /**
  * Ephemeral `.agents/agents/<name>/agent.md` workspace provisioning.
  *
- * Several vendor CLI bridges (Codex/Antigravity subagent delegation, the
- * Antigravity web-search backend, the Antigravity primary model transport)
+ * Several vendor CLI bridges (a native search backend, a primary model
+ * transport)
  * each create a throwaway temp directory containing a managed-agent
  * definition — and sometimes an extra file such as a JSON output schema —
  * pass it to the CLI via `--add-dir`, and remove it afterwards. This module
@@ -23,7 +23,7 @@ export interface EphemeralAgentWorkspaceFile {
 }
 
 export interface EphemeralAgentWorkspaceSpec {
-  /** `mkdtemp` prefix, e.g. 'dsh-antigravity-subagent-'. */
+  /** `mkdtemp` prefix, e.g. 'dsh-vendor-search-'. */
   readonly prefix: string
   /** The managed agent's `name:` — also the directory under `.agents/agents/`. */
   readonly agentName: string

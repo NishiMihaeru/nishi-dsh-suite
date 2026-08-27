@@ -83,13 +83,13 @@ Vendor subagents go entirely. Delegation returns later through DSH's own child a
 
 ### 2.D — Usage on descriptors
 
-- [ ] **2.D.1** Registration iterates descriptors: delete the per-provider `Host*Source` classes and branches in `usage-limits-host/src/composition.ts`.
+- [x] **2.D.1** Registration iterates descriptors: delete the per-provider `Host*Source` classes and branches in `usage-limits-host/src/composition.ts`.
 - [ ] **2.D.2** `ProviderPresentation` crosses the existing usage RPC as data. Delete `client/roster.ts`, the per-id branches in `client/ui/ProviderLogo.tsx`, and the substring grouping at `client/usage-group-model.ts:71`; the browser renders from data with a supported neutral mark. Supersedes **2.12**.
-- [ ] **2.D.3** The roster becomes dynamic — derived from registrations rather than a fixed list of three. A provider mounted late must appear; a provider not mounted must leave no placeholder and no grey blank. This is a real behaviour change in the browser half, so it carries its own live check (bring up a profile without Antigravity).
+- [x] **2.D.3** The roster becomes dynamic (landed early: a static roster was unimplementable once providers mount after the core) — derived from registrations rather than a fixed list of three. A provider mounted late must appear; a provider not mounted must leave no placeholder and no grey blank. This is a real behaviour change in the browser half, so it carries its own live check (bring up a profile without Antigravity).
 
 ### 2.E — Claude as a provider plugin
 
-- [ ] **2.E.1** Move the Claude usage source out of the core into `nishi-dsh-claude`, a plugin whose descriptor declares `usage` alone — no `model`, no `routes`, no `webSearch`. This deliberately reverses **2.6** for Claude: the unit is one package per provider, and a single-capability provider is the honest test that the connector holds. Family: 8 → 6 packages (`core`, `project-memory`, `codex`, `antigravity`, `claude`, `suite`).
+- [x] **2.E.1** Moved the Claude usage source out of the core into `nishi-dsh-claude`, a plugin whose descriptor declares `usage` alone — no `model`, no `routes`, no `webSearch`. This deliberately reverses **2.6** for Claude: the unit is one package per provider, and a single-capability provider is the honest test that the connector holds. Family: 8 → 6 packages (`core`, `project-memory`, `codex`, `antigravity`, `claude`, `suite`).
 
 ### 2.F — Deduplicate what is left
 

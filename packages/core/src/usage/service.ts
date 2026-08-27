@@ -66,28 +66,50 @@ export class UsageLimitsService {
     if (typeof clock !== 'function') throw new UsageContractError('clock must be a callable function');
     this.clock = clock;
 
-    const seen = new Set<string>();
     for (let i = 0; i < registrations.length; i++) {
-      const reg = registrations[i];
-      const context = `registrations[${i}]`;
-      const obj = assertPlainObject(reg, context);
-      const providerId = assertNonEmptyString(obj.providerId, `${context}.providerId`);
-      if (seen.has(providerId)) throw new UsageContractError(`Duplicate registration for providerId "${providerId}"`);
-      seen.add(providerId);
-      const collector = obj.collector as UsageSnapshotCollector;
-      if (!collector || typeof collector !== 'object' || typeof collector.collect !== 'function') {
-        throw new UsageContractError(`${context}.collector must be an object with a callable collect method`);
-      }
-      const policyObj = assertPlainObject(obj.policy, `${context}.policy`);
-      const minRefreshIntervalMs = assertNonNegativeSafeInteger(policyObj.minRefreshIntervalMs, `${context}.policy.minRefreshIntervalMs`);
-      const staleAfterMs = assertPositiveSafeInteger(policyObj.staleAfterMs, `${context}.policy.staleAfterMs`);
-      this.registrations.set(providerId, {
-        providerId,
-        collector: { collect: collector.collect.bind(collector) },
-        policy: { minRefreshIntervalMs, staleAfterMs },
-      });
-      this.registrationOrder.push(providerId);
+      this.register(registrations[i], `registrations[${i}]`);
     }
+  }
+
+  /**
+   * Register one provider's collector, and return the withdrawal callback.
+   *
+   * Providers mount after the core does — cordis defers them until this
+   * service's context exists — so the roster cannot be a constructor
+   * argument. It is derived from registrations, which is also what lets a
+   * provider mounted later appear in the UI and an unmounted one leave no
+   * placeholder behind.
+   */
+  register(registration: UsageProviderRegistration, context = 'registration'): () => void {
+    const obj = assertPlainObject(registration, context);
+    const providerId = assertNonEmptyString(obj.providerId, `${context}.providerId`);
+    if (this.registrations.has(providerId)) {
+      throw new UsageContractError(`Duplicate registration for providerId "${providerId}"`);
+    }
+    const collector = obj.collector as UsageSnapshotCollector;
+    if (!collector || typeof collector !== 'object' || typeof collector.collect !== 'function') {
+      throw new UsageContractError(`${context}.collector must be an object with a callable collect method`);
+    }
+    const policyObj = assertPlainObject(obj.policy, `${context}.policy`);
+    const minRefreshIntervalMs = assertNonNegativeSafeInteger(policyObj.minRefreshIntervalMs, `${context}.policy.minRefreshIntervalMs`);
+    const staleAfterMs = assertPositiveSafeInteger(policyObj.staleAfterMs, `${context}.policy.staleAfterMs`);
+    const entry: UsageProviderRegistration = {
+      providerId,
+      collector: { collect: collector.collect.bind(collector) },
+      policy: { minRefreshIntervalMs, staleAfterMs },
+    };
+    this.registrations.set(providerId, entry);
+    this.registrationOrder.push(providerId);
+
+    return () => {
+      if (this.registrations.get(providerId) !== entry) return;
+      this.registrations.delete(providerId);
+      const at = this.registrationOrder.indexOf(providerId);
+      if (at >= 0) this.registrationOrder.splice(at, 1);
+      this.cache.delete(providerId);
+      this.inFlight.delete(providerId);
+      this.invalidationTokens.delete(providerId);
+    };
   }
 
   private sampleClock(): number {

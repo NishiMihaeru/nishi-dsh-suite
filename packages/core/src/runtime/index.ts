@@ -35,19 +35,6 @@ export {
   type VendorStderrRecognizer,
 } from './failure.js'
 export {
-  claudeUsageCliArgv,
-  DEFAULT_USAGE_REQUEST_TIMEOUT_MS,
-  OfficialClaudeUsageSource,
-  type OfficialClaudeUsageSourceSpec,
-} from './claude-usage.js'
-export {
-  codexAppServerArgv,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  OfficialCodexRateLimitsSource,
-  type CodexRateLimitsSourceLike,
-  type OfficialCodexRateLimitsSourceSpec,
-} from './codex-usage.js'
-export {
   registerProvider,
   resolveSharedProviderConfig,
   type SharedProviderConfig,
@@ -57,6 +44,8 @@ export {
   type ModelCapability,
   type ProviderDescriptor,
   type RegisteredProvider,
+  type UsageCapability,
+  type UsageCapabilityHooks,
   type WebSearchCapability,
 } from '../registry/descriptor.js'
 export type {

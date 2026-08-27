@@ -24,6 +24,7 @@ export class NishiProvidersService extends Service {
   readonly #byId = new Map<string, RegisteredProvider>()
   readonly #byRoute = new Map<string, RegisteredProvider>()
   readonly #listeners = new Set<() => void>()
+  readonly #invalidationListeners = new Set<(providerId: string) => void>()
 
   constructor(ctx: Context) {
     super(ctx, 'nishiProviders')
@@ -35,6 +36,8 @@ export class NishiProvidersService extends Service {
     this.byRoute = this.byRoute.bind(this)
     this.all = this.all.bind(this)
     this.onChange = this.onChange.bind(this)
+    this.invalidate = this.invalidate.bind(this)
+    this.onInvalidate = this.onInvalidate.bind(this)
   }
 
   /**
@@ -94,6 +97,22 @@ export class NishiProvidersService extends Service {
     this.#listeners.add(listener)
     return () => {
       this.#listeners.delete(listener)
+    }
+  }
+
+  /**
+   * A provider reports that its cached usage is superseded. The registry is
+   * only the bus: it does not know what a snapshot or a cache is, which is
+   * what keeps the usage domain out of the registration path.
+   */
+  invalidate(providerId: string): void {
+    for (const listener of [...this.#invalidationListeners]) listener(providerId)
+  }
+
+  onInvalidate(listener: (providerId: string) => void): () => void {
+    this.#invalidationListeners.add(listener)
+    return () => {
+      this.#invalidationListeners.delete(listener)
     }
   }
 

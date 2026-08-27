@@ -9,6 +9,7 @@
   "exports": {
     ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
     "./runtime": { "types": "./lib/runtime.d.ts", "default": "./lib/runtime.js" },
+    "./usage": { "types": "./lib/usage.d.ts", "default": "./lib/usage.js" },
     "./web-search": { "types": "./lib/web-search.d.ts", "default": "./lib/web-search.js" },
     "./client": { "types": "./lib/client.d.ts", "default": "./lib/client.js" },
     "./package.json": "./package.json"

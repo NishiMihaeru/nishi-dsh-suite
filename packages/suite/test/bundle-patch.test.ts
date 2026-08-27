@@ -10,6 +10,7 @@ const expectedRows = new Map([
   ['nishi-project-memory', 'nishi-dsh-project-memory'],
   ['nishi-codex', 'nishi-dsh-codex'],
   ['nishi-antigravity', 'nishi-dsh-antigravity'],
+  ['nishi-claude', 'nishi-dsh-claude'],
   ['nishi-core', 'nishi-dsh-core'],
 ])
 

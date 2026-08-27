@@ -21,6 +21,8 @@ import {
 } from 'nishi-dsh-core/runtime'
 import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
 import { AntigravitySearchBackend } from './web-search-backend.js'
+import { AntigravityUsageCollector } from './usage.js'
+import { HostAntigravityLocalUsageSource } from './usage-source.js'
 
 export const name = 'antigravity'
 export const inject = ['nishiProviders', 'subprocess', 'llm']
@@ -101,6 +103,15 @@ const antigravityDescriptor: ProviderDescriptor<ResolvedAntigravityConfig> = {
   model: {
     routes: [ANTIGRAVITY_PRIMARY_PROVIDER],
     create: (ctx, config) => createAntigravityPrimaryAdapter(ctx, config),
+  },
+  usage: {
+    /**
+     * Antigravity exposes no official machine-readable usage, so this source
+     * reports an observation about what it could see locally and the
+     * normalizer turns that into an honest `UNSUPPORTED_NUMERIC_USAGE` row
+     * rather than an error or a fabricated number.
+     */
+    create: () => new AntigravityUsageCollector(new HostAntigravityLocalUsageSource()),
   },
   webSearch: {
     create: (ctx, config) => new AntigravitySearchBackend(ctx, {

@@ -27,6 +27,8 @@ import {
 } from './codex-plugin-dsh/index.js'
 import { CODEX_DESCRIPTOR } from './resolver.js'
 import { CodexSearchBackend } from './web-search-backend.js'
+import { CodexUsageCollector } from './usage.js'
+import { DEFAULT_REQUEST_TIMEOUT_MS, OfficialCodexRateLimitsSource } from './usage-source.js'
 import { installCodexPrimaryHistoryBridge } from './primary-history.js'
 
 export const name = 'codex'
@@ -109,6 +111,24 @@ const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
   },
   webSearch: {
     create: (ctx) => new CodexSearchBackend(ctx),
+  },
+  usage: {
+    /**
+     * A short-lived app-server session that reads rate limits and nothing
+     * else: no thread, no prompt, no credential handling. The app server
+     * also pushes fresh limits during a turn, which is what `invalidate`
+     * is for — the next read then goes to the vendor instead of to a
+     * snapshot the vendor has already superseded.
+     */
+    create: (ctx, config, hooks) => new CodexUsageCollector({
+      read: () => new OfficialCodexRateLimitsSource({
+        cwd: process.cwd(),
+        env: config.env,
+        requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+        spawn: (spec) => ctx.subprocess.spawn(spec),
+        onRateLimitsUpdated: hooks.invalidate,
+      }).read(),
+    }),
   },
   async install(ctx) {
     await installCodexPrimaryHistoryBridge(ctx)

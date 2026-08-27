@@ -45,6 +45,37 @@ importers:
         specifier: 5.9.2
         version: 5.9.2
 
+  packages/claude:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@deepseek-ai/dsh-invariants':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)
+      '@deepseek-ai/dsh-subprocess':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
+      '@deepseek-ai/dsh-timeout':
+        specifier: 0.1.1-rc.2
+        version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))
+      '@deepseek-ai/schemastery':
+        specifier: ^3.18.1
+        version: 3.18.1
+      nishi-dsh-core:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 24.13.3
+        version: 24.13.3
+      tsx:
+        specifier: 4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
   packages/codex:
     dependencies:
       '@deepseek-ai/cordis':
@@ -220,6 +251,9 @@ importers:
       nishi-dsh-antigravity:
         specifier: workspace:0.1.0-rc.3
         version: link:../antigravity
+      nishi-dsh-claude:
+        specifier: workspace:0.1.0-rc.3
+        version: link:../claude
       nishi-dsh-codex:
         specifier: workspace:0.1.0-rc.3
         version: link:../codex

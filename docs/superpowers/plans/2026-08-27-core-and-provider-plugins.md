@@ -223,30 +223,23 @@ Mechanical merge, no behaviour change. Landed as its own commit so the next task
 - [x] `grep` for `nishi-dsh-codex` / `nishi-dsh-antigravity` in `packages/core` returns nothing, in `src` and in the manifest.
 - [ ] Live: routed `web_search` on both primaries, and an unsupported primary — deferred to the Task 16 acceptance run, which is where live quota is spent deliberately.
 
-### Task 10: Usage on descriptors
+### Task 10: Usage on descriptors — merged with Task 12
 
-The usage domain itself is already provider-neutral: `contract.ts`, `service.ts`, `public-projection.ts` and `collectors/vendor-collector.ts` contain no provider name. Provider identity lives in exactly two places — the three per-provider collector files, and the host's hand-written registration branches. Both move.
-
-**Files:**
-- Modify: `packages/core/src/host/composition.ts`, `packages/core/src/usage/service.ts`, `packages/core/src/usage/index.ts`
-- Move to `packages/codex/src/usage.ts`: `usage-limits/src/collectors/codex.ts` (178) — its identity constants, `CodexRateLimitsSourceError`, and its normalizer
-- Move to `packages/antigravity/src/usage.ts`: `usage-limits/src/collectors/antigravity.ts` (187) plus `usage-limits-host/src/antigravity-local-source.ts` (533)
-- Move to `packages/claude/src/usage.ts` in Task 12: `usage-limits/src/collectors/claude.ts` (174)
-- Keep in the core: `contract.ts`, `collectors/vendor-collector.ts`, `service.ts`, `public-projection.ts`
-- Modify: `packages/core/test/collector-failures.test.ts`, `packages/core/test/rpc.test.ts`; move the per-provider normalization cases into each provider's tests
+**Merged with Task 12 deliberately.** Moving the Claude collector out of the core requires the package that receives it, and keeping a Claude special case in the host "until later" would have left the Claude usage row broken in between. One commit, three providers.
 
 **Steps:**
-- [ ] 10.1 Move each provider's normalizer into its own package, exposed as the descriptor's `usage.normalize` alongside `read`, `refreshPolicy` and `capabilityClass`. The generic `VendorUsageCollector` stays in the core and is constructed from the descriptor.
-- [ ] 10.2 Replace the per-provider `Host*Source` classes and registration branches in `composition.ts` with one iteration over registered descriptors, defaulting `refreshPolicy` to the single shared default.
-- [ ] 10.3 Keep the capability taxonomy exactly as it is: a provider declaring no usage, or declaring it unsupported, produces an honest row and never an error. `NO_SUPPORTED_MACHINE_READABLE_SOURCE` behaviour must be unchanged.
-- [ ] 10.4 Split each collector's tests so provider-specific payload cases live with the provider and only contract/projection cases stay in the core.
+- [x] 10.1 Each provider owns its normalizer and its source: `usage.ts` + `usage-source.ts` in `packages/codex`, `packages/antigravity` (including the 533-line local attach-only source) and the new `packages/claude`. The generic `VendorUsageCollector` stayed in the core and is what each provider extends.
+- [x] 10.2 `composeUsageLimitsHost` has no provider identity left in it: it reconciles the usage roster against `ctx.nishiProviders.all()`. **Deviation forced by sequencing:** `UsageLimitsService` took its registrations as a constructor argument, which cannot work when providers mount *after* the core — so `register()` / withdrawal landed here rather than in Task 11. That is the dynamic roster (2.D.3) arriving early, because the static version was unimplementable.
+- [x] 10.3 Capability taxonomy unchanged: a provider with no `usage` capability simply has no row, and Antigravity still reports `UNSUPPORTED_NUMERIC_USAGE` through the same honest path.
+- [x] 10.4 Tests split: the core keeps a provider-free `VendorUsageCollector` suite (recognized error → safe non-active snapshot, unknown error → `ERROR`, no vendor text in either, bad timestamps refused), and each provider tests its own recognized codes.
+- [x] 10.5 Invalidation crosses through the registry rather than the host: `UsageCapability.create` receives `hooks.invalidate`, the registry fans it out, and the usage host subscribes. The Codex app server pushes fresh limits mid-turn, which is the only caller — and the registry stays generic, knowing nothing about snapshots or caches.
+
+**Found while implementing:** `packages/core/src/host/authorization-rpc.ts` hardcodes `openai-codex` / `anthropic` / `openai`. Those are **DSH authorization provider ids**, a foreign id space the core reads from the harness — and the allowlist is a security control (these may be read, none may start OAuth, only legacy grants may be removed), not a provider branch. It stays, and Task 15's neutrality test must name it as a documented exception together with an assertion that it stays read/logout-only, so the carve-out cannot quietly grow into provider branching.
 
 **Verify:**
-- [ ] `pnpm test`; `echo $?` must be `0`.
-- [ ] `pnpm smoke:vendor-cli`; `echo $?` must be `0` — it drives the real sources against the installed CLIs and through the real normalizers, which is the check that catches a normalizer broken by the move.
-- [ ] `grep -rniE "codex|antigravity|claude" packages/core/src/usage` returns nothing.
-
----
+- [x] `pnpm -r test` exit `0`; `pnpm verify:local` exit `0` — 6 tarballs: `core`, `codex`, `antigravity`, `claude`, `project-memory`, `suite`.
+- [x] `pnpm smoke:vendor-cli` exit `0` — 3/3 with both moved sources driven from their new packages.
+- [x] `grep -riE "codex|antigravity|claude" packages/core/src/{usage,host/composition.ts}` returns nothing.
 
 ### Task 11: Presentation record and the dynamic roster
 
@@ -269,24 +262,14 @@ The usage domain itself is already provider-neutral: `contract.ts`, `service.ts`
 
 ---
 
-### Task 12: Claude as a provider plugin
-
-**Files:**
-- Create: `packages/claude/` — `package.json`, `tsconfig.json`, `README.md`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `src/index.ts`, `src/usage-source.ts`, `test/`
-- Delete: `packages/core/src/runtime/claude-usage.ts` and its test (moved, not dropped)
-- Modify: `packages/suite/cordis.patch.yml`, `packages/suite/package.json`, the five family scripts
+### Task 12: Claude as a provider plugin — landed with Task 10
 
 **Steps:**
-- [ ] 12.1 Move the Claude usage source into the new package; its descriptor declares `usage` alone — no `model`, no `routes`, no `webSearch`, and an executable descriptor for the `claude` CLI.
-- [ ] 12.2 Register it as a bundle row. A missing `claude` CLI must degrade to an explicit row, exactly as today.
-- [ ] 12.3 `pnpm check:npm-names` for `nishi-dsh-claude`.
+- [x] 12.1 `packages/claude` created: descriptor declaring `usage` alone — no `model`, no `routes`, no `webSearch` — plus the moved collector and the official-CLI source, an executable descriptor for `claude`, and its own invariant companion.
+- [x] 12.2 Registered as a bundle row (`nishi-claude`), added to the Suite dependencies, `NISHI_DSH_SUITE_PACKAGES`, both suite bundle tests and all five family scripts. A missing `claude` CLI still degrades to an explicit row.
+- [ ] 12.3 `pnpm check:npm-names` for `nishi-dsh-claude` — deferred to Task 16 with the other network-touching gate.
 
-**Verify:**
-- [ ] `pnpm verify:local`; `echo $?` must be `0`.
-- [ ] `pnpm smoke:vendor-cli`; `echo $?` must be `0`.
-- [ ] Live: the Claude usage row renders with the CLI installed, and degrades explicitly with `DSH_CLAUDE_EXECUTABLE` pointed at a nonexistent path.
-
----
+**Why this matters beyond packaging:** it is the falsifiable half of the architecture claim. A provider that serves no route and offers no search needed nothing from the core but a descriptor: no branch in the usage host, no entry in a roster, no browser edit. If that had cost more, the contract would have been wrong.
 
 ### Task 13: Deduplicate what is left
 

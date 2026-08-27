@@ -8,7 +8,7 @@ import {
   codexAppServerArgv,
   DEFAULT_REQUEST_TIMEOUT_MS,
   OfficialCodexRateLimitsSource,
-} from '../src/runtime/codex-usage.ts'
+} from '../src/usage-source.ts'
 
 function fakeAppServerChild() {
   const stdin = new PassThrough()

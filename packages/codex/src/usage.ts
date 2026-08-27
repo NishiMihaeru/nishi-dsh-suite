@@ -8,8 +8,8 @@ import {
   type UsageSourceMetadata,
   type LimitScope,
   type LimitWindowKind,
-} from '../contract.js';
-import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from './vendor-collector.js';
+} from 'nishi-dsh-core/usage';
+import { VendorUsageCollector, type VendorUsageSource, type VendorUsageCollectorSpec } from 'nishi-dsh-core/usage';
 
 export const CODEX_PROVIDER_ID = 'codex';
 export const CODEX_DISPLAY_NAME = 'Codex';
