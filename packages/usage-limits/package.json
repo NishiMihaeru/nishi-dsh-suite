@@ -1,7 +1,7 @@
 {
   "name": "nishi-dsh-usage-limits",
   "description": "Provider-agnostic Usage / Limits domain contract and collectors for Nishi DSH Suite",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
