@@ -5,6 +5,7 @@ import test from 'node:test'
 import * as ts from 'typescript'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
+const AUTHORIZATION_PACKAGE = '@deepseek-ai/dsh-authorization'
 const PROVIDER_PACKAGES = [
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
@@ -39,9 +40,13 @@ function executableStringLiterals(source: string, path: URL): string[] {
   return values
 }
 
-test('nishi-dsh-core has no dependency on the retired subagent package', async () => {
+async function coreManifest(): Promise<Record<string, Record<string, string> | undefined>> {
   const raw = await readFile(new URL('../package.json', import.meta.url), 'utf8')
-  const manifest = JSON.parse(raw) as Record<string, Record<string, string> | undefined>
+  return JSON.parse(raw) as Record<string, Record<string, string> | undefined>
+}
+
+test('nishi-dsh-core has no dependency on the retired subagent package', async () => {
+  const manifest = await coreManifest()
 
   for (const field of ['dependencies', 'peerDependencies', 'devDependencies'] as const) {
     assert.equal(
@@ -57,9 +62,34 @@ test('shared provider registration does not import the retired subagent package'
   assert.doesNotMatch(source, /@deepseek-ai\/dsh-subagent/)
 })
 
+test('nishi-dsh-core has no dependency on the unused DSH authorization package', async () => {
+  const manifest = await coreManifest()
+
+  for (const field of ['dependencies', 'peerDependencies', 'devDependencies'] as const) {
+    assert.equal(
+      manifest[field]?.[AUTHORIZATION_PACKAGE],
+      undefined,
+      `${AUTHORIZATION_PACKAGE} must stay absent from ${field}`,
+    )
+  }
+})
+
+test('core source does not import the unused DSH authorization package', async () => {
+  const srcRoot = new URL('../src/', import.meta.url)
+  for (const path of await sourceFiles(srcRoot)) {
+    const source = await readFile(path, 'utf8')
+    const relativePath = path.href.slice(srcRoot.href.length)
+    const literals = executableStringLiterals(source, path)
+    assert.equal(
+      literals.some((value) => value === AUTHORIZATION_PACKAGE || value.startsWith(`${AUTHORIZATION_PACKAGE}/`)),
+      false,
+      `${relativePath} must not import ${AUTHORIZATION_PACKAGE}`,
+    )
+  }
+})
+
 test('nishi-dsh-core manifest never depends directly on a concrete provider package', async () => {
-  const raw = await readFile(new URL('../package.json', import.meta.url), 'utf8')
-  const manifest = JSON.parse(raw) as Record<string, Record<string, string> | undefined>
+  const manifest = await coreManifest()
 
   for (const field of ['dependencies', 'peerDependencies', 'devDependencies'] as const) {
     for (const providerPackage of PROVIDER_PACKAGES) {
