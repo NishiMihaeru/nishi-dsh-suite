@@ -38,9 +38,9 @@ The gap is not the contract. It is that the code behind it is written three time
 - [x] **0.3** Extend `scripts/verify-bundle-install.mjs` to assert no foreign-platform vendor binaries appear in the installed closure.
 - [x] **0.4** Live acceptance: Codex primary + routed `web_search` + memory read/write; Antigravity primary + mid-conversation model switch + `agy search_web`; three usage rows render; Claude row degrades explicitly when the `claude` CLI is absent.
 - [x] **0.5** `pnpm check:npm-names`.
-- [ ] **0.6 — GATE.** Present roster and evidence; **wait for explicit approval**. Then publish leaves-first under `next` and verify registry resolution at exact versions.
-- [ ] **0.7** `npm deprecate nishi-dsh-claude-code@0.1.0-rc.1` → `nishi-dsh-claude-usage-source`.
-- [ ] **0.8** Upgrade `~/.dsh/profiles/web` rc.1 → rc.2 **preserving the `dsh-chatgpt-web` link**; run `preset update`; confirm nothing unrelated was touched.
+- [ ] **0.6 — PARKED (maintainer decision, 2026-08-27): rc.2 is not published.** It stays in-repo. Nine tarballs are built and reproducible from `pnpm verify:local`; publication can resume from here unchanged whenever wanted.
+- [ ] **0.7 — parked with 0.6.** `npm deprecate nishi-dsh-claude-code@0.1.0-rc.1` → `nishi-dsh-claude-usage-source`.
+- [ ] **0.8 — parked with 0.6** (could still run from local tarballs via `--local-pack-dir`). Upgrade `~/.dsh/profiles/web` rc.1 → rc.2 **preserving the `dsh-chatgpt-web` link**; run `preset update`; confirm nothing unrelated was touched.
 
 ## Stage 1 — Close the memory leak boundary
 
@@ -61,7 +61,7 @@ The gap is not the contract. It is that the code behind it is written three time
 - [ ] **2.3** Unify the usage input contract. Three interfaces exist for one concept — `CodexRateLimitsSource.readRateLimits()`, `AntigravityUsageCapabilitySource.readCapability()`, `ClaudeUsageSource.getUsage()`. Collapse to one; collapse the three byte-identical `DEFAULT_*_REFRESH_POLICY` constants into one default; make registration in `usage-limits-host/src/composition.ts` iterate descriptors instead of one hand-written branch per provider.
 - [ ] **2.4** Rewrite Codex and Antigravity on the kit. **Success test is negative: line count must go down.** If it does not, the abstraction is wrong and should be reconsidered rather than forced. Behaviour parity proven by the existing suites before and after.
 - [ ] **2.5** Drop the hardcoded `^(gemini|claude|gpt|oss)` catalog filter at `antigravity-primary.ts:132`. For a product whose value is provider choice, silently hiding models attacks the value directly.
-- [ ] **2.6** Fold `codex-usage-source` (379 src) and `claude-usage-source` (320 src) into the kit; each carries a full package's overhead for a few hundred lines. This changes the published family — it belongs to Stage 5, never a patch.
+- [ ] **2.6** Fold `codex-usage-source` (379 src) and `claude-usage-source` (320 src) into the kit; each carries a full package's overhead for a few hundred lines. This changed the *published* family, which is why it was deferred to Stage 5 — with rc.2 unpublished there is no rc.2 consumer to disturb, so it can land with the rest of Stage 2.
 
 ## Stage 3 — Prove interchangeability live
 
@@ -130,5 +130,5 @@ Separately: DSH ships in-process child agents (`@deepseek-ai/dsh-subagent`'s `ch
 - Stage 1 sits before the bridge only because it is a present data-exposure and costs almost nothing, not because the bridge depends on it.
 - Stage 2's success test is falsifiable rather than aspirational.
 - Stage 3 is separate from Stage 2 on purpose: plumbing is not the goal.
-- Stage 2.6 is the only step that disturbs published consumers, and it is deferred into Stage 5 so rc.2 users are not disrupted twice.
+- Stage 2.6 was deferred to Stage 5 to avoid disturbing rc.2 consumers twice. rc.2 is now parked unpublished, so that constraint is void and 2.6 belongs with the rest of Stage 2.
 - R1 remains owned by nobody until it is scheduled.
