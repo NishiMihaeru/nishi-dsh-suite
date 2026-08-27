@@ -1,8 +1,32 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import test from 'node:test'
+import test, { after } from 'node:test'
 import * as codex from '../src/index.ts'
 import { resolveCodexExecutable } from '../src/resolver.ts'
+
+/**
+ * Every child this suite starts, so a probe that throws before its own
+ * teardown still cannot leave the suite hanging. Codex spawns its own
+ * subtree (an app-server plus a code-mode helper), and signalling only the
+ * direct child leaves that subtree alive holding the event loop open --
+ * which is exactly how this suite used to pass its assertions and then
+ * never exit.
+ */
+const liveChildren = new Set<{ pid: number | undefined }>()
+
+function killTree(pid: number | undefined, signal: NodeJS.Signals): void {
+  if (pid === undefined || pid <= 0) return
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    try { process.kill(pid, signal) } catch { /* already gone */ }
+  }
+}
+
+after(async () => {
+  for (const child of liveChildren) killTree(child.pid, 'SIGKILL')
+  liveChildren.clear()
+})
 
 function createRealSubprocess() {
   return {
@@ -14,7 +38,10 @@ function createRealSubprocess() {
         cwd: spec.cwd,
         env: { ...process.env, ...spec.env },
         stdio: ['pipe', 'pipe', 'pipe'],
+        // Own process group, so terminate() can reach the whole subtree.
+        detached: true,
       })
+      liveChildren.add(child)
       let resolveDone: any
       let rejectDone: any
       const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((res, rej) => {
@@ -22,6 +49,7 @@ function createRealSubprocess() {
         rejectDone = rej
       })
       child.on('exit', (exitCode, signal) => {
+        liveChildren.delete(child)
         resolveDone({ exitCode, signal })
       })
       child.on('error', (err) => {
@@ -41,7 +69,11 @@ function createRealSubprocess() {
         },
         done,
         terminate() {
-          child.kill('SIGTERM')
+          killTree(child.pid, 'SIGTERM')
+          // Escalate: the app-server subtree does not always go on SIGTERM.
+          const escalation = setTimeout(() => killTree(child.pid, 'SIGKILL'), 2_000)
+          escalation.unref?.()
+          void done.then(() => clearTimeout(escalation), () => clearTimeout(escalation))
         },
         async waitForExit() {
           await done.catch(() => {})
@@ -194,10 +226,15 @@ test('LIVE PROBE: Codex subagent runs and returns CODEX_SUBAGENT_OK', async () =
   })
 
   assert.ok(run, 'Subagent run started')
-  const result = await run.result
-  console.log(`Subagent result: ${JSON.stringify(result)}`)
-  assert.ok(
-    result.output.some((b: any) => b.text?.includes('CODEX_SUBAGENT_OK')),
-    `Expected CODEX_SUBAGENT_OK in result output: ${JSON.stringify(result)}`,
-  )
+  try {
+    const result = await run.result
+    console.log(`Subagent result: ${JSON.stringify(result)}`)
+    assert.ok(
+      result.output.some((b: any) => b.text?.includes('CODEX_SUBAGENT_OK')),
+      `Expected CODEX_SUBAGENT_OK in result output: ${JSON.stringify(result)}`,
+    )
+  } finally {
+    // This probe used to end here with no disposal at all, leaking the run.
+    await run.dispose?.()
+  }
 })
