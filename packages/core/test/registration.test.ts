@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import type { ProviderDescriptor } from '../src/registry/descriptor.ts'
 import {
   registerProvider,
   resolveSharedProviderConfig,
-  type ProviderDescriptor,
   type SharedProviderConfig,
   type SharedProviderDefaults,
 } from '../src/runtime/registration.ts'
@@ -118,9 +118,23 @@ interface FixtureConfig extends SharedProviderDefaults {
 }
 
 function fakeContext() {
+  const disposers: Array<() => void> = []
   const calls: string[] = []
   const adapters: { routes: string[]; adapter: unknown }[] = []
+  const recorded: { id: string; routes: readonly string[] }[] = []
+  const forgotten: string[] = []
   const ctx = {
+    nishiProviders: {
+      record(entry: { id: string; routes: readonly string[] }) {
+        calls.push('record')
+        recorded.push(entry)
+        return () => forgotten.push(entry.id)
+      },
+    },
+    effect(setup: () => () => void) {
+      const teardown = setup()
+      disposers.push(teardown)
+    },
     subagents: {
       registerProvider() {
         throw new Error('delegation was removed in 0.1.0-rc.3: no provider may register a subagent provider')
@@ -133,12 +147,12 @@ function fakeContext() {
       },
     },
   }
-  return { ctx: ctx as any, calls, adapters }
+  return { ctx: ctx as any, calls, adapters, recorded, forgotten, disposers }
 }
 
 const FIXTURE_CONFIG: FixtureConfig = { ...DEFAULTS, marker: 'fixture' }
 
-test('registerProvider registers the model, then runs install, in that order', async () => {
+test('registerProvider records the provider, then registers the model, then runs install', async () => {
   const fixture = fakeContext()
   const seenByModel: unknown[] = []
   const seenByInstall: unknown[] = []
@@ -161,7 +175,8 @@ test('registerProvider registers the model, then runs install, in that order', a
 
   await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
 
-  assert.deepEqual(fixture.calls, ['model-create', 'model', 'install'])
+  assert.deepEqual(fixture.calls, ['record', 'model-create', 'model', 'install'])
+  assert.deepEqual(fixture.recorded, [{ id: 'fixture', routes: ['fixture-model'], descriptor }])
   assert.deepEqual(fixture.adapters, [{ routes: ['fixture-model'], adapter: { name: 'fixture-adapter' } }])
   assert.deepEqual(seenByModel, [[fixture.ctx, FIXTURE_CONFIG]])
   assert.deepEqual(seenByInstall, [[fixture.ctx, FIXTURE_CONFIG]])
@@ -206,4 +221,45 @@ test('registerProvider awaits an async install before resolving', async () => {
   await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
 
   assert.equal(installFinished, true)
+})
+
+test('registerProvider refuses a model capability with no route', async () => {
+  const fixture = fakeContext()
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    model: { routes: [], create: () => ({ name: 'fixture-adapter' } as any) },
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /must declare at least one route/,
+  )
+  assert.equal(fixture.adapters.length, 0)
+})
+
+test('registerProvider fails with an actionable diagnostic when the core row is not mounted', async () => {
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+  }
+
+  await assert.rejects(
+    () => registerProvider({ effect() {} } as any, descriptor, FIXTURE_CONFIG),
+    /the nishi-dsh-core row must be mounted before a provider plugin/,
+  )
+})
+
+test('disposing the provider plugin withdraws its registry entry', async () => {
+  const fixture = fakeContext()
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    model: { routes: ['fixture-model'], create: () => ({ name: 'fixture-adapter' } as any) },
+  }
+
+  await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
+  assert.deepEqual(fixture.forgotten, [])
+  for (const dispose of fixture.disposers) dispose()
+  assert.deepEqual(fixture.forgotten, ['fixture'], 'the entry belongs to the provider plugin lifetime')
 })

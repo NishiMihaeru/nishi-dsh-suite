@@ -6,13 +6,21 @@ import * as codex from '../src/index.ts'
 function fakeContext() {
   const providers = new Map<string, any>()
   const registeredAdapters: Array<{ providers: string[]; adapter: any }> = []
+  const recorded: Array<{ id: string; routes: readonly string[] }> = []
   const events = new Map<string, Function[]>()
   const effects: Array<() => void> = []
 
   return {
     providers,
     registeredAdapters,
+    recorded,
     ctx: {
+      nishiProviders: {
+        record(entry: { id: string; routes: readonly string[] }) {
+          recorded.push(entry)
+          return () => {}
+        },
+      },
       subagents: {
         registerProvider(value: any) {
           providers.set(value.name, value)

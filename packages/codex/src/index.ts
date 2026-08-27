@@ -30,6 +30,7 @@ import { installCodexPrimaryHistoryBridge } from './primary-history.js'
 
 export const name = 'codex'
 export const inject = [
+  'nishiProviders',
   'subprocess',
   'llm',
   'sessions',

@@ -1,4 +1,5 @@
 import { Context, Service } from '@deepseek-ai/cordis'
+import { NishiProvidersService } from './registry/service.js'
 import type { PublicProviderUsage, UsageLimitsPublicFacade, UsageLimitsService } from './usage/index.js'
 import {
   composeUsageLimitsHost,
@@ -96,6 +97,12 @@ export {
  * than imported across a package boundary.
  */
 export * from './usage/index.js'
+export { NishiProvidersService } from './registry/service.js'
+export type {
+  ModelCapability,
+  ProviderDescriptor,
+  RegisteredProvider,
+} from './registry/descriptor.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -146,6 +153,8 @@ export const name = 'nishi-core'
 export const inject = ['connection', 'subprocess', 'authorization', 'credentials'] as const
 
 export function apply(ctx: Context, config?: UsageLimitsHostConfig): void {
+  ctx.plugin(NishiProvidersService)
+
   const hostService = new UsageLimitsHostService(ctx, config)
   ctx.connection.rpc.handle(
     USAGE_LIMITS_CHANNEL,

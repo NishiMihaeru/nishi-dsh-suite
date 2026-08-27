@@ -185,21 +185,21 @@ Mechanical merge, no behaviour change. Landed as its own commit so the next task
 ### Task 8: The registry service
 
 **Files:**
-- Create: `packages/core/src/registry/service.ts`, `packages/core/src/registry/descriptor.ts`, `packages/core/test/registry.test.ts`
-- Modify: `packages/core/src/index.ts`, `packages/codex/src/index.ts`, `packages/antigravity/src/index.ts`, both registration tests
+- Created: `packages/core/src/registry/descriptor.ts`, `packages/core/src/registry/service.ts`, `packages/core/test/registry.test.ts`
+- Modified: `packages/core/src/{index.ts,runtime/{index,registration}.ts}`, `packages/codex/src/index.ts`, `packages/antigravity/src/index.ts`, three provider test fixtures
 
 **Steps:**
-- [ ] 8.1 Define the final `ProviderDescriptor` from the spec: `id`, `routes`, `presentation`, `executable`, optional `model` / `usage` / `webSearch`, optional `install`.
-- [ ] 8.2 Implement the service on the host plane: `register(descriptor, config)` stores the descriptor, registers the adapter under `descriptor.routes`, registers the usage source, runs `install`; `byId`, `byRoute`, `all`, and a change signal for the usage projection. Reject a duplicate `id` or a duplicate route with a diagnostic naming both providers.
-- [ ] 8.3 Unregister on plugin disposal so a provider plugin can be unloaded without leaving a dead row.
-- [ ] 8.4 Providers: `inject: ['nishiProviders', 'subprocess', 'llm']`, `apply` resolves shared config and calls `ctx.nishiProviders.register`. Delete the now-unused `registerProvider` free function.
-- [ ] 8.5 Tests: registration order, duplicate rejection, disposal, and a descriptor with no `model` registering no route.
+- [x] 8.1 `ProviderDescriptor` moved into `registry/descriptor.ts` with `id`, `executable`, `model?` (routes live on the capability, where the adapter that serves them is) and `install?`. **Deviation:** `presentation`, `usage` and `webSearch` are *not* added yet. Each is added by the task that consumes it — 11, 10 and 9 — so no field here is one nothing reads.
+- [x] 8.2 `NishiProvidersService` provides `ctx.nishiProviders`: `record`, `byId`, `byRoute`, `all`, `onChange`. A duplicate id is refused, and a duplicate route is refused with a diagnostic naming the provider that already owns it — a silent second registration would mean one route quietly answering from the wrong vendor.
+- [x] 8.3 Withdrawal is bound to the provider plugin's own lifetime: `registerProvider` puts the forget-callback in `ctx.effect` on the *provider's* context, so unloading the provider removes its entry along with its adapter's session listeners and dispose effect. A stale disposer cannot evict a re-registered entry (covered by a test).
+- [x] 8.4 Both providers declare `inject: ['nishiProviders', ...]`, so cordis defers their `apply` until the core row is mounted, and a missing core row produces an actionable diagnostic rather than a `TypeError`. **Deviation:** the plan said to delete the `registerProvider` free function; it stays. It *is* the single registration path — the grep invariant's subject — and now writes into the registry as its first step. Deleting it would scatter the same three steps back into each provider.
+- [x] 8.5 Tests: registration order, duplicate id, duplicate route, usage-only provider with no route, withdrawal, stale-disposer safety, listener unsubscribe, empty id, model-without-route refusal, and the unmounted-core diagnostic.
+
+**Found while implementing:** cordis serves a service to consumers through a `Proxy`, and a proxied `this` cannot read class `#private` fields — the service throws `Cannot read private member` on first use. `UsageLimitsHostService` already worked around this by binding its methods in the constructor; that was undocumented, so the same fix here says why. The registry test mounts a real `Context` and reaches the service through `ctx.nishiProviders` precisely so the proxy path is exercised rather than bypassed.
 
 **Verify:**
-- [ ] `pnpm test`; `echo $?` must be `0`.
-- [ ] `grep -rn "ctx.llm.registerAdapter" packages/codex/src packages/antigravity/src` returns nothing.
-
----
+- [x] `pnpm --filter nishi-dsh-core test` exit `0` (99 tests); `pnpm verify:local` exit `0`.
+- [x] `grep -rn "ctx.llm.registerAdapter" packages/codex/src packages/antigravity/src` returns nothing.
 
 ### Task 9: Web search on the registry
 

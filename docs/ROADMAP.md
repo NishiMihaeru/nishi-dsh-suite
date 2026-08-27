@@ -73,7 +73,7 @@ Vendor subagents go entirely. Delegation returns later through DSH's own child a
 ### 2.B — The core package
 
 - [x] **2.B.1** Merged `provider-kit`, `usage-limits` and `usage-limits-host` into `nishi-dsh-core`; `primary-web-search` follows in 2.C, once the inversion removes the cycle that blocks it (the core cannot depend on the provider packages that depend on the core). Two mount points, not one: `nishi-dsh-core` on the host plane (bundle row — registry, usage domain, RPC, browser half) and `nishi-dsh-core/web-search` on the agent plane (preset row). Collapsing them into one mount would either give every agent `web_search` without a preset choice or make the usage registry come and go with mounted presets.
-- [ ] **2.B.2** The registry service. `ctx.nishiProviders.register(descriptor, config)` records the descriptor, registers the model adapter under `descriptor.routes`, registers the usage source, and runs `install`. Provider plugins declare `inject: ['nishiProviders', ...]`; cordis owns load order, deferral and teardown.
+- [x] **2.B.2** The registry service. `ctx.nishiProviders.register(descriptor, config)` records the descriptor, registers the model adapter under `descriptor.routes`, registers the usage source, and runs `install`. Provider plugins declare `inject: ['nishiProviders', ...]`; cordis owns load order, deferral and teardown.
 - [ ] **2.B.3** Canonical identity: `id: 'codex'` / `routes: ['codex-app-server']`, `id: 'antigravity'` / `routes: ['antigravity-cli']`. Route strings are unchanged — they are user-visible in saved session headers and the profile default.
 
 ### 2.C — Web search on the registry

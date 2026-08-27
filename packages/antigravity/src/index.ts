@@ -22,7 +22,7 @@ import {
 import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
 
 export const name = 'antigravity'
-export const inject = ['subprocess', 'llm']
+export const inject = ['nishiProviders', 'subprocess', 'llm']
 
 export const DEFAULT_ANTIGRAVITY_EXECUTABLE = 'agy'
 export const DEFAULT_ANTIGRAVITY_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'

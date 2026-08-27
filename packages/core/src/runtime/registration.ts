@@ -13,17 +13,16 @@
  * Delegation left the contract in `0.1.0-rc.3`: no provider contributes a
  * subagent provider any more, so there is no subagent step here to run.
  *
- * See `docs/superpowers/specs/provider-bridge-design.md` ("The kit") for
- * the design this package implements.
+ * See `docs/superpowers/specs/provider-bridge-design.md` for the design this
+ * module implements.
  *
  * @module nishi-dsh-core/runtime/registration
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { assertPositiveFinite } from '@deepseek-ai/dsh-subagent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import type { VendorExecutableDescriptor } from './executable.js'
+import type { ProviderDescriptor } from '../registry/descriptor.js'
 
 /** Config fields every subscription-CLI provider plugin shares. */
 export interface SharedProviderConfig {
@@ -97,36 +96,44 @@ export function resolveSharedProviderConfig(
 }
 
 /**
- * One provider's registration recipe: identity, executable lookup facts
- * (for callers that want to describe or resolve the vendor CLI), and the
- * seams `registerProvider` wires up. `TConfig` is the provider's own fully
- * resolved config — its `SharedProviderConfig` fields plus whatever fields
- * are specific to that provider.
- */
-export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
-  /** Stable plugin id, used as the validation-diagnostic prefix (e.g. `codex`). */
-  readonly id: string
-  /** Identity and lookup facts for this provider's vendor CLI executable. */
-  readonly executable: VendorExecutableDescriptor
-  /** The LLM adapter this plugin contributes to `ctx.llm`, and the provider routes it serves, if any. */
-  readonly model?: { readonly routes: readonly string[]; create(ctx: Context, config: TConfig): LlmAdapter }
-  /** Anything else this provider needs wired up once the model is registered. */
-  install?(ctx: Context, config: TConfig): void | Promise<void>
-}
-
-/**
- * The single registration path every provider goes through: register the
- * LLM adapter under its routes (if any), then run provider-specific extras.
- * Extras run last because they may assume the adapter is already
- * registered — the Codex primary history bridge does.
+ * The single registration path every provider goes through: record the
+ * provider in the core's registry, register its LLM adapter under the routes
+ * it declares, then run provider-specific extras.
+ *
+ * The provider's own `ctx` does the registering, not the core's: the adapter
+ * binds session listeners and a dispose effect, and those must belong to the
+ * provider plugin so unloading it takes them with it. The registry entry is
+ * removed by the same effect for the same reason.
+ *
+ * Extras run last because they may assume the adapter is already registered —
+ * the Codex primary history bridge does.
  */
 export async function registerProvider<TConfig extends SharedProviderConfig>(
   ctx: Context,
   descriptor: ProviderDescriptor<TConfig>,
   config: TConfig,
 ): Promise<void> {
+  const registry = ctx.nishiProviders
+  if (registry === undefined) {
+    throw new Error(
+      `${descriptor.id}: the nishi-dsh-core row must be mounted before a provider plugin — declare inject: ['nishiProviders']`,
+    )
+  }
+
+  const routes = descriptor.model ? [...descriptor.model.routes] : []
+  if (descriptor.model && routes.length === 0) {
+    throw new Error(`${descriptor.id}: a provider declaring a model capability must declare at least one route`)
+  }
+
+  const forget = registry.record({
+    id: descriptor.id,
+    routes,
+    descriptor: descriptor as ProviderDescriptor<never>,
+  })
+  ctx.effect(() => forget, `${descriptor.id}: withdraw provider registration`)
+
   if (descriptor.model) {
-    ctx.llm.registerAdapter([...descriptor.model.routes], descriptor.model.create(ctx, config))
+    ctx.llm.registerAdapter(routes, descriptor.model.create(ctx, config))
   }
   await descriptor.install?.(ctx, config)
 }

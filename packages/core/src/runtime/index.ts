@@ -50,7 +50,12 @@ export {
 export {
   registerProvider,
   resolveSharedProviderConfig,
-  type ProviderDescriptor,
   type SharedProviderConfig,
   type SharedProviderDefaults,
 } from './registration.js'
+export {
+  type ModelCapability,
+  type ProviderDescriptor,
+  type RegisteredProvider,
+} from '../registry/descriptor.js'
+export { NishiProvidersService } from '../registry/service.js'
