@@ -3,4 +3,4 @@ url: https://github.com/NishiMihaeru/nishi-dsh-suite/tree/main/packages/suite
 name: NishiMihaeru/nishi-dsh-suite#suite
 category: model
 description:
-  en: 'Provider suite for Codex and Antigravity primaries, Codex/Claude Code/Antigravity subagents, primary-routed web search, project memory and usage limits UI.'
+  en: 'Provider suite with Codex and Antigravity primary routes, Claude usage visibility, project memory and Usage & Limits; includes a managed Orchestrator preset bridge for routed web search and DSH-native delegation.'
