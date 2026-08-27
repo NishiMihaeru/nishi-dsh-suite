@@ -7,7 +7,7 @@ import {
   ensureMemoryMapEntry,
 } from './bootstrap.js'
 import { registerMemoryCommands } from './commands.js'
-import { registerProjectContextRuntime } from './runtime.js'
+import { findProjectRoot, registerProjectContextRuntime } from './runtime.js'
 import { readTopicMemory, writeTopicMemory, editTopicMemory } from './topics.js'
 
 interface SessionHeaderHolder {
@@ -18,13 +18,14 @@ interface SessionHeaderHolder {
   }
 }
 
-function projectRootFromToolExecution(exec: ToolRunContext): string {
+/** Resolve memory tools through the same project-root discovery used by context injection. */
+export async function projectRootFromToolExecution(exec: ToolRunContext): Promise<string> {
   const agent = exec.agent as SessionHeaderHolder | undefined
   const cwd = agent?.session?.header?.cwd
   if (typeof cwd !== 'string' || cwd.trim().length === 0) {
     throw new Error('Project memory operation failed: agent workspace session cwd is unavailable.')
   }
-  return cwd
+  return findProjectRoot(cwd, exec.signal)
 }
 
 function sanitizeToolError(operation: string, topic: unknown): never {
@@ -75,7 +76,7 @@ const memoryReadTool = defineTool({
   async execute(args, exec) {
     exec.signal.throwIfAborted()
     try {
-      const projectRoot = projectRootFromToolExecution(exec)
+      const projectRoot = await projectRootFromToolExecution(exec)
       if (isBootstrapTopic(args.topic)) {
         const res = await readProjectMemoryBootstrap(projectRoot)
         return {
@@ -131,7 +132,7 @@ const memoryWriteTool = defineTool({
   async execute(args, exec) {
     exec.signal.throwIfAborted()
     try {
-      const projectRoot = projectRootFromToolExecution(exec)
+      const projectRoot = await projectRootFromToolExecution(exec)
       if (isBootstrapTopic(args.topic)) {
         const res = await writeProjectMemoryBootstrap(projectRoot, args.content)
         const bytesWritten = Buffer.byteLength(args.content, 'utf8')
@@ -193,7 +194,7 @@ const memoryEditTool = defineTool({
   async execute(args, exec) {
     exec.signal.throwIfAborted()
     try {
-      const projectRoot = projectRootFromToolExecution(exec)
+      const projectRoot = await projectRootFromToolExecution(exec)
       if (isBootstrapTopic(args.topic)) {
         const res = await editProjectMemoryBootstrap(projectRoot, args.old_text, args.new_text)
         return {
