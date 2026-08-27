@@ -31,7 +31,7 @@ test('invalid override fails closed and never falls back to PATH', () => {
       isExecutable: (path) => path === '/usr/local/bin/codex',
       platform: 'linux',
     }),
-    /configured Codex executable is not executable/,
+    /configured Codex CLI is not executable/,
   )
 })
 

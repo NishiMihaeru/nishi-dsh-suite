@@ -50,7 +50,7 @@ test('an invalid environment override fails closed and never falls back to PATH'
       isExecutable: (path) => path === '/usr/local/bin/codex',
       platform: 'linux',
     }),
-    /DSH_CODEX_EXECUTABLE executable is not executable/,
+    /configured executable is not executable/,
   )
 })
 
@@ -148,4 +148,45 @@ test('empty PATH segments are skipped without throwing', () => {
   })
 
   assert.equal(result.executable, '/usr/bin/codex')
+})
+
+// A shared resolver must still produce a diagnostic that names the product, or
+// every provider reports the same unhelpful sentence. productName is what keeps
+// the message specific without each package re-implementing the walk to own its
+// wording -- which is exactly what the Codex resolver used to do.
+test('productName keeps shared diagnostics specific to the vendor', () => {
+  const descriptor = {
+    id: 'subagent-codex',
+    defaultName: 'codex',
+    envOverride: 'DSH_CODEX_EXECUTABLE',
+    productName: 'Codex CLI',
+  }
+
+  assert.throws(
+    () => resolveVendorExecutable(descriptor, {
+      env: { DSH_CODEX_EXECUTABLE: '/missing/codex', PATH: '/usr/bin' },
+      isExecutable: () => false,
+      platform: 'linux',
+    }),
+    /configured Codex CLI is not executable/,
+  )
+
+  assert.throws(
+    () => resolveVendorExecutable(descriptor, {
+      env: { PATH: '/usr/bin' },
+      isExecutable: () => false,
+      platform: 'linux',
+    }),
+    /Codex CLI is unavailable; install it and ensure "codex" is on PATH or set DSH_CODEX_EXECUTABLE/,
+  )
+})
+
+test('a descriptor without productName still yields a usable diagnostic', () => {
+  assert.throws(
+    () => resolveVendorExecutable(
+      { id: 'p', defaultName: 'tool', envOverride: 'DSH_TOOL_EXECUTABLE' },
+      { env: { PATH: '/usr/bin' }, isExecutable: () => false, platform: 'linux' },
+    ),
+    /p: executable is unavailable/,
+  )
 })

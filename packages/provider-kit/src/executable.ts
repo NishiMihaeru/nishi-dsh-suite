@@ -28,6 +28,8 @@ export interface VendorExecutableDescriptor {
   readonly envOverride: string
   /** Windows PATH lookup name; defaults to `${defaultName}.exe`. */
   readonly windowsName?: string
+  /** Human-facing product name used in diagnostics, e.g. 'Codex CLI'. Defaults to 'executable'. */
+  readonly productName?: string
 }
 
 export interface ResolvedVendorExecutable {
@@ -83,6 +85,7 @@ export function resolveVendorExecutable(
     throw new Error(`provider-kit: ${id}: descriptor.windowsName must be a non-empty string when provided`)
   }
 
+  const productName = descriptor.productName ?? 'executable'
   const env = options.env ?? process.env
   const isExecutable = options.isExecutable ?? executableByDefault
   const platform = options.platform ?? process.platform
@@ -92,7 +95,7 @@ export function resolveVendorExecutable(
   if (config !== undefined && config.length > 0) {
     if (!isExecutable(config)) {
       throw new Error(
-        `${id}: configured executable is not executable: ${JSON.stringify(config)}`,
+        `${id}: configured ${productName} is not executable: ${JSON.stringify(config)}`,
       )
     }
     return { executable: config, source: 'config' }
@@ -102,7 +105,7 @@ export function resolveVendorExecutable(
   if (override !== undefined && override.length > 0) {
     if (!isExecutable(override)) {
       throw new Error(
-        `${id}: ${envOverride} executable is not executable: ${JSON.stringify(override)}`,
+        `${id}: configured ${productName} is not executable: ${JSON.stringify(override)}`,
       )
     }
     return { executable: override, source: 'override' }
@@ -117,6 +120,6 @@ export function resolveVendorExecutable(
   }
 
   throw new Error(
-    `${id}: executable is unavailable; install it and ensure ${JSON.stringify(executableName)} is on PATH or set ${envOverride}`,
+    `${id}: ${productName} is unavailable; install it and ensure ${JSON.stringify(executableName)} is on PATH or set ${envOverride}`,
   )
 }

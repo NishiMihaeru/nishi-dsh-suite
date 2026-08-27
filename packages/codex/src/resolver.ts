@@ -5,11 +5,16 @@
  * databases, or credential stores. Runtime discovery is intentionally limited
  * to one explicit environment override followed by the current PATH.
  *
+ * This module is a thin Codex-flavoured wrapper around the shared
+ * `nishi-dsh-provider-kit` resolver: the walk itself (env override, then
+ * PATH, fail closed on an invalid override) lives in the kit, and this
+ * module only supplies the Codex descriptor and supplies the Codex descriptor. Diagnostics are the kit's,
+ * so every provider reports resolution failures the same way.
+ *
  * @module nishi-dsh-codex/resolver
  */
 
-import { accessSync, constants } from 'node:fs'
-import { posix, win32 } from 'node:path'
+import { resolveVendorExecutable, type VendorExecutableDescriptor } from 'nishi-dsh-provider-kit'
 
 export const CODEX_EXECUTABLE_ENV = 'DSH_CODEX_EXECUTABLE'
 
@@ -24,13 +29,12 @@ export interface CodexExecutableResolutionOptions {
   readonly platform?: NodeJS.Platform
 }
 
-function executableByDefault(path: string): boolean {
-  try {
-    accessSync(path, constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
+const CODEX_DESCRIPTOR: VendorExecutableDescriptor = {
+  id: 'subagent-codex',
+  defaultName: 'codex',
+  envOverride: CODEX_EXECUTABLE_ENV,
+  windowsName: 'codex.exe',
+  productName: 'Codex CLI',
 }
 
 /**
@@ -43,30 +47,6 @@ function executableByDefault(path: string): boolean {
 export function resolveCodexExecutable(
   options: CodexExecutableResolutionOptions = {},
 ): ResolvedVendorExecutable {
-  const env = options.env ?? process.env
-  const isExecutable = options.isExecutable ?? executableByDefault
-  const platform = options.platform ?? process.platform
-  const pathApi = platform === 'win32' ? win32 : posix
-  const override = env[CODEX_EXECUTABLE_ENV]?.trim()
-
-  if (override !== undefined && override.length > 0) {
-    if (!isExecutable(override)) {
-      throw new Error(
-        `subagent-codex: configured Codex executable is not executable: ${JSON.stringify(override)}`,
-      )
-    }
-    return { executable: override, source: 'override' }
-  }
-
-  const executableName = platform === 'win32' ? 'codex.exe' : 'codex'
-  const pathValue = env.PATH ?? env.Path ?? env.path ?? ''
-  for (const directory of pathValue.split(pathApi.delimiter)) {
-    if (directory.length === 0) continue
-    const candidate = pathApi.join(directory, executableName)
-    if (isExecutable(candidate)) return { executable: candidate, source: 'path' }
-  }
-
-  throw new Error(
-    `subagent-codex: Codex CLI is unavailable; install Codex and ensure ${JSON.stringify(executableName)} is on PATH or set ${CODEX_EXECUTABLE_ENV}`,
-  )
+  // `config` is never supplied here, so the kit can only report 'override' or 'path'.
+  return resolveVendorExecutable(CODEX_DESCRIPTOR, options) as ResolvedVendorExecutable
 }

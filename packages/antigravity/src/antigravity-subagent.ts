@@ -1,7 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { extname } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -16,6 +14,13 @@ import type {
   SubprocessHandle,
   SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
+import {
+  ephemeralAgentWorkspace,
+  recognizeVendorStderr,
+  settledStderr,
+  type EphemeralAgentWorkspace,
+  type VendorStderrRecognizer,
+} from 'nishi-dsh-provider-kit'
 import type { CodexSubagentMemory } from './memory.js'
 
 const AGENT_NAME = 'dsh-subagent'
@@ -109,12 +114,12 @@ function managedAgentMarkdown(): string {
   return `---\nname: ${AGENT_NAME}\ndescription: Ephemeral coding worker delegated by DeepSeek Harness.\nmainAgent: true\nsubagent: false\ninheritCustomizations: false\ntools:\n  - view_file\n  - write_to_file\n  - replace_file_content\n  - multi_replace_file_content\n  - grep_search\n  - run_command\n  - finish\n---\n\n# DSH Managed Worker\n\nExecute only the task supplied in the prompt. Do not invoke or create native subagents. Do not create provider-owned durable memory. Respect the active workspace boundary and the Antigravity CLI permission policy.\n`
 }
 
-async function createBridgeRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-antigravity-subagent-'))
-  const agentDir = join(root, '.agents', 'agents', AGENT_NAME)
-  await mkdir(agentDir, { recursive: true })
-  await writeFile(join(agentDir, 'agent.md'), managedAgentMarkdown(), 'utf8')
-  return root
+async function createBridgeWorkspace(): Promise<EphemeralAgentWorkspace> {
+  return await ephemeralAgentWorkspace({
+    prefix: 'dsh-antigravity-subagent-',
+    agentName: AGENT_NAME,
+    agentMarkdown: managedAgentMarkdown(),
+  })
 }
 
 async function resolveInvocation(
@@ -245,45 +250,26 @@ async function disposeChild(child: SubprocessHandle | undefined, stream?: AgyStr
  */
 const PERMISSION_DENIED_PATTERN = /required the "([a-z_]+)" permission that headless mode cannot prompt for/i
 
-export function headlessPermissionDenial(stderrText: string | undefined): string | undefined {
-  if (typeof stderrText !== 'string' || stderrText.length === 0) return undefined
-  const match = PERMISSION_DENIED_PATTERN.exec(stderrText)
-  if (!match) return undefined
-  return `Product subagent failure (product: Antigravity CLI; stage: turn; category: permission-denied). `
-    + `The CLI auto-denied the ${JSON.stringify(match[1])} tool permission because headless mode cannot ask for approval. `
-    + `Allow it in the Antigravity CLI permission settings, then retry.`
-}
-
-function vendorStderrText(child: SubprocessHandle): string | undefined {
-  try {
-    return (child as any).collected?.stderr?.readFrom?.(0)?.text
-  } catch {
-    return undefined
-  }
-}
+const ANTIGRAVITY_STDERR_RECOGNIZERS: readonly VendorStderrRecognizer[] = [
+  {
+    category: 'permission-denied',
+    pattern: PERMISSION_DENIED_PATTERN,
+    message: match =>
+      `The CLI auto-denied the ${JSON.stringify(match[1])} tool permission because headless mode cannot ask for approval. `
+      + `Allow it in the Antigravity CLI permission settings, then retry.`,
+  },
+]
 
 /**
- * The CLI writes its explanation to stderr AFTER emitting the terminal result
- * frame, so reading stderr the moment the frame arrives always sees an empty
- * buffer. Wait a bounded amount for the process to finish before looking.
+ * Recognise a known Antigravity stderr condition and shape it into the same
+ * diagnostic text this bridge has always reported. Returns undefined for
+ * empty/absent stderr or an unrecognised condition — callers fall back to the
+ * generic provider-error diagnostic in that case.
  */
-async function settledVendorStderr(
-  child: SubprocessHandle,
-  graceMs: number,
-): Promise<string | undefined> {
-  let timer: NodeJS.Timeout | undefined
-  try {
-    await Promise.race([
-      child.done.then(() => undefined, () => undefined),
-      new Promise<void>((resolveWait) => {
-        timer = setTimeout(resolveWait, graceMs)
-        timer.unref?.()
-      }),
-    ])
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
-  return vendorStderrText(child)
+export function antigravityStderrDenial(stderrText: string | undefined): string | undefined {
+  const recognized = recognizeVendorStderr(stderrText, ANTIGRAVITY_STDERR_RECOGNIZERS)
+  if (recognized === undefined) return undefined
+  return `Product subagent failure (product: Antigravity CLI; stage: turn; category: ${recognized.category}). ${recognized.message}`
 }
 
 export async function startAntigravitySubagentRun(
@@ -295,13 +281,13 @@ export async function startAntigravitySubagentRun(
     throw new Error('subagent-antigravity: request was aborted before agy startup')
   }
 
-  const bridgeRoot = await createBridgeRoot()
+  const bridgeWorkspace = await createBridgeWorkspace()
   const prompt = antigravitySubagentPrompt(task, spec.projectMemory?.bootstrap, spec.cwd)
   const runAbort = new AbortController()
   const timeout = AbortSignal.timeout(spec.turnTimeoutMs)
   const signal = AbortSignal.any([request.signal, runAbort.signal, timeout])
   const args = [
-    '--add-dir', bridgeRoot,
+    '--add-dir', bridgeWorkspace.root,
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
     '--agent', AGENT_NAME,
@@ -336,7 +322,7 @@ export async function startAntigravitySubagentRun(
     await stream.initialized
   } catch (error) {
     await disposeChild(child, stream).catch(() => {})
-    await rm(bridgeRoot, { recursive: true, force: true }).catch(() => {})
+    await bridgeWorkspace.dispose()
     if (request.signal.aborted) {
       throw new Error('subagent-antigravity: request was aborted before run publication')
     }
@@ -383,7 +369,7 @@ export async function startAntigravitySubagentRun(
         const status = typeof rawStatus === 'string' ? rawStatus.toUpperCase() : String(rawStatus ?? '')
 
         if (status === 'CANCELED' || status === 'INTERRUPTED') {
-          const denial = headlessPermissionDenial(await settledVendorStderr(publishedChild, spec.disposeGraceMs))
+          const denial = antigravityStderrDenial(await settledStderr(publishedChild, spec.disposeGraceMs))
           if (denial !== undefined) {
             diagnostic = denial
             throw new Error('subagent-antigravity: agy auto-denied a tool permission in headless mode')
@@ -392,7 +378,7 @@ export async function startAntigravitySubagentRun(
         }
 
         if (status !== 'SUCCESS') {
-          diagnostic = headlessPermissionDenial(await settledVendorStderr(publishedChild, spec.disposeGraceMs))
+          diagnostic = antigravityStderrDenial(await settledStderr(publishedChild, spec.disposeGraceMs))
             ?? 'Product subagent failure (product: Antigravity CLI; stage: turn; category: provider-error)'
           const detail = typeof terminal.error === 'string' && terminal.error.length > 0
             ? terminal.error
@@ -436,7 +422,7 @@ export async function startAntigravitySubagentRun(
       try {
         await disposeChild(publishedChild, publishedStream)
       } finally {
-        await rm(bridgeRoot, { recursive: true, force: true }).catch(() => {})
+        await bridgeWorkspace.dispose()
       }
     },
   })

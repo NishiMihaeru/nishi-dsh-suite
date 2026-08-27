@@ -34,6 +34,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
         version: 3.18.1
+      nishi-dsh-provider-kit:
+        specifier: workspace:0.1.0-rc.2
+        version: link:../provider-kit
     devDependencies:
       '@types/node':
         specifier: 24.13.3
@@ -77,6 +80,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
         version: 3.18.1
+      nishi-dsh-provider-kit:
+        specifier: workspace:0.1.0-rc.2
+        version: link:../provider-kit
     devDependencies:
       '@types/node':
         specifier: 24.13.3

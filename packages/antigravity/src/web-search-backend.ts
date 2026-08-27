@@ -1,9 +1,8 @@
 import { createInterface } from 'node:readline'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-subprocess'
+import { ephemeralAgentWorkspace } from 'nishi-dsh-provider-kit'
 
 const AGENT_NAME = 'dsh-web-search'
 const WINDOWS_EXECUTABLE_ENV = 'DSH_PRIMARY_WEB_SEARCH_AGY_EXECUTABLE'
@@ -142,14 +141,16 @@ export class AntigravitySearchBackend {
   constructor(private readonly ctx: Context, private readonly config: AntigravitySearchBackendConfig) {}
 
   async search(route: AntigravitySearchRoute, request: AntigravitySearchRequest, parentSignal: AbortSignal): Promise<unknown> {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-web-search-agy-'))
-    const agentDir = join(root, '.agents', 'agents', AGENT_NAME)
-    const schemaPath = join(root, 'search-output.schema.json')
+    const schemaFile = 'search-output.schema.json'
+    const workspace = await ephemeralAgentWorkspace({
+      prefix: 'dsh-web-search-agy-',
+      agentName: AGENT_NAME,
+      agentMarkdown: agentMarkdown(),
+      files: [{ path: schemaFile, content: JSON.stringify(SEARCH_OUTPUT_SCHEMA) }],
+    })
+    const root = workspace.root
+    const schemaPath = workspace.files[schemaFile]
     try {
-      await mkdir(agentDir, { recursive: true })
-      await writeFile(join(agentDir, 'agent.md'), agentMarkdown(), 'utf8')
-      await writeFile(schemaPath, JSON.stringify(SEARCH_OUTPUT_SCHEMA), 'utf8')
-
       const timeoutSignal = AbortSignal.timeout(this.config.timeoutMs)
       const signal = AbortSignal.any([parentSignal, timeoutSignal])
       const args = [
@@ -255,7 +256,7 @@ export class AntigravitySearchBackend {
         await child.waitForExit(AbortSignal.timeout(this.config.disposeGraceMs)).catch(() => false)
       }
     } finally {
-      await rm(root, { recursive: true, force: true }).catch(() => {})
+      await workspace.dispose()
     }
   }
 

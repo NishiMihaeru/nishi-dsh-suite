@@ -28,7 +28,8 @@
     "test:live:web-search": "tsx --test test-live/web-search.test.ts"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "nishi-dsh-provider-kit": "workspace:0.1.0-rc.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
@@ -41,6 +42,7 @@
   },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "nishi-dsh-provider-kit": "workspace:0.1.0-rc.2",
     "tsx": "4.23.1",
     "typescript": "5.9.2"
   },

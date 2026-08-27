@@ -1,6 +1,4 @@
-import { extname, join } from 'node:path'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { extname } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -17,10 +15,12 @@ import {
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
+import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-provider-kit'
 
 export const ANTIGRAVITY_PRIMARY_PROVIDER = 'antigravity-cli'
 const AGENT_NAME = 'dsh-primary'
 const WINDOWS_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'
+const BRIDGE_SCHEMA_FILE = 'bridge-output.schema.json'
 
 const BRIDGE_SCHEMA = {
   type: 'object',
@@ -392,7 +392,7 @@ function resultFailure(result: AgyTurnResult): LlmError {
 }
 
 export class AntigravityCliAdapter extends LlmAdapter {
-  private bridgeRootPromise: Promise<{ root: string; schemaPath: string }> | undefined
+  private bridgeWorkspacePromise: Promise<EphemeralAgentWorkspace> | undefined
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
   private pendingModels: Promise<readonly CatalogModel[]> | undefined
   private readonly activeChildren = new Set<SubprocessHandle>()
@@ -512,8 +512,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
     this.disposed = true
     for (const child of this.activeChildren) child.terminate()
     await Promise.allSettled([...this.activeChildren].map(child => child.waitForExit()))
-    const bridge = await this.bridgeRootPromise?.catch(() => undefined)
-    if (bridge) await rm(bridge.root, { recursive: true, force: true }).catch(() => {})
+    const workspace = await this.bridgeWorkspacePromise?.catch(() => undefined)
+    if (workspace) await workspace.dispose()
   }
 
   private async models(signal?: AbortSignal): Promise<readonly CatalogModel[]> {
@@ -561,19 +561,16 @@ export class AntigravityCliAdapter extends LlmAdapter {
     return models
   }
 
-  private async ensureBridgeRoot(): Promise<{ root: string; schemaPath: string }> {
-    if (!this.bridgeRootPromise) {
-      this.bridgeRootPromise = (async () => {
-        const root = await mkdtemp(join(tmpdir(), 'dsh-antigravity-primary-'))
-        const agentDir = join(root, '.agents', 'agents', AGENT_NAME)
-        await mkdir(agentDir, { recursive: true })
-        await writeFile(join(agentDir, 'agent.md'), bridgeAgentMarkdown(), 'utf8')
-        const schemaPath = join(root, 'bridge-output.schema.json')
-        await writeFile(schemaPath, JSON.stringify(BRIDGE_SCHEMA), 'utf8')
-        return { root, schemaPath }
-      })()
+  private async ensureBridgeWorkspace(): Promise<EphemeralAgentWorkspace> {
+    if (!this.bridgeWorkspacePromise) {
+      this.bridgeWorkspacePromise = ephemeralAgentWorkspace({
+        prefix: 'dsh-antigravity-primary-',
+        agentName: AGENT_NAME,
+        agentMarkdown: bridgeAgentMarkdown(),
+        files: [{ path: BRIDGE_SCHEMA_FILE, content: JSON.stringify(BRIDGE_SCHEMA) }],
+      })
     }
-    return await this.bridgeRootPromise
+    return await this.bridgeWorkspacePromise
   }
 
   private combinedSignal(parent: AbortSignal | undefined, timeoutMs: number): AbortSignal {
@@ -615,12 +612,12 @@ export class AntigravityCliAdapter extends LlmAdapter {
     timeoutMs: number,
     parentSignal?: AbortSignal,
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
-    const bridge = await this.ensureBridgeRoot()
+    const workspace = await this.ensureBridgeWorkspace()
     const signal = this.combinedSignal(parentSignal, timeoutMs)
     const invocation = await this.invocation(args, signal)
     const child = this.ctx.subprocess.spawn({
       argv: [...invocation.argv],
-      cwd: bridge.root,
+      cwd: workspace.root,
       stdio: {
         stdin: 'ignore',
         stdout: { maxBytes: 1_048_576 },
@@ -654,13 +651,13 @@ export class AntigravityCliAdapter extends LlmAdapter {
 
   private async runTurn(options: GenerateOptions): Promise<StreamTurnResult> {
     const payload = `${JSON.stringify({ event: 'user', message: { content: bridgeEnvelope(options) } })}\n`
-    const bridge = await this.ensureBridgeRoot()
+    const workspace = await this.ensureBridgeWorkspace()
     const signal = this.combinedSignal(options.signal, this.config.turnTimeoutMs)
     const args = [
-      '--add-dir', bridge.root,
+      '--add-dir', workspace.root,
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
-      '--json-schema', bridge.schemaPath,
+      '--json-schema', workspace.files[BRIDGE_SCHEMA_FILE],
       '--agent', AGENT_NAME,
       '--model', options.model,
       ...(options.reasoningEffort === undefined
@@ -671,7 +668,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const invocation = await this.invocation(args, signal)
     const child = this.ctx.subprocess.spawn({
       argv: [...invocation.argv],
-      cwd: bridge.root,
+      cwd: workspace.root,
       stdio: {
         stdin: 'pipe',
         stdout: 'pipe',
