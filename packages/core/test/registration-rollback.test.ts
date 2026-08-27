@@ -232,13 +232,39 @@ test('rollback continues to withdraw the registry even when adapter disposal its
     },
   })
 
-  const error = await assert.rejects(
-    () => registerProvider(fixture.ctx, spec, CONFIG),
-    AggregateError,
-  )
+  let caught: unknown
+  try {
+    await registerProvider(fixture.ctx, spec, CONFIG)
+  } catch (error) {
+    caught = error
+  }
 
+  assert.ok(caught instanceof AggregateError)
+  assert.match(caught.message, /rollback did not complete cleanly/)
+  assert.equal(caught.cause instanceof Error ? caught.cause.message : undefined, 'install failed')
+  assert.equal(caught.errors.length, 2, 'the aggregate keeps both the original failure and rollback failure')
   assertNoCoreState(fixture)
-  assert.match((error as AggregateError).message, /rollback did not complete cleanly/)
+  assert.deepEqual(fixture.events.slice(-2), ['model-dispose', 'forget'])
+})
+
+test('rollback aggregates a registry-withdrawal failure after core state is already removed', async () => {
+  const fixture = fakeContext({ throwOnRegistryForget: true })
+  const spec = descriptor({
+    install: () => {
+      throw new Error('install failed')
+    },
+  })
+
+  let caught: unknown
+  try {
+    await registerProvider(fixture.ctx, spec, CONFIG)
+  } catch (error) {
+    caught = error
+  }
+
+  assert.ok(caught instanceof AggregateError)
+  assert.match(caught.message, /rollback did not complete cleanly/)
+  assertNoCoreState(fixture)
   assert.deepEqual(fixture.events.slice(-2), ['model-dispose', 'forget'])
 })
 
