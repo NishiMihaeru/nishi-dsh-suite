@@ -192,7 +192,14 @@ export class UsageLimitsHostService extends Service {
 }
 
 export const name = 'nishi-core'
-export const inject = ['connection', 'subprocess', 'authorization', 'credentials'] as const
+/**
+ * Root host lifecycle only waits for services that `apply()` actually needs.
+ * Shared runtime helpers may use DSH subprocess from provider contexts, but
+ * exporting those helpers does not make `subprocess` a root-plugin service
+ * dependency. Likewise, the legacy authorization bridge reads credentials
+ * directly and never consumes the `authorization` service.
+ */
+export const inject = ['connection', 'credentials'] as const
 
 export function apply(ctx: Context, config?: UsageLimitsHostConfig): void {
   ctx.plugin(NishiProvidersService)
