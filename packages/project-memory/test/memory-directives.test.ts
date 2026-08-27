@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { MEMORY_CONSOLIDATION_DIRECTIVE, MEMORY_MAINTENANCE_DIRECTIVE } from '../src/commands.ts'
+import {
+  MEMORY_CONSOLIDATION_DIRECTIVE,
+  MEMORY_MAINTENANCE_DIRECTIVE,
+  registerMemoryCommands,
+} from '../src/commands.ts'
 
 // Project memory is committed and ships with the repository to every collaborator.
 // Until a separate personal store exists there is nowhere else to put operator
@@ -31,4 +35,34 @@ test('directive step numbering stays contiguous from one', () => {
     const steps = [...directive.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]))
     assert.deepEqual(steps, steps.map((_, index) => index + 1), directive.slice(0, 40))
   }
+})
+
+test('maintenance commands request both commands and llm services from Cordis', () => {
+  let requested: readonly string[] | undefined
+  let registrationCallback: ((ctx: unknown) => void) | undefined
+  const ctx = {
+    inject(services: readonly string[], callback: (injectedCtx: unknown) => void) {
+      requested = [...services]
+      registrationCallback = callback
+    },
+  }
+
+  registerMemoryCommands(ctx as any)
+
+  assert.deepEqual(requested, ['commands', 'llm'])
+  assert.equal(typeof registrationCallback, 'function')
+
+  const registered: string[] = []
+  registrationCallback?.({
+    commands: {
+      register(command: { name: string }) {
+        registered.push(command.name)
+      },
+    },
+    llm: {
+      listProviders() { return [] },
+      async resolveModelInfo() { return undefined },
+    },
+  })
+  assert.deepEqual(registered, ['memory', 'consolidate'])
 })
