@@ -46,9 +46,7 @@ function assistantText(message: Record<string, unknown>): string {
   const parts: string[] = []
   for (const block of content) {
     const item = record(block)
-    if (item?.type === 'text' && typeof item.text === 'string') {
-      parts.push(item.text)
-    }
+    if (item?.type === 'text' && typeof item.text === 'string') parts.push(item.text)
   }
   return parts.join('')
 }
@@ -65,18 +63,12 @@ function failureCategory(subtype: unknown): string {
   }
 }
 
-/**
- * Consume Claude Code `--output-format stream-json` lines and require one
- * terminal result. Assistant stream text is authoritative when present because
- * valid Claude Code runs may emit an empty terminal `result` field.
- */
+/** Consume Claude Code stream-json and return as soon as a terminal result arrives. */
 export async function consumeClaudeStream(
   lines: AsyncIterable<string>,
   hooks: ClaudeStreamHooks = {},
 ): Promise<ClaudeStreamResult> {
   const assistantParts: string[] = []
-  let terminalSeen = false
-  let terminalFallback = ''
 
   for await (const line of lines) {
     if (line.trim().length === 0) continue
@@ -89,29 +81,23 @@ export async function consumeClaudeStream(
     }
 
     const message = record(parsed)
-    if (!message || typeof message.type !== 'string') {
-      throw new ClaudeStreamFailure('protocol')
-    }
+    if (!message || typeof message.type !== 'string') throw new ClaudeStreamFailure('protocol')
 
     if (message.type === 'rate_limit_event') {
       safeHook(hooks.onUsageInvalidated)
       continue
     }
-
     if (message.type === 'system' && message.subtype === 'permission_denied') {
       safeHook(hooks.onPermissionDenied)
       continue
     }
-
     if (message.type === 'assistant') {
       const text = assistantText(message)
       if (text.length > 0) assistantParts.push(text)
       continue
     }
-
     if (message.type !== 'result') continue
 
-    terminalSeen = true
     if (message.subtype !== 'success' || message.is_error === true) {
       const detail = Array.isArray(message.errors)
         ? new Error(message.errors.map((value) => String(value)).join('; '))
@@ -119,18 +105,12 @@ export async function consumeClaudeStream(
       throw new ClaudeStreamFailure(failureCategory(message.subtype), detail)
     }
 
-    terminalFallback = typeof message.result === 'string' ? message.result : ''
+    const fallback = typeof message.result === 'string' ? message.result : ''
+    const streamed = assistantParts.join('')
+    const text = streamed.trim().length > 0 ? streamed : fallback
+    if (text.trim().length === 0) throw new ClaudeStreamFailure('invalid-success')
+    return { text, stopReason: 'completed' }
   }
 
-  if (!terminalSeen) {
-    throw new ClaudeStreamFailure('missing-result')
-  }
-
-  const streamed = assistantParts.join('')
-  const text = streamed.trim().length > 0 ? streamed : terminalFallback
-  if (text.trim().length === 0) {
-    throw new ClaudeStreamFailure('invalid-success')
-  }
-
-  return { text, stopReason: 'completed' }
+  throw new ClaudeStreamFailure('missing-result')
 }
