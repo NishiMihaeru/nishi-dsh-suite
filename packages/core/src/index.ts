@@ -192,31 +192,41 @@ export class UsageLimitsHostService extends Service {
 }
 
 export const name = 'nishi-core'
+
 /**
- * Root host lifecycle only waits for services that `apply()` actually needs.
- * Shared runtime helpers may use DSH subprocess from provider contexts, but
- * exporting those helpers does not make `subprocess` a root-plugin service
- * dependency. Likewise, the legacy authorization bridge reads credentials
- * directly and never consumes the `authorization` service.
+ * The outer plugin owns no external service access. It publishes the provider
+ * registry first, then mounts a child host plugin whose own Cordis injection
+ * contract permits access to that registry plus connection and credentials.
+ * This avoids the impossible cycle where nishi-core would have to inject the
+ * nishiProviders service that it is itself responsible for creating.
  */
-export const inject = ['connection', 'credentials'] as const
+export const inject = [] as const
+
+function hostPlugin(config?: UsageLimitsHostConfig) {
+  return {
+    name: 'nishi-core-host',
+    inject: ['nishiProviders', 'connection', 'credentials'] as const,
+    apply(hostCtx: Context): void {
+      const hostService = new UsageLimitsHostService(hostCtx, config)
+      hostCtx.connection.rpc.handle(
+        USAGE_LIMITS_CHANNEL,
+        createUsageLimitsRpcHandler(hostService),
+        { authority: 'trusted-host' },
+      )
+
+      const authController = new AuthorizationHostController(hostCtx)
+      hostCtx.connection.rpc.handle(
+        AUTHORIZATION_RPC_CHANNEL,
+        createAuthorizationRpcHandler(authController),
+        { authority: 'trusted-host' },
+      )
+    },
+  }
+}
 
 export function apply(ctx: Context, config?: UsageLimitsHostConfig): void {
   ctx.plugin(NishiProvidersService)
-
-  const hostService = new UsageLimitsHostService(ctx, config)
-  ctx.connection.rpc.handle(
-    USAGE_LIMITS_CHANNEL,
-    createUsageLimitsRpcHandler(hostService),
-    { authority: 'trusted-host' },
-  )
-
-  const authController = new AuthorizationHostController(ctx)
-  ctx.connection.rpc.handle(
-    AUTHORIZATION_RPC_CHANNEL,
-    createAuthorizationRpcHandler(authController),
-    { authority: 'trusted-host' },
-  )
+  ctx.plugin(hostPlugin(config))
 }
 
 export const NishiCorePlugin = { name, inject, apply }
