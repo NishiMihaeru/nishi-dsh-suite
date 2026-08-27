@@ -1,8 +1,28 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
+import { extname, join } from 'node:path'
 import test from 'node:test'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
+const PROVIDER_PACKAGES = [
+  'nishi-dsh-codex',
+  'nishi-dsh-antigravity',
+  'nishi-dsh-claude',
+] as const
+const PROVIDER_IDS = ['codex', 'antigravity', 'claude'] as const
+
+async function sourceFiles(root: URL): Promise<string[]> {
+  const paths: string[] = []
+  const walk = async (directory: URL): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, directory)
+      if (entry.isDirectory()) await walk(child)
+      else if (extname(entry.name) === '.ts' || extname(entry.name) === '.tsx') paths.push(child.pathname)
+    }
+  }
+  await walk(root)
+  return paths
+}
 
 test('nishi-dsh-core has no dependency on the retired subagent package', async () => {
   const raw = await readFile(new URL('../package.json', import.meta.url), 'utf8')
@@ -20,4 +40,43 @@ test('nishi-dsh-core has no dependency on the retired subagent package', async (
 test('shared provider registration does not import the retired subagent package', async () => {
   const source = await readFile(new URL('../src/runtime/registration.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /@deepseek-ai\/dsh-subagent/)
+})
+
+test('nishi-dsh-core manifest never depends directly on a concrete provider package', async () => {
+  const raw = await readFile(new URL('../package.json', import.meta.url), 'utf8')
+  const manifest = JSON.parse(raw) as Record<string, Record<string, string> | undefined>
+
+  for (const field of ['dependencies', 'peerDependencies', 'devDependencies'] as const) {
+    for (const providerPackage of PROVIDER_PACKAGES) {
+      assert.equal(
+        manifest[field]?.[providerPackage],
+        undefined,
+        `${providerPackage} must stay absent from ${field}`,
+      )
+    }
+  }
+})
+
+test('core source never imports provider packages or hardcodes provider ids as string literals', async () => {
+  const srcRoot = new URL('../src/', import.meta.url)
+  for (const path of await sourceFiles(srcRoot)) {
+    const source = await readFile(path, 'utf8')
+    const relativePath = path.slice(srcRoot.pathname.length)
+
+    for (const providerPackage of PROVIDER_PACKAGES) {
+      assert.equal(
+        source.includes(providerPackage),
+        false,
+        `${relativePath} must not name provider package ${providerPackage}`,
+      )
+    }
+
+    for (const providerId of PROVIDER_IDS) {
+      assert.equal(
+        source.includes(`'${providerId}'`) || source.includes(`\"${providerId}\"`),
+        false,
+        `${relativePath} must not hardcode provider id ${providerId} as a string literal`,
+      )
+    }
+  }
 })
