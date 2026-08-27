@@ -89,6 +89,10 @@ export class UsageLimitsClientController {
 
   async ensureFresh(providerId: string): Promise<void> {
     const existing = this.snapshot.providers[providerId]?.usage
+    // UNSUPPORTED is a capability declaration, not stale vendor data. There
+    // is nothing to refresh until the provider is re-registered with a usage
+    // capability, at which point the next roster refresh replaces this row.
+    if (existing?.status === 'UNSUPPORTED') return
     if (existing?.freshness === 'FRESH') return
     await this.doRefresh(providerId, false)
   }
