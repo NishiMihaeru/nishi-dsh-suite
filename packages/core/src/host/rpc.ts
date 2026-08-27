@@ -1,6 +1,7 @@
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import type { RpcResult, RpcError } from '@deepseek-ai/dsh-host-apiproxy'
 import type { ProviderPresentation } from '../registry/descriptor.js'
+import { canonicalProviderId } from '../registry/identity.js'
 import {
   parsePublicProviderUsage,
   type PublicProviderUsage,
@@ -58,12 +59,19 @@ function parseProviderRosterRow(row: ProviderRosterRow): ProviderRosterRow {
 
 const GENERIC_BAD_REQUEST_MESSAGE = 'Invalid usage limits request.'
 const GENERIC_INTERNAL_ERROR_MESSAGE = 'Usage limits operation failed.'
-const MAX_PROVIDER_ID_LENGTH = 64
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const proto = Object.getPrototypeOf(value)
   return proto === Object.prototype || proto === null
+}
+
+function requestProviderId(value: unknown): string | undefined {
+  try {
+    return canonicalProviderId(value, 'usage limits providerId')
+  } catch {
+    return undefined
+  }
 }
 
 function createBadRequestResult(): RpcResult<never> {
@@ -101,29 +109,24 @@ export function createUsageLimitsRpcHandler(host: UsageLimitsRpcHost): Connectio
           if (!isPlainObject(payload)) return createBadRequestResult()
           const keys = Object.keys(payload)
           if (keys.length !== 1 || keys[0] !== 'providerId') return createBadRequestResult()
-          const rawId = payload.providerId
-          if (typeof rawId !== 'string') return createBadRequestResult()
-          const trimmedId = rawId.trim()
-          if (trimmedId.length === 0 || rawId.length > MAX_PROVIDER_ID_LENGTH) return createBadRequestResult()
-          if (!host.isRegisteredProvider(trimmedId)) return createBadRequestResult()
-          const cached = host.getCachedProviderPublic(trimmedId)
+          const providerId = requestProviderId(payload.providerId)
+          if (providerId === undefined || !host.isRegisteredProvider(providerId)) return createBadRequestResult()
+          const cached = host.getCachedProviderPublic(providerId)
           return { ok: true, value: cached === undefined ? null : parsePublicProviderUsage(cached) }
         }
         case USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT: {
           if (!isPlainObject(payload)) return createBadRequestResult()
           const keys = Object.keys(payload)
           if (!keys.includes('providerId') || keys.some((key) => key !== 'providerId' && key !== 'force')) return createBadRequestResult()
-          const rawId = payload.providerId
-          if (typeof rawId !== 'string') return createBadRequestResult()
-          const trimmedId = rawId.trim()
-          if (trimmedId.length === 0 || rawId.length > MAX_PROVIDER_ID_LENGTH) return createBadRequestResult()
+          const providerId = requestProviderId(payload.providerId)
+          if (providerId === undefined) return createBadRequestResult()
           let force: boolean | undefined
           if ('force' in payload) {
             if (typeof payload.force !== 'boolean') return createBadRequestResult()
             force = payload.force
           }
-          if (!host.isRegisteredProvider(trimmedId)) return createBadRequestResult()
-          const refreshed = await host.refreshProviderPublic(trimmedId, force === undefined ? undefined : { force })
+          if (!host.isRegisteredProvider(providerId)) return createBadRequestResult()
+          const refreshed = await host.refreshProviderPublic(providerId, force === undefined ? undefined : { force })
           return { ok: true, value: parsePublicProviderUsage(refreshed) }
         }
         default:
