@@ -2,15 +2,16 @@
  * The single registration path every subscription-CLI provider plugin uses.
  *
  * Before this module existed, `nishi-dsh-codex` and `nishi-dsh-antigravity`
- * each hand-rolled the same four steps in their `apply()`: merge raw config
- * over defaults field-by-field, validate the timer/byte-count fields with
- * the same rules and near-identical message wording, register a subagent
- * provider, then register an LLM adapter (Codex hid the adapter step inside
- * a nested `applyCodexPrimary` call; Antigravity did it inline). This module
- * is that sequence, written once: `resolveSharedProviderConfig` owns the
- * merge-and-validate step for the six config fields every provider shares,
- * and `registerProvider` owns the fixed subagent-then-model-then-extras
- * registration order both providers already followed by hand.
+ * each hand-rolled the same steps in their `apply()`: merge raw config over
+ * defaults field-by-field, validate the timer/byte-count fields with the
+ * same rules and near-identical message wording, then register their seams.
+ * This module is that sequence, written once: `resolveSharedProviderConfig`
+ * owns the merge-and-validate step for the six config fields every provider
+ * shares, and `registerProvider` owns the model-then-extras registration
+ * order both providers already followed by hand.
+ *
+ * Delegation left the contract in `0.1.0-rc.3`: no provider contributes a
+ * subagent provider any more, so there is no subagent step here to run.
  *
  * See `docs/superpowers/specs/provider-bridge-design.md` ("The kit") for
  * the design this package implements.
@@ -20,7 +21,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { LlmAdapter } from '@deepseek-ai/dsh-llm'
-import { assertPositiveFinite, type SubagentProvider } from '@deepseek-ai/dsh-subagent'
+import { assertPositiveFinite } from '@deepseek-ai/dsh-subagent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { VendorExecutableDescriptor } from './executable.js'
 
@@ -59,8 +60,8 @@ export type SharedProviderDefaults = Required<SharedProviderConfig>
  *   to a string dictionary.
  *
  * Every diagnostic is prefixed with `id` — the calling plugin's name (e.g.
- * `subagent-codex`) — exactly as both providers' hand-written checks did
- * before this module existed.
+ * `codex`) — exactly as both providers' hand-written checks did before this
+ * module existed.
  */
 export function resolveSharedProviderConfig(
   id: string,
@@ -103,34 +104,27 @@ export function resolveSharedProviderConfig(
  * are specific to that provider.
  */
 export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
-  /** Stable plugin id, used as the validation-diagnostic prefix (e.g. `subagent-codex`). */
+  /** Stable plugin id, used as the validation-diagnostic prefix (e.g. `codex`). */
   readonly id: string
   /** Identity and lookup facts for this provider's vendor CLI executable. */
   readonly executable: VendorExecutableDescriptor
-  /** The subagent provider this plugin contributes to `ctx.subagents`, if any. */
-  readonly subagent?: { create(ctx: Context, config: TConfig): SubagentProvider }
   /** The LLM adapter this plugin contributes to `ctx.llm`, and the provider routes it serves, if any. */
   readonly model?: { readonly routes: readonly string[]; create(ctx: Context, config: TConfig): LlmAdapter }
-  /** Anything else this provider needs wired up once the subagent and model are registered. */
+  /** Anything else this provider needs wired up once the model is registered. */
   install?(ctx: Context, config: TConfig): void | Promise<void>
 }
 
 /**
  * The single registration path every provider goes through: register the
- * subagent provider (if any), register the LLM adapter under its routes
- * (if any), then run provider-specific extras. This order matches what
- * both Codex and Antigravity did by hand before this module existed —
- * subagent first, then primary/adapter, then extras (e.g. history bridges)
- * that may assume the adapter is already registered.
+ * LLM adapter under its routes (if any), then run provider-specific extras.
+ * Extras run last because they may assume the adapter is already
+ * registered — the Codex primary history bridge does.
  */
 export async function registerProvider<TConfig extends SharedProviderConfig>(
   ctx: Context,
   descriptor: ProviderDescriptor<TConfig>,
   config: TConfig,
 ): Promise<void> {
-  if (descriptor.subagent) {
-    ctx.subagents.registerProvider(descriptor.subagent.create(ctx, config))
-  }
   if (descriptor.model) {
     ctx.llm.registerAdapter([...descriptor.model.routes], descriptor.model.create(ctx, config))
   }

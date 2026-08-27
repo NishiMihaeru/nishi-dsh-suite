@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 
 const PACKAGE_NAME = 'nishi-dsh-codex'
 
-export const name = 'subagent-codex-invariant'
+export const name = 'codex-invariant'
 export const inject = ['invariants']
 
 const install = (): void => {}

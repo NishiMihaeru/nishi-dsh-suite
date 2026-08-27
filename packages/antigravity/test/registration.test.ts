@@ -29,7 +29,7 @@ test('Antigravity package registers the antigravity-cli primary and no subagent 
 })
 
 test('Antigravity package exposes the independent plugin surface', () => {
-  assert.equal(antigravity.name, 'subagent-antigravity')
+  assert.equal(antigravity.name, 'antigravity')
   assert.deepEqual(antigravity.inject, ['subprocess', 'llm'])
   assert.equal(typeof antigravity.apply, 'function')
 })

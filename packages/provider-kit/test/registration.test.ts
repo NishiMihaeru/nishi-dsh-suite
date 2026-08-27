@@ -21,7 +21,7 @@ const DEFAULTS: SharedProviderDefaults = {
 // --- resolveSharedProviderConfig ---------------------------------------
 
 test('resolveSharedProviderConfig merges raw fields over defaults, field by field', () => {
-  const resolved = resolveSharedProviderConfig('subagent-fixture', {
+  const resolved = resolveSharedProviderConfig('fixture', {
     catalogTimeoutMs: 5_000,
   }, DEFAULTS)
   assert.deepEqual(resolved, {
@@ -35,47 +35,47 @@ test('resolveSharedProviderConfig merges raw fields over defaults, field by fiel
 })
 
 test('resolveSharedProviderConfig falls back to every default when raw is empty', () => {
-  const resolved = resolveSharedProviderConfig('subagent-fixture', {}, DEFAULTS)
+  const resolved = resolveSharedProviderConfig('fixture', {}, DEFAULTS)
   assert.deepEqual(resolved, DEFAULTS)
 })
 
 test('resolveSharedProviderConfig passes env through unvalidated', () => {
   const env = { CUSTOM: 'value' }
-  const resolved = resolveSharedProviderConfig('subagent-fixture', { env }, DEFAULTS)
+  const resolved = resolveSharedProviderConfig('fixture', { env }, DEFAULTS)
   assert.equal(resolved.env, env)
 })
 
 test('resolveSharedProviderConfig rejects a negative modelCacheMs', () => {
   assert.throws(
-    () => resolveSharedProviderConfig('subagent-fixture', { modelCacheMs: -1 }, DEFAULTS),
-    /^Error: subagent-fixture: modelCacheMs must be non-negative and finite$/,
+    () => resolveSharedProviderConfig('fixture', { modelCacheMs: -1 }, DEFAULTS),
+    /^Error: fixture: modelCacheMs must be non-negative and finite$/,
   )
 })
 
 test('resolveSharedProviderConfig rejects a non-finite modelCacheMs', () => {
   assert.throws(
-    () => resolveSharedProviderConfig('subagent-fixture', { modelCacheMs: Infinity }, DEFAULTS),
-    /^Error: subagent-fixture: modelCacheMs must be non-negative and finite$/,
+    () => resolveSharedProviderConfig('fixture', { modelCacheMs: Infinity }, DEFAULTS),
+    /^Error: fixture: modelCacheMs must be non-negative and finite$/,
   )
 })
 
 test('resolveSharedProviderConfig accepts a zero modelCacheMs (caching disabled)', () => {
-  const resolved = resolveSharedProviderConfig('subagent-fixture', { modelCacheMs: 0 }, DEFAULTS)
+  const resolved = resolveSharedProviderConfig('fixture', { modelCacheMs: 0 }, DEFAULTS)
   assert.equal(resolved.modelCacheMs, 0)
 })
 
 for (const field of ['catalogTimeoutMs', 'turnTimeoutMs', 'disposeGraceMs', 'stderrMaxBytes'] as const) {
   test(`resolveSharedProviderConfig rejects a non-positive ${field}`, () => {
     assert.throws(
-      () => resolveSharedProviderConfig('subagent-fixture', { [field]: 0 } as SharedProviderConfig, DEFAULTS),
-      new RegExp(`^Error: subagent-fixture: ${field} must be a positive finite number$`),
+      () => resolveSharedProviderConfig('fixture', { [field]: 0 } as SharedProviderConfig, DEFAULTS),
+      new RegExp(`^Error: fixture: ${field} must be a positive finite number$`),
     )
   })
 
   test(`resolveSharedProviderConfig rejects a non-finite ${field}`, () => {
     assert.throws(
-      () => resolveSharedProviderConfig('subagent-fixture', { [field]: NaN } as SharedProviderConfig, DEFAULTS),
-      new RegExp(`^Error: subagent-fixture: ${field} must be a positive finite number$`),
+      () => resolveSharedProviderConfig('fixture', { [field]: NaN } as SharedProviderConfig, DEFAULTS),
+      new RegExp(`^Error: fixture: ${field} must be a positive finite number$`),
     )
   })
 }
@@ -84,17 +84,17 @@ for (const field of ['catalogTimeoutMs', 'turnTimeoutMs', 'disposeGraceMs'] as c
   test(`resolveSharedProviderConfig caps ${field} at MAX_TIMER_DELAY_MS`, () => {
     assert.throws(
       () => resolveSharedProviderConfig(
-        'subagent-fixture',
+        'fixture',
         { [field]: MAX_TIMER_DELAY_MS + 1 } as SharedProviderConfig,
         DEFAULTS,
       ),
-      new RegExp(`^Error: subagent-fixture: ${field} must be no greater than ${MAX_TIMER_DELAY_MS}$`),
+      new RegExp(`^Error: fixture: ${field} must be no greater than ${MAX_TIMER_DELAY_MS}$`),
     )
   })
 
   test(`resolveSharedProviderConfig accepts ${field} exactly at MAX_TIMER_DELAY_MS`, () => {
     const resolved = resolveSharedProviderConfig(
-      'subagent-fixture',
+      'fixture',
       { [field]: MAX_TIMER_DELAY_MS } as SharedProviderConfig,
       DEFAULTS,
     )
@@ -104,7 +104,7 @@ for (const field of ['catalogTimeoutMs', 'turnTimeoutMs', 'disposeGraceMs'] as c
 
 test('resolveSharedProviderConfig does not cap stderrMaxBytes at MAX_TIMER_DELAY_MS', () => {
   const resolved = resolveSharedProviderConfig(
-    'subagent-fixture',
+    'fixture',
     { stderrMaxBytes: MAX_TIMER_DELAY_MS + 1 },
     DEFAULTS,
   )
@@ -119,13 +119,11 @@ interface FixtureConfig extends SharedProviderDefaults {
 
 function fakeContext() {
   const calls: string[] = []
-  const providers: unknown[] = []
   const adapters: { routes: string[]; adapter: unknown }[] = []
   const ctx = {
     subagents: {
-      registerProvider(provider: unknown) {
-        calls.push('subagent')
-        providers.push(provider)
+      registerProvider() {
+        throw new Error('delegation was removed in 0.1.0-rc.3: no provider may register a subagent provider')
       },
     },
     llm: {
@@ -135,26 +133,18 @@ function fakeContext() {
       },
     },
   }
-  return { ctx: ctx as any, calls, providers, adapters }
+  return { ctx: ctx as any, calls, adapters }
 }
 
 const FIXTURE_CONFIG: FixtureConfig = { ...DEFAULTS, marker: 'fixture' }
 
-test('registerProvider registers the subagent, then the model, then runs install, in that order', async () => {
+test('registerProvider registers the model, then runs install, in that order', async () => {
   const fixture = fakeContext()
-  const seenBySubagent: unknown[] = []
   const seenByModel: unknown[] = []
   const seenByInstall: unknown[] = []
   const descriptor: ProviderDescriptor<FixtureConfig> = {
-    id: 'subagent-fixture',
+    id: 'fixture',
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
-    subagent: {
-      create(ctx, config) {
-        seenBySubagent.push([ctx, config])
-        fixture.calls.push('subagent-create')
-        return { name: 'fixture-subagent' } as any
-      },
-    },
     model: {
       routes: ['fixture-model'],
       create(ctx, config) {
@@ -171,51 +161,33 @@ test('registerProvider registers the subagent, then the model, then runs install
 
   await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
 
-  assert.deepEqual(fixture.calls, ['subagent-create', 'subagent', 'model-create', 'model', 'install'])
-  assert.deepEqual(fixture.providers, [{ name: 'fixture-subagent' }])
+  assert.deepEqual(fixture.calls, ['model-create', 'model', 'install'])
   assert.deepEqual(fixture.adapters, [{ routes: ['fixture-model'], adapter: { name: 'fixture-adapter' } }])
-  assert.deepEqual(seenBySubagent, [[fixture.ctx, FIXTURE_CONFIG]])
   assert.deepEqual(seenByModel, [[fixture.ctx, FIXTURE_CONFIG]])
   assert.deepEqual(seenByInstall, [[fixture.ctx, FIXTURE_CONFIG]])
 })
 
-test('registerProvider skips subagent registration when the descriptor has none', async () => {
+test('registerProvider registers nothing on ctx.subagents — delegation left the contract', async () => {
   const fixture = fakeContext()
   const descriptor: ProviderDescriptor<FixtureConfig> = {
-    id: 'subagent-fixture',
+    id: 'fixture',
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
     model: { routes: ['fixture-model'], create: () => ({ name: 'fixture-adapter' } as any) },
   }
 
   await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
 
-  assert.equal(fixture.providers.length, 0)
-  assert.equal(fixture.adapters.length, 1)
+  assert.equal(fixture.adapters.length, 1, 'the fake context throws if a subagent provider is registered')
 })
 
-test('registerProvider skips model registration when the descriptor has none', async () => {
+test('registerProvider resolves cleanly when the descriptor has neither model nor install', async () => {
   const fixture = fakeContext()
   const descriptor: ProviderDescriptor<FixtureConfig> = {
-    id: 'subagent-fixture',
-    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
-    subagent: { create: () => ({ name: 'fixture-subagent' } as any) },
-  }
-
-  await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
-
-  assert.equal(fixture.providers.length, 1)
-  assert.equal(fixture.adapters.length, 0)
-})
-
-test('registerProvider resolves cleanly when the descriptor has neither subagent, model, nor install', async () => {
-  const fixture = fakeContext()
-  const descriptor: ProviderDescriptor<FixtureConfig> = {
-    id: 'subagent-fixture',
+    id: 'fixture',
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
   }
 
   await assert.doesNotReject(() => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG))
-  assert.equal(fixture.providers.length, 0)
   assert.equal(fixture.adapters.length, 0)
 })
 
@@ -223,7 +195,7 @@ test('registerProvider awaits an async install before resolving', async () => {
   const fixture = fakeContext()
   let installFinished = false
   const descriptor: ProviderDescriptor<FixtureConfig> = {
-    id: 'subagent-fixture',
+    id: 'fixture',
     executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
     async install() {
       await new Promise(resolve => setTimeout(resolve, 0))

@@ -30,7 +30,7 @@ export interface CodexExecutableResolutionOptions {
 }
 
 export const CODEX_DESCRIPTOR: VendorExecutableDescriptor = {
-  id: 'subagent-codex',
+  id: 'codex',
   defaultName: 'codex',
   envOverride: CODEX_EXECUTABLE_ENV,
   windowsName: 'codex.exe',

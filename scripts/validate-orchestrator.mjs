@@ -25,9 +25,13 @@ if (duplicates.size > 0) {
   throw new Error(`duplicate orchestrator row ids: ${[...duplicates].sort().join(', ')}`)
 }
 
-requireCount('subagent_codex', /^\s*toolName:\s*subagent_codex\s*$/gm)
+// Vendor delegation was removed in 0.1.0-rc.3: no provider registers a
+// subagent provider, so a fixed vendor delegation tool would resolve nothing.
+requireCount('retired subagent_codex', /^\s*toolName:\s*subagent_codex\s*$/gm, 0)
 requireCount('retired subagent_claude_code', /^\s*toolName:\s*subagent_claude_code\s*$/gm, 0)
-requireCount('subagent_antigravity', /^\s*toolName:\s*subagent_antigravity\s*$/gm)
+requireCount('retired subagent_antigravity', /^\s*toolName:\s*subagent_antigravity\s*$/gm, 0)
+requireCount('dsh-native delegation', /^\s*toolName:\s*subagent\s*$/gm)
+requireCount('dsh-native fork delegation', /^\s*toolName:\s*subagent_fork\s*$/gm)
 requireCount('primary web_search package', /^\s*name:\s*['"]?nishi-dsh-primary-web-search['"]?\s*$/gm)
 requireCount('project memory package', /^\s*name:\s*['"]?nishi-dsh-project-memory['"]?\s*$/gm)
 

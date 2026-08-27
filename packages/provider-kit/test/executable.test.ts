@@ -156,7 +156,7 @@ test('empty PATH segments are skipped without throwing', () => {
 // wording -- which is exactly what the Codex resolver used to do.
 test('productName keeps shared diagnostics specific to the vendor', () => {
   const descriptor = {
-    id: 'subagent-codex',
+    id: 'codex',
     defaultName: 'codex',
     envOverride: 'DSH_CODEX_EXECUTABLE',
     productName: 'Codex CLI',

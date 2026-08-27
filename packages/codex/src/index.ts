@@ -28,7 +28,7 @@ import {
 import { CODEX_DESCRIPTOR } from './resolver.js'
 import { installCodexPrimaryHistoryBridge } from './primary-history.js'
 
-export const name = 'subagent-codex'
+export const name = 'codex'
 export const inject = [
   'subprocess',
   'llm',
@@ -90,7 +90,7 @@ function externalCodexCommand(env: Record<string, string>): string {
  * primary history bridge, which assumes the adapter already exists.
  */
 const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
-  id: 'subagent-codex',
+  id: 'codex',
   executable: CODEX_DESCRIPTOR,
   model: {
     routes: [CODEX_APP_SERVER_PROVIDER],
@@ -112,7 +112,7 @@ const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
 
 /** Register the external Codex primary bridge. */
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
-  const shared = resolveSharedProviderConfig('subagent-codex', rawConfig, DEFAULT_CODEX_SHARED_CONFIG)
+  const shared = resolveSharedProviderConfig('codex', rawConfig, DEFAULT_CODEX_SHARED_CONFIG)
   const config: ResolvedCodexConfig = {
     ...shared,
     modelPageSize: rawConfig.modelPageSize ?? 100,

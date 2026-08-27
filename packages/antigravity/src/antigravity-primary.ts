@@ -785,7 +785,7 @@ export function createAntigravityPrimaryAdapter(
     function* () {
       yield () => { void adapter.dispose() }
     },
-    'subagent-antigravity: dispose official Antigravity CLI primary adapter',
+    'antigravity: dispose official Antigravity CLI primary adapter',
   )
   return adapter
 }

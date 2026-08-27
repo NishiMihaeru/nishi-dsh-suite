@@ -8,8 +8,8 @@ The migration targets DeepSeek Harness `0.1.1-rc.2`, Node.js 24, and one Market-
 
 The Suite is split into independently owned runtime packages:
 
-- `nishi-dsh-codex` — Codex primary/subagent integration with a `codex-app-server` provider compiled from the reviewed MIT `wingoo/codex-plugin-dsh` source snapshot pinned at `79fe7503390d641680bad8efade52782a3c31ced`;
-- `nishi-dsh-antigravity` — Antigravity primary/subagent integration through the official `agy` client boundary;
+- `nishi-dsh-codex` — Codex primary provider with a `codex-app-server` route compiled from the reviewed MIT `wingoo/codex-plugin-dsh` source snapshot pinned at `79fe7503390d641680bad8efade52782a3c31ced`;
+- `nishi-dsh-antigravity` — Antigravity primary provider through the official `agy` client boundary;
 - `nishi-dsh-primary-web-search` — one `web_search` tool routed by the active Codex/Antigravity primary;
 - `nishi-dsh-project-memory` — project-scoped Shared Project Memory;
 - `nishi-dsh-usage-limits` — normalized usage/limits domain;
@@ -50,11 +50,13 @@ The Suite intentionally has no DeepSeek/Exa/Perplexity fallback for its routed `
 
 ## Orchestrator
 
-The accepted Orchestrator preset is packaged inside the Market artifact at `packages/suite/presets/orchestrator` with fixed tools:
+The accepted Orchestrator preset is packaged inside the Market artifact at `packages/suite/presets/orchestrator` with:
 
-- `subagent_codex`
-- `subagent_antigravity`
-- routed `web_search`
+- routed `web_search`;
+- shared project memory (`memory_read` / `memory_write` / `memory_edit`);
+- DSH-native delegation (`subagent`, `subagent_fork`) on the session's primary route.
+
+Vendor delegation tools were removed in `0.1.0-rc.3`: a vendor CLI agent brought its own tools and its own memory access, which is the environment switch this Suite exists to avoid.
 
 Automatic third-party preset discovery is blocked by the DSH `0.1.1-rc.2` launcher, which overwrites contributed preset roots with its shipped root after bundle/user overlays. Tracking: issue #2.
 

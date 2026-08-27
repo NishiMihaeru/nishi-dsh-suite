@@ -72,15 +72,17 @@ The three overrides `memories.use_memories=false`, `memories.generate_memories=f
 - Delete: `packages/codex/src/run.ts`, `packages/codex/src/wire.ts`, `packages/codex/src/memory.ts`, `packages/codex/test/memory.test.ts`
 - Modify: `packages/codex/src/index.ts`, `packages/codex/test/registration.test.ts`, `packages/codex/test/lifecycle.test.ts`, `packages/codex/package.json`, `packages/codex/README.md`
 
+**Also removed here (was 5.3's shape, found dead in this task):** `providerName` and `permissionMode` only ever configured the delegated child, so both leave `Config`. Corrected a stale descriptor comment that claimed "there is no `model` entry here" directly above the entry.
+
 **Steps:**
-- [ ] 2.1 Remove the `CodexProvider` subagent class, its `SubagentProvider` imports, and the `subagent` entry of the Codex descriptor.
-- [ ] 2.2 Delete the three modules and the memory test; move anything the primary still needs (only if a real consumer remains) into the primary's own module rather than keeping a file alive for one symbol.
-- [ ] 2.3 Drop `@deepseek-ai/dsh-subagent` from `package.json` if nothing else imports it, and remove the delegation sentences from the README.
-- [ ] 2.4 Retarget `registration.test.ts`: the package registers exactly one adapter (`codex-app-server`) and **no** subagent provider.
+- [x] 2.1 Remove the `CodexProvider` subagent class, its `SubagentProvider` imports, and the `subagent` entry of the Codex descriptor.
+- [x] 2.2 Deleted, plus `test/lifecycle.test.ts` — it covered only `textTask`, `startCodexRun`, `disposeCodexChild` and the wire protocol. `DEFAULT_DISPOSE_GRACE_MS` moved into `index.ts`, the one symbol the primary still uses.
+- [x] 2.3 Drop `@deepseek-ai/dsh-subagent` from `package.json` if nothing else imports it, and remove the delegation sentences from the README.
+- [x] 2.4 Retarget `registration.test.ts`: the package registers exactly one adapter (`codex-app-server`) and **no** subagent provider.
 
 **Verify:**
-- [ ] `pnpm --filter nishi-dsh-codex test`; `echo $?` must be `0`.
-- [ ] `grep -rn "registerProvider\|SubagentProvider" packages/codex/src` returns nothing.
+- [x] `pnpm --filter nishi-dsh-codex test` exit `0` (27 tests), `check` exit `0`.
+- [x] `grep -rn "registerProvider\|SubagentProvider" packages/codex/src` returns nothing.
 
 ---
 
@@ -90,14 +92,16 @@ The three overrides `memories.use_memories=false`, `memories.generate_memories=f
 - Delete: `packages/antigravity/src/antigravity-subagent.ts`, `packages/antigravity/src/memory.ts`, `packages/antigravity/test/antigravity-subagent.test.ts`, `packages/antigravity/test/headless-permission.test.ts`, `packages/antigravity/test-live/subagent.test.ts`
 - Modify: `packages/antigravity/src/index.ts`, `packages/antigravity/test/registration.test.ts`, `packages/antigravity/package.json`, `packages/antigravity/README.md`
 
+**Also done here (plan step 5.3, inseparable from the deletion):** `subagentProviderName`, `subagentModel` and `subagentEffort` leave `Config`, with `DEFAULT_ANTIGRAVITY_SUBAGENT_PROVIDER_NAME`. The `--dangerously-skip-permissions` guard test now reads the primary and the search backend instead of the deleted runner, so it still covers every file that spawns `agy`.
+
 **Steps:**
-- [ ] 3.1 Remove `AntigravityProvider`, the `subagent` descriptor entry, and the `projectMemory` / `subagents` entries from `inject`.
-- [ ] 3.2 Delete the ephemeral-workspace usage that existed only for the subagent run; the primary and the search backend keep theirs.
-- [ ] 3.3 Remove the `test:live:subagent` script from `package.json` and the delegation section from the README, including the R4b headless limitation note.
+- [x] 3.1 Remove `AntigravityProvider`, the `subagent` descriptor entry, and the `projectMemory` / `subagents` entries from `inject`.
+- [x] 3.2 Delete the ephemeral-workspace usage that existed only for the subagent run; the primary and the search backend keep theirs.
+- [x] 3.3 Remove the `test:live:subagent` script from `package.json` and the delegation section from the README, including the R4b headless limitation note.
 
 **Verify:**
-- [ ] `pnpm --filter nishi-dsh-antigravity test`; `echo $?` must be `0`.
-- [ ] `grep -rn "projectMemory" packages/antigravity/src packages/codex/src` returns nothing — after this task no provider package touches project memory at all.
+- [x] `pnpm --filter nishi-dsh-antigravity test` exit `0` (5 tests), `check` exit `0`.
+- [x] `grep -rn "projectMemory" packages/antigravity/src packages/codex/src` returns nothing — after this task no provider package touches project memory at all.
 
 ---
 
@@ -108,12 +112,12 @@ The three overrides `memories.use_memories=false`, `memories.generate_memories=f
 - Modify: `packages/project-memory/src/service.ts`, `packages/project-memory/src/index.ts`, `packages/project-memory/README.md`
 
 **Steps:**
-- [ ] 4.1 Remove `ProjectMemoryService.createSubagentContext` and the `export * from './subagent.js'` re-export.
-- [ ] 4.2 Keep `SUBAGENT_MEMORY_GUIDANCE` only if a live consumer remains; otherwise delete it with the module.
-- [ ] 4.3 Drop the "read-only subagent view" paragraph from the README.
+- [x] 4.1 Went one step further: `ProjectMemoryService` itself is deleted, not just its method. Its one method *was* the subagent view, nothing injects `ctx.projectMemory` any more, and an empty service that nothing resolves is dead surface. Stage 6 can reintroduce one when it has a real method. This also settles the second half of R6 — there are no `(ctx as any).projectMemory` casts left to type.
+- [x] 4.2 No consumer remained; deleted with the module. Two dead `projectMemory` stubs also left the Codex primary fixtures.
+- [x] 4.3 Drop the "read-only subagent view" paragraph from the README.
 
 **Verify:**
-- [ ] `pnpm --filter nishi-dsh-project-memory test`; `echo $?` must be `0`.
+- [x] `pnpm --filter nishi-dsh-project-memory test` exit `0` (19 tests), `check` exit `0`.
 
 ---
 
@@ -124,14 +128,14 @@ The three overrides `memories.use_memories=false`, `memories.generate_memories=f
 - Modify: `packages/provider-kit/src/registration.ts` (until Task 7 moves it)
 
 **Steps:**
-- [ ] 5.1 Rename plugin ids `subagent-codex` → `codex` and `subagent-antigravity` → `antigravity`. These strings are diagnostic prefixes and the cordis plugin `name`; update every assertion that matches them.
-- [ ] 5.2 Fix the mislabelled dispose effect at `antigravity-primary.ts:784` (`'subagent-codex: ...'`) — the R7 half that survives.
-- [ ] 5.3 Drop `subagentProviderName`, `subagentModel`, `subagentEffort` from the Antigravity `Config` schema, its defaults and its resolved type.
-- [ ] 5.4 Remove the `subagent` field and its registration step from `ProviderDescriptor` / `registerProvider`; add `routes` to the descriptor itself (`readonly routes: readonly string[]`) so the registry can index a provider before building its adapter.
+- [x] 5.1 Renamed across plugin `name`, descriptor id, executable-descriptor id, invariant plugin names, `resolveSharedProviderConfig` prefixes, the two Codex primary-history diagnostics, and the tests that assert them.
+- [x] 5.2 Nothing to fix: the label was already corrected in `a0b3809`, so R7's first half was stale when it was written into the roadmap. The label was renamed with 5.1 like every other id.
+- [x] 5.3 Done in Task 3, where the fields and their runner were deleted together.
+- [x] 5.4 The `subagent` field and its registration step are gone, and the kit's fake context now *throws* if a provider registers a subagent provider, so the invariant is enforced by the suite rather than by grep alone. The `routes` hoist is deferred to Task 8: until the registry exists there is no consumer, and a second copy of `model.routes` would be a field nothing reads.
 
 **Verify:**
-- [ ] `pnpm check` then `pnpm test`; `echo $?` must be `0` after each.
-- [ ] `grep -rn "subagent-codex\|subagent-antigravity" packages` returns nothing outside `docs/acceptance` history.
+- [x] `pnpm -r check` exit `0`, `pnpm --filter nishi-dsh-provider-kit test` exit `0`.
+- [x] `grep -rn "subagent-codex\|subagent-antigravity" packages` returns nothing outside `docs/acceptance` history.
 
 ---
 
@@ -142,14 +146,14 @@ The three overrides `memories.use_memories=false`, `memories.generate_memories=f
 - Modify: `README.md`, `packages/suite/README.md`
 
 **Steps:**
-- [ ] 6.1 Remove the `tool-subagent-codex` and `tool-subagent-antigravity` rows and rewrite the delegation comment block so it no longer describes fixed product delegation tools. `tool-subagent` (spawn) and `tool-subagent-fork` stay.
-- [ ] 6.2 Update `preset.yml` `description` — it still names "Codex, Claude Code, and Antigravity delegation tools".
-- [ ] 6.3 Update `scripts/validate-orchestrator.mjs` expectations and `bundle-patch.test.ts`.
-- [ ] 6.4 Root `README.md`: the Modules list ("primary/subagent integration"), the Orchestrator fixed-tools list, and the rc.2 breaking-change wording.
+- [x] 6.1 Remove the `tool-subagent-codex` and `tool-subagent-antigravity` rows and rewrite the delegation comment block so it no longer describes fixed product delegation tools. `tool-subagent` (spawn) and `tool-subagent-fork` stay.
+- [x] 6.2 Update `preset.yml` `description` — it still names "Codex, Claude Code, and Antigravity delegation tools".
+- [x] 6.3 `validate-orchestrator.mjs` now asserts the two vendor tool names are **absent** (alongside the already-retired `subagent_claude_code`) and that DSH-native `subagent` / `subagent_fork` are present. `bundle-patch.test.ts` needed no change: it covers host rows, and the delegation tools were preset rows.
+- [x] 6.4 Root `README.md` and `packages/suite/README.md`: the Modules lists now say "primary provider", and the Orchestrator section lists routed `web_search`, shared memory and DSH-native delegation.
 
 **Verify:**
-- [ ] `pnpm test:orchestrator`; `echo $?` must be `0`.
-- [ ] `grep -rn "subagent_codex\|subagent_antigravity" . --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=acceptance` returns nothing.
+- [x] `pnpm test:orchestrator` exit `0` (28 unique rows); `pnpm verify:local` exit `0` for the whole deletion arc.
+- [x] `grep` for `subagent_codex` / `subagent_antigravity` returns only the retired-name guards that assert their absence.
 
 ---
 

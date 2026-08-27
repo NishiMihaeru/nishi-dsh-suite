@@ -33,7 +33,7 @@ test('Codex package registers the codex-app-server primary and no subagent provi
 })
 
 test('Codex package keeps the accepted plugin surface', () => {
-  assert.equal(codex.name, 'subagent-codex')
+  assert.equal(codex.name, 'codex')
   assert.deepEqual(codex.inject, [
     'subprocess',
     'llm',

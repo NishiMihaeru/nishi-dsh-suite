@@ -8,8 +8,8 @@ Compatibility target: **DeepSeek Harness 0.1.1-rc.2**, Node.js 24, pnpm 11.21.0 
 
 Installing this bundle brings the exact `0.1.0-rc.2` prerelease family:
 
-- `nishi-dsh-codex` — Codex primary/subagent integration (with `codex-app-server` provider via pinned `codex-plugin-dsh`);
-- `nishi-dsh-antigravity` — Antigravity primary/subagent integration through `agy`;
+- `nishi-dsh-codex` — Codex primary provider (the `codex-app-server` route via pinned `codex-plugin-dsh`);
+- `nishi-dsh-antigravity` — Antigravity primary provider through `agy`;
 - `nishi-dsh-primary-web-search` — the single `web_search` tool routed by the active primary provider;
 - `nishi-dsh-project-memory` — project-scoped DSH memory and memory tools;
 - `nishi-dsh-usage-limits` — normalized usage/limits domain library;

@@ -21,7 +21,7 @@ import {
 } from 'nishi-dsh-provider-kit'
 import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
 
-export const name = 'subagent-antigravity'
+export const name = 'antigravity'
 export const inject = ['subprocess', 'llm']
 
 export const DEFAULT_ANTIGRAVITY_EXECUTABLE = 'agy'
@@ -34,7 +34,7 @@ export const DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES = 64_000
 
 /** Identity and lookup facts for the Antigravity CLI executable. */
 const ANTIGRAVITY_DESCRIPTOR: VendorExecutableDescriptor = {
-  id: 'subagent-antigravity',
+  id: 'antigravity',
   defaultName: DEFAULT_ANTIGRAVITY_EXECUTABLE,
   envOverride: DEFAULT_ANTIGRAVITY_EXECUTABLE_ENV,
   productName: 'Antigravity CLI',
@@ -86,7 +86,7 @@ interface ResolvedAntigravityConfig extends SharedProviderDefaults {
  * suite drives directly so it exercises the same object production does.
  */
 const antigravityDescriptor: ProviderDescriptor<ResolvedAntigravityConfig> = {
-  id: 'subagent-antigravity',
+  id: 'antigravity',
   executable: ANTIGRAVITY_DESCRIPTOR,
   model: {
     routes: [ANTIGRAVITY_PRIMARY_PROVIDER],
@@ -96,9 +96,9 @@ const antigravityDescriptor: ProviderDescriptor<ResolvedAntigravityConfig> = {
 
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
   const executable = rawConfig.executable ?? DEFAULT_ANTIGRAVITY_EXECUTABLE
-  if (executable.trim().length === 0) throw new Error('subagent-antigravity: executable must be non-empty')
+  if (executable.trim().length === 0) throw new Error('antigravity: executable must be non-empty')
 
-  const shared = resolveSharedProviderConfig('subagent-antigravity', rawConfig, DEFAULT_ANTIGRAVITY_SHARED_CONFIG)
+  const shared = resolveSharedProviderConfig('antigravity', rawConfig, DEFAULT_ANTIGRAVITY_SHARED_CONFIG)
 
   const config: ResolvedAntigravityConfig = { ...shared, executable }
 

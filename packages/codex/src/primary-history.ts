@@ -144,7 +144,7 @@ export async function installCodexPrimaryHistoryBridge(
     customPrototype ?? (CodexAppServerAdapter?.prototype as unknown as CodexAdapterPrototype | undefined)
   if (!prototype || typeof prototype.stream !== 'function') {
     throw new Error(
-      'subagent-codex: installed codex-plugin-dsh does not expose the expected CodexAppServerAdapter.stream API',
+      'codex: installed codex-plugin-dsh does not expose the expected CodexAppServerAdapter.stream API',
     )
   }
 
@@ -180,7 +180,7 @@ export async function installCodexPrimaryHistoryBridge(
   ctx.effect(() => {
     state.owners += 1
     return () => releaseBridge(prototype, state)
-  }, 'subagent-codex: project foreign history before Codex primary import')
+  }, 'codex: project foreign history before Codex primary import')
 
   return true
 }
