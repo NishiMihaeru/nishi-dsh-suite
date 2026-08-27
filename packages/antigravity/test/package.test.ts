@@ -5,7 +5,7 @@ import test from 'node:test'
 test('Antigravity manifest is independent and contains no OpenAI dependency', async () => {
   const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(manifest.name, 'nishi-dsh-antigravity')
-  assert.equal(manifest.version, '0.1.0-rc.1')
+  assert.equal(manifest.version, '0.1.0-rc.2')
   assert.equal(manifest.exports?.['./web-search-backend']?.default, './lib/web-search-backend.js')
   const serialized = JSON.stringify(manifest)
   assert.doesNotMatch(serialized, /@openai\/codex/)
