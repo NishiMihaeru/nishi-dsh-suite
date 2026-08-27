@@ -1,4 +1,5 @@
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import { canonicalProviderRoute } from '../registry/identity.js'
 import { PrimaryWebSearchError } from './errors.js'
 
 export interface PrimarySearchRoute {
@@ -12,8 +13,22 @@ function nonBlankString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
 }
 
+function plainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
 function unavailable(message: string): never {
   throw new PrimaryWebSearchError('WEB_SEARCH_ROUTE_UNAVAILABLE', message)
+}
+
+function primaryProviderRoute(value: unknown): string {
+  try {
+    return canonicalProviderRoute(value, 'web_search primary provider route')
+  } catch {
+    return unavailable('web_search found a request/header without a valid provider/model route')
+  }
 }
 
 /** Resolve the provider/model that owns the calling agent's current request. */
@@ -22,13 +37,13 @@ export function resolvePrimarySearchRoute(exec: ToolExecution): PrimarySearchRou
   if (agent === undefined) unavailable('web_search requires a calling DSH agent session')
 
   const config = agent.session.requestHeader()?.config
-  if (config === undefined) {
+  if (!plainObject(config)) {
     unavailable('web_search could not resolve the current primary route from session request history')
   }
 
-  const provider = nonBlankString(config.provider)
+  const provider = primaryProviderRoute(config.provider)
   const model = nonBlankString(config.model)
-  if (provider === undefined || model === undefined) {
+  if (model === undefined) {
     unavailable('web_search found a request/header without a valid provider/model route')
   }
 
