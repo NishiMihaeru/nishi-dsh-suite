@@ -10,6 +10,7 @@ const PROVIDER_PACKAGES = [
   'nishi-dsh-claude',
 ] as const
 const PROVIDER_IDS = ['codex', 'antigravity', 'claude'] as const
+const PROVIDER_RELATIVE_IMPORT_FRAGMENTS = ['../codex', '../antigravity', '../claude'] as const
 
 async function sourceFiles(root: URL): Promise<URL[]> {
   const paths: URL[] = []
@@ -68,6 +69,14 @@ test('core source never imports provider packages or hardcodes provider ids as s
         source.includes(providerPackage),
         false,
         `${relativePath} must not name provider package ${providerPackage}`,
+      )
+    }
+
+    for (const fragment of PROVIDER_RELATIVE_IMPORT_FRAGMENTS) {
+      assert.equal(
+        source.includes(fragment),
+        false,
+        `${relativePath} must not reach a provider package through ${fragment}`,
       )
     }
 
