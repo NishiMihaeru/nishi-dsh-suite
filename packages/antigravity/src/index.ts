@@ -88,14 +88,15 @@ interface ResolvedAntigravityConfig extends SharedProviderDefaults {
 }
 
 /**
- * The Antigravity registration recipe: the `AntigravityCliAdapter` as the
- * `antigravity-cli` model route, and nothing else.
+ * The Antigravity registration recipe contributes three capabilities through
+ * one descriptor: the `antigravity-cli` primary model route, native
+ * `agy search_web`, and the local usage-visibility source.
  *
- * Unlike Codex, the adapter here has a clean `create(): LlmAdapter` — it is
- * just `new AntigravityCliAdapter(ctx, config)` — so `model` is populated
- * directly instead of falling back to `install`. The adapter's dispose
- * effect is bound inside `createAntigravityPrimaryAdapter`, which the live
- * suite drives directly so it exercises the same object production does.
+ * The primary adapter has a clean `create(): LlmAdapter` — it is built by
+ * `createAntigravityPrimaryAdapter(ctx, config)` — while the shared core
+ * registration path owns route registration and rollback. Search and usage
+ * are likewise constructed from this provider's context, so their subprocess
+ * lifetimes remain provider-owned.
  */
 const antigravityDescriptor: ProviderDescriptor<ResolvedAntigravityConfig> = {
   id: 'antigravity',
