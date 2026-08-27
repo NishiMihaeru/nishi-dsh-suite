@@ -1,7 +1,7 @@
 {
   "name": "nishi-dsh-primary-web-search",
   "description": "Primary-model-routed web_search tool for Nishi DSH Suite",
-  "version": "0.1.0-rc.1",
+  "version": "0.1.0-rc.2",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -26,8 +26,8 @@
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",
-    "nishi-dsh-codex": "workspace:0.1.0-rc.1",
-    "nishi-dsh-antigravity": "workspace:0.1.0-rc.1"
+    "nishi-dsh-codex": "workspace:0.1.0-rc.2",
+    "nishi-dsh-antigravity": "workspace:0.1.0-rc.2"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
