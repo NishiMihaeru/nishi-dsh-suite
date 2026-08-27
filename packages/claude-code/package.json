@@ -1,6 +1,6 @@
 {
   "name": "nishi-dsh-claude-code",
-  "description": "Claude Code subagent provider for DeepSeek Harness using the official Agent SDK",
+  "description": "Claude Code subagent provider for DeepSeek Harness using the installed official Claude CLI",
   "version": "0.1.0-rc.1",
   "type": "module",
   "main": "lib/index.js",
@@ -25,7 +25,6 @@
     "test": "tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.3.220",
     "@deepseek-ai/schemastery": "^3.18.1"
   },
   "peerDependencies": {
