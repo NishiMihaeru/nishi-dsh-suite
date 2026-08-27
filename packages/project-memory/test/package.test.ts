@@ -4,7 +4,7 @@ import test from 'node:test'
 
 const manifestUrl = new URL('../package.json', import.meta.url)
 
-test('project-memory package exposes the public rc.2 package boundary', async () => {
+test('project-memory package exposes the public rc.3 package boundary', async () => {
   const pkg = JSON.parse(await readFile(manifestUrl, 'utf8'))
 
   assert.equal(pkg.name, 'nishi-dsh-project-memory')
@@ -22,9 +22,11 @@ test('project-memory package exposes the public rc.2 package boundary', async ()
   assert.deepEqual(pkg.peerDependencies, {
     '@deepseek-ai/cordis': '^4.0.1',
     '@deepseek-ai/dsh-agent': '0.1.1-rc.2',
+    '@deepseek-ai/dsh-atomic-write': '0.1.1-rc.2',
     '@deepseek-ai/dsh-llm': '0.1.1-rc.2',
     '@deepseek-ai/dsh-tools': '0.1.1-rc.2',
   })
+  assert.equal(pkg.devDependencies['@deepseek-ai/dsh-atomic-write'], '0.1.1-rc.2')
   assert.equal(JSON.stringify(pkg).includes('link:'), false)
   assert.equal(JSON.stringify(pkg).includes('file:'), false)
 })
