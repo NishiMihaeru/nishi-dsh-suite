@@ -198,12 +198,14 @@ export async function executeClaudeCli(
   const onAbort = () => { void dispose().catch(() => {}) }
   signal.addEventListener('abort', onAbort, { once: true })
 
+  let abortListener: (() => void) | undefined
   const abortPromise = new Promise<never>((_, reject) => {
     if (signal.aborted) {
       reject(new Error('subagent-claude-code: run aborted'))
       return
     }
-    signal.addEventListener('abort', () => reject(new Error('subagent-claude-code: run aborted')), { once: true })
+    abortListener = () => reject(new Error('subagent-claude-code: run aborted'))
+    signal.addEventListener('abort', abortListener, { once: true })
   })
   void abortPromise.catch(() => {})
 
@@ -221,6 +223,7 @@ export async function executeClaudeCli(
     runError = error
   } finally {
     signal.removeEventListener('abort', onAbort)
+    if (abortListener !== undefined) signal.removeEventListener('abort', abortListener)
   }
 
   let outcome: SubprocessOutcome | undefined
@@ -295,10 +298,6 @@ export async function startClaudeCodeRun(
   let diagnostic: string | undefined
   let activeExecution: Promise<{ output: ContentBlock[]; stopReason: SubagentStopReason }> | undefined
 
-  const reportFailure = (error: Error) => {
-    try { spec.onError?.(error, 'error') } catch {}
-  }
-
   const result = (settleRunResult as any)({
     attempt: async () => {
       try {
@@ -323,10 +322,6 @@ export async function startClaudeCodeRun(
           },
         }, controller.signal)
         return await activeExecution
-      } catch (error) {
-        const failure = thrown(error)
-        reportFailure(failure)
-        throw failure
       } finally {
         await memoryBridge?.close().catch(() => {})
       }
