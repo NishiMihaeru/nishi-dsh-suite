@@ -1,4 +1,15 @@
-/** Codex App Server implementation of the DeepSeek Harness LLM adapter API. */
+/**
+ * Codex App Server implementation of the DeepSeek Harness LLM adapter API.
+ *
+ * Custom Policy Delta (Nishi DSH Suite):
+ * Injects three exact configuration overrides into the external Codex
+ * app-server invocation, so the primary plane runs with the vendor's own
+ * memory and project-doc injection off and DSH project memory is the only
+ * durable memory a turn sees:
+ * - -c memories.use_memories=false
+ * - -c memories.generate_memories=false
+ * - -c project_doc_max_bytes=0
+ */
 
 import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -160,6 +171,24 @@ export interface CodexAppServerInvocation {
 }
 
 /**
+ * Vendor memory and project-doc suppression for the app-server invocation.
+ *
+ * Codex reads its own memory store and injects project docs unless told not
+ * to, which would put a second durable memory behind the primary route and
+ * defeat the one-memory guarantee the Suite exists to provide. These are the
+ * only configuration overrides the Suite injects, and they are enforced by
+ * the CLI rather than asked of the model.
+ */
+export const CODEX_MEMORY_POLICY_OVERRIDES: readonly string[] = Object.freeze([
+  '-c',
+  'memories.use_memories=false',
+  '-c',
+  'memories.generate_memories=false',
+  '-c',
+  'project_doc_max_bytes=0',
+])
+
+/**
  * Build the fixed App Server command without allowing configured text into a Windows command tail.
  * @param executable - Absolute executable path resolved by the DSH subprocess provider.
  * @param env - Explicit child environment from plugin configuration.
@@ -175,7 +204,7 @@ export function codexAppServerInvocation(
 ): CodexAppServerInvocation {
   const extension = extname(executable).toLowerCase()
   if (platform !== 'win32' || (extension !== '.cmd' && extension !== '.bat')) {
-    return { argv: [executable, 'app-server', '--stdio'], env }
+    return { argv: [executable, ...CODEX_MEMORY_POLICY_OVERRIDES, 'app-server', '--stdio'], env }
   }
   return {
     argv: [
@@ -185,6 +214,7 @@ export function codexAppServerInvocation(
       '/s',
       '/c',
       `%${WINDOWS_EXECUTABLE_ENV}%`,
+      ...CODEX_MEMORY_POLICY_OVERRIDES,
       'app-server',
       '--stdio',
     ],

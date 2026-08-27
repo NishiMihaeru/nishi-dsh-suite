@@ -34,9 +34,13 @@ The core needs a host-plane entry and an agent-plane entry from one package. The
 - Scratch only: a throwaway package exporting a subpath plugin, mounted as a preset row
 
 **Steps:**
-- [ ] 0.1 Mount a scratch package's subpath (`pkg/sub`) as a preset row in a scratch profile and confirm the plugin applies.
-- [ ] 0.2 Confirm plugin identity/dedup keys off the resolved module, not a bare package-name assumption, so `nishi-dsh-core` and `nishi-dsh-core/web-search` can both be mounted in one process.
-- [ ] 0.3 Record the outcome in this file under the task.
+- [x] 0.1 Subpath resolution through a real pnpm install: a probe package exporting `.` and `./web-search` was installed into a scratch app as a `file:` dependency, and both entries imported by specifier under Node 24.19.0. Exit `0`.
+- [x] 0.2 Row identity does not assume a bare package name. The launcher composes patch layers and indexes rows by `id` — `rows.set(row.id, row)` in `dsh/lib/profile-boot-DG5t9aNs.js` — and the row `name` is only ever handed to the cordis loader, which imports anything not starting with `.` or `cordis:` with a plain `import(name)` (`cordis-plugin-loader@1.0.2/lib/index.js:269`). Nothing in the boot path validates the shape of a row name, and the *dependency* the Suite declares stays the bare `nishi-dsh-core`.
+- [x] 0.3 Outcome recorded here.
+
+**Outcome (2026-08-27): two mount points from one package are viable.** The plan proceeds with `nishi-dsh-core` (host bundle row) and `nishi-dsh-core/web-search` (preset row).
+
+**Residual risk:** this was verified by loader/launcher source plus an isolated Node resolution test, not by a full DSH profile boot — no rc.3 profile exists yet to boot. The first real mount happens in Task 16.4, and the fallback below stays available until then.
 
 **Decision gate:** if a subpath row does not mount, the fallback is a separate thin package `nishi-dsh-web-search` that injects `nishiProviders` — family becomes 7 instead of 6, and the rest of the plan is unchanged. Do not work around it inside the loader.
 
@@ -52,12 +56,12 @@ The three overrides `memories.use_memories=false`, `memories.generate_memories=f
 - Modify: `packages/codex/README.md` (the claim `packages/codex/test/package.test.ts:29-31` asserts)
 
 **Steps:**
-- [ ] 1.1 Inject the three `-c` overrides into both branches of `codexAppServerInvocation` — the direct argv and the Windows `cmd.exe` argv — ahead of `app-server`, exactly once each.
-- [ ] 1.2 Retarget the `argv.test.ts` assertions (presence, exactly-once, ordering before `app-server`) from the subagent argv builder to `codexAppServerInvocation`.
-- [ ] 1.3 Update the README sentence so it describes the primary invocation, keeping the three literal strings `package.test.ts` matches.
+- [x] 1.1 Injected as one frozen `CODEX_MEMORY_POLICY_OVERRIDES` list, spread into both branches of `codexAppServerInvocation` ahead of `app-server`. The vendored file's header now carries a Custom Policy Delta block, matching the convention `run.ts` used for the same three overrides.
+- [x] 1.2 `argv.test.ts` retargeted to `codexAppServerInvocation`, plus two cases the old test could not have: the Windows batch-shim branch carries the same suppression before `app-server`, and the override list is exactly the three documented pairs.
+- [x] 1.3 README updated; the three literal strings `package.test.ts:29-31` matches are kept.
 
 **Verify:**
-- [ ] `pnpm --filter nishi-dsh-codex test`; `echo $?` must be `0`.
+- [x] `pnpm --filter nishi-dsh-codex test` exit `0` (35 tests), `pnpm --filter nishi-dsh-codex check` exit `0`.
 - [ ] Live: one Codex primary turn in a project containing an `AGENTS.md`-style project doc and a vendor memory entry; neither reaches the turn. Record as Stage 3.5 evidence.
 
 ---
