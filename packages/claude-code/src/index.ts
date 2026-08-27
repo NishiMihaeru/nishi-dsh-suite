@@ -1,7 +1,7 @@
 /**
  * Profile-named Claude Code one-shot subagent provider. Every accepted run
- * invokes the official Agent SDK in the delegating Session's workspace and
- * places the SDK-spawned real CLI under the shared subprocess owner.
+ * invokes the installed official Claude CLI in the delegating Session's
+ * workspace and places the real process tree under the shared subprocess owner.
  *
  * Upstream Reference:
  * deepseek-ai/deepseek-harness@0.1.1-rc.2 (SHA b150a551b8d465e31e418e1b2eaf5e79bbb7d28e)
@@ -105,11 +105,7 @@ class ClaudeCodeProvider implements SubagentProvider {
   }
 }
 
-/**
- * Register one Profile-named Claude Code provider.
- * @param ctx - context carrying shared subagent, subprocess, and project-memory services.
- * @param config - registry name, model, effort, permission mode, child environment, and disposal grace.
- */
+/** Register one Profile-named Claude Code provider. */
 export function apply(ctx: Context, rawConfig: Config = {}): void {
   const resolved: Required<Config> = {
     providerName: rawConfig.providerName ?? DEFAULT_PROVIDER_NAME,
@@ -121,7 +117,7 @@ export function apply(ctx: Context, rawConfig: Config = {}): void {
   }
 
   if (!['low', 'medium', 'high'].includes(resolved.effort)) {
-    throw new Error(`subagent-claude-code: effort must be one of low, medium, high`)
+    throw new Error('subagent-claude-code: effort must be one of low, medium, high')
   }
   if (!CLAUDE_CODE_PERMISSION_MODES.includes(resolved.permissionMode)) {
     throw new Error(
