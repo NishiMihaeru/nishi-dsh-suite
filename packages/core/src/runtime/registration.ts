@@ -16,7 +16,6 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { assertPositiveFinite } from '@deepseek-ai/dsh-subagent'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ProviderDescriptor } from '../registry/descriptor.js'
 import { canonicalProviderId, canonicalProviderRoute } from '../registry/identity.js'
@@ -39,6 +38,12 @@ export interface SharedProviderConfig {
 
 /** `SharedProviderConfig` with every field required — the shape after defaulting. */
 export type SharedProviderDefaults = Required<SharedProviderConfig>
+
+function assertPositiveFinite(id: string, field: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${id}: ${field} must be a positive finite number`)
+  }
+}
 
 /**
  * Merge `raw` over `defaults` and validate the six shared fields in one
