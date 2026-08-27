@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { extname } from 'node:path'
 import test from 'node:test'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
