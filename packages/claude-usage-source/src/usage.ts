@@ -107,8 +107,20 @@ export class OfficialClaudeUsageSource {
     stdout.on('error', () => {})
 
     const requestId = randomUUID()
-    let requestSent = false
     let timer: NodeJS.Timeout | undefined
+
+    // Send the control request immediately rather than waiting for a
+    // system/init line. Claude CLI 2.1.246 emits nothing at all on stdout
+    // until it has received stdin input, so waiting for init deadlocks until
+    // the request timeout. The CLI answers a get_usage control request sent as
+    // the very first line, and an init line -- emitted by other versions --
+    // needs no handling because the loop below ignores everything that is not
+    // the matching control_response.
+    stdin.write(`${JSON.stringify({
+      type: 'control_request',
+      request_id: requestId,
+      request: { subtype: 'get_usage' },
+    })}\n`)
 
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -131,17 +143,6 @@ export class OfficialClaudeUsageSource {
         }
         const message = record(parsed)
         if (!message || typeof message.type !== 'string') continue
-
-        if (!requestSent && message.type === 'system' && message.subtype === 'init') {
-          requestSent = true
-          stdin.write(`${JSON.stringify({
-            type: 'control_request',
-            request_id: requestId,
-            request: { subtype: 'get_usage' },
-          })}\n`)
-          continue
-        }
-
         if (message.type !== 'control_response') continue
         const response = record(message.response)
         if (response?.request_id !== requestId) continue

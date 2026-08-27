@@ -9,7 +9,7 @@ import {
   OfficialClaudeUsageSource,
 } from '../src/usage.js'
 
-function fakeUsageChild(received: any[]) {
+function fakeUsageChild(received: any[], emitInit = true) {
   const stdin = new PassThrough()
   const stdout = new PassThrough()
   let settled = false
@@ -57,9 +57,11 @@ function fakeUsageChild(received: any[]) {
     resolveDone({ exitCode: null, signal: 'SIGTERM' })
   }
 
-  queueMicrotask(() => {
-    stdout.write(`${JSON.stringify({ type: 'system', subtype: 'init', session_id: 'usage-fixture' })}\n`)
-  })
+  if (emitInit) {
+    queueMicrotask(() => {
+      stdout.write(`${JSON.stringify({ type: 'system', subtype: 'init', session_id: 'usage-fixture' })}\n`)
+    })
+  }
 
   return {
     pid: 5511,
@@ -128,4 +130,24 @@ test('Claude usage source asks the external CLI for get_usage without sending a 
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+// Regression guard for a live protocol drift the unit fixtures had encoded away.
+// getUsage() used to withhold the control request until it saw a system/init
+// line, and the fixture obligingly emitted one. Claude CLI 2.1.246 emits nothing
+// on stdout until it receives stdin input, so against the real CLI that wait
+// deadlocked until the request timeout while every unit test stayed green.
+test('usage request does not wait for a system/init line that never arrives', { timeout: 2_000 }, async () => {
+  const received: any[] = []
+  const source = new OfficialClaudeUsageSource({
+    cwd: '/tmp',
+    executable: '/vendor/claude',
+    spawn: () => fakeUsageChild(received, false),
+  } as any)
+
+  const usage = await source.getUsage()
+  assert.equal((usage as any).rate_limits_available, true)
+  assert.equal(received.length, 1)
+  assert.equal(received[0].type, 'control_request')
+  assert.equal(received[0].request.subtype, 'get_usage')
 })
