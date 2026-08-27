@@ -130,6 +130,7 @@ function fakeContext() {
         recorded.push(entry)
         return () => forgotten.push(entry.id)
       },
+      invalidate() {},
     },
     effect(setup: () => () => void) {
       const teardown = setup()
@@ -289,4 +290,64 @@ test('registerProvider refuses a presentation whose id disagrees with the provid
     /presentation\.id must match the provider id/,
   )
   assert.deepEqual(fixture.recorded, [], 'a mismatched identity records nothing')
+})
+
+test('registerProvider rejects a noncanonical provider id before capability factories run', async () => {
+  const fixture = fakeContext()
+  const sideEffects: string[] = []
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: ' fixture ',
+    presentation: { id: ' fixture ', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    model: { routes: ['fixture-model'], create: () => { sideEffects.push('model'); return {} as any } },
+    webSearch: { create: () => { sideEffects.push('search'); return {} as any } },
+    usage: { create: () => { sideEffects.push('usage'); return { collect: async () => ({} as any) } } },
+    install: () => { sideEffects.push('install') },
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /descriptor\.id must not contain leading or trailing whitespace/,
+  )
+  assert.deepEqual(sideEffects, [])
+  assert.deepEqual(fixture.recorded, [])
+})
+
+test('registerProvider rejects a noncanonical model route before capability factories run', async () => {
+  const fixture = fakeContext()
+  const sideEffects: string[] = []
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    model: { routes: [' fixture-model '], create: () => { sideEffects.push('model'); return {} as any } },
+    webSearch: { create: () => { sideEffects.push('search'); return {} as any } },
+    usage: { create: () => { sideEffects.push('usage'); return { collect: async () => ({} as any) } } },
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /model\.routes\[0\] must not contain leading or trailing whitespace/,
+  )
+  assert.deepEqual(sideEffects, [])
+  assert.deepEqual(fixture.recorded, [])
+})
+
+test('registerProvider rejects duplicate model routes before capability factories run', async () => {
+  const fixture = fakeContext()
+  const sideEffects: string[] = []
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    model: { routes: ['fixture-model', 'fixture-model'], create: () => { sideEffects.push('model'); return {} as any } },
+    webSearch: { create: () => { sideEffects.push('search'); return {} as any } },
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /declares duplicate route "fixture-model"/,
+  )
+  assert.deepEqual(sideEffects, [])
+  assert.deepEqual(fixture.recorded, [])
 })
