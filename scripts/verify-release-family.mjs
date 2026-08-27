@@ -7,7 +7,6 @@ const packages = [
   ['packages/core', 'nishi-dsh-core'],
   ['packages/codex', 'nishi-dsh-codex'],
   ['packages/antigravity', 'nishi-dsh-antigravity'],
-  ['packages/primary-web-search', 'nishi-dsh-primary-web-search'],
   ['packages/project-memory', 'nishi-dsh-project-memory'],
   ['packages/suite', 'nishi-dsh-suite'],
 ]
@@ -97,6 +96,7 @@ const retiredNames = [
   'nishi-dsh-provider-kit',
   'nishi-dsh-usage-limits',
   'nishi-dsh-usage-limits-host',
+  'nishi-dsh-primary-web-search',
 ]
 for (const [name, manifest] of manifests) {
   const raw = JSON.stringify(manifest)

@@ -1,9 +1,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { dispatchPrimarySearch, type PrimarySearchBackends } from './providers.js'
+import { dispatchPrimarySearch } from './providers.js'
 import { resolvePrimarySearchRoute, type PrimarySearchRoute } from './route.js'
-import type { PrimaryWebSearchResult } from './types.js'
+import type { PrimarySearchBackendResolver, PrimaryWebSearchResult } from './types.js'
 import {
   formatSearchOutput,
   mergeSearchResults,
@@ -37,10 +37,10 @@ async function runSearchQueries(
   queries: string[],
   maxResults: number,
   signal: AbortSignal,
-  backends: PrimarySearchBackends,
+  resolveBackend: PrimarySearchBackendResolver,
 ): Promise<PrimaryWebSearchResult> {
   if (queries.length === 1) {
-    return dispatchPrimarySearch(route, { query: queries[0] as string, maxResults }, signal, backends)
+    return dispatchPrimarySearch(route, { query: queries[0] as string, maxResults }, signal, resolveBackend)
   }
   const controller = new AbortController()
   const batchSignal = AbortSignal.any([signal, controller.signal])
@@ -48,7 +48,7 @@ async function runSearchQueries(
   const results: PrimaryWebSearchResult[] = []
   const searches = queries.map(async (query, index) => {
     try {
-      results[index] = await dispatchPrimarySearch(route, { query, maxResults }, batchSignal, backends)
+      results[index] = await dispatchPrimarySearch(route, { query, maxResults }, batchSignal, resolveBackend)
     } catch (error) {
       if (firstFailure === undefined) firstFailure = { error }
       controller.abort(error)
@@ -66,7 +66,7 @@ export function applyPrimaryWebSearchTool(
     readonly maxResults: number
     readonly maxQueries: number
     readonly timeoutMs: number
-    readonly backends: PrimarySearchBackends
+    readonly resolveBackend: PrimarySearchBackendResolver
   },
 ): void {
   ctx.systemPrompt.section({
@@ -117,7 +117,7 @@ export function applyPrimaryWebSearchTool(
     async execute(args: WebSearchArgs, exec) {
       const queries = parseSearchArgs(args, options.maxQueries)
       const route = resolvePrimarySearchRoute(exec)
-      const result = await runSearchQueries(route, queries, options.maxResults, exec.signal, options.backends)
+      const result = await runSearchQueries(route, queries, options.maxResults, exec.signal, options.resolveBackend)
       return {
         ...(result.content === undefined ? {} : { content: result.content }),
         sources: result.sources.map(projectSource),

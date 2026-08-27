@@ -5,7 +5,6 @@ const packageDirs = [
   'core',
   'codex',
   'antigravity',
-  'primary-web-search',
   'project-memory',
   'suite',
 ]

@@ -14,12 +14,21 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { VendorExecutableDescriptor } from '../runtime/executable.js'
 import type { SharedProviderConfig } from '../runtime/registration.js'
+import type { PrimarySearchBackend } from '../web-search/types.js'
 
 /** The model plane: what makes providers interchangeable. */
 export interface ModelCapability<TConfig> {
   /** Provider routes this adapter serves, as DSH resolves `provider:model`. */
   readonly routes: readonly string[]
   create(ctx: Context, config: TConfig): LlmAdapter
+}
+
+/**
+ * Native web search. Absent means routing a search to this provider yields
+ * an explicit unsupported error — never a silent fallback to another vendor.
+ */
+export interface WebSearchCapability<TConfig> {
+  create(ctx: Context, config: TConfig): PrimarySearchBackend
 }
 
 /**
@@ -38,6 +47,8 @@ export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
    * primary — a usage-only provider is a legal, declared state.
    */
   readonly model?: ModelCapability<TConfig>
+  /** The provider's own search backend, if its CLI has one. */
+  readonly webSearch?: WebSearchCapability<TConfig>
   /** Anything else this provider needs wired up once the model is registered. */
   install?(ctx: Context, config: TConfig): void | Promise<void>
 }
@@ -47,4 +58,9 @@ export interface RegisteredProvider {
   readonly id: string
   readonly routes: readonly string[]
   readonly descriptor: ProviderDescriptor<never>
+  /**
+   * Built at registration from `descriptor.webSearch`, on the provider's own
+   * context, so the backend's subprocess work belongs to the provider plugin.
+   */
+  readonly webSearch?: PrimarySearchBackend
 }

@@ -204,22 +204,24 @@ Mechanical merge, no behaviour change. Landed as its own commit so the next task
 ### Task 9: Web search on the registry
 
 **Files:**
-- Modify: `packages/core/src/web-search/*` (from `primary-web-search`), `packages/core/package.json`
-- Modify: `packages/codex/src/web-search-backend.ts`, `packages/antigravity/src/web-search-backend.ts`
-- Modify: `packages/core/test/web-search*.test.ts`, both providers' backend tests
+- Moved: `packages/primary-web-search/src/*` → `packages/core/src/web-search/*`; its unit and composition suites into `packages/core/test/`; its two routed live suites into the provider packages that own the backends they drive
+- Deleted: `packages/primary-web-search/`
+- Modified: `packages/core/{package.json,tsdown.config.ts,src/registry/descriptor.ts,src/runtime/{index,registration}.ts}`, both provider `src/index.ts`, `packages/suite/*`, five family scripts, `scripts/validate-orchestrator.mjs`
 
 **Steps:**
-- [ ] 9.1 Replace the provider `switch` (was `primary-web-search/src/providers.ts:52`) with `registry.byRoute(route.provider)?.webSearch`. Absent descriptor and absent capability both produce the existing `WEB_SEARCH_UNSUPPORTED` error, with the message no longer built from a hardcoded provider list.
-- [ ] 9.2 Remove `nishi-dsh-codex` and `nishi-dsh-antigravity` from the core's dependencies.
-- [ ] 9.3 Move the shared backend contract and helpers into the core: the error class with its code, `record`, `bounded`, `promptFor`, effort encoding, and `search(route, request, signal)`. Argv construction, event parsing and result extraction stay in each provider.
-- [ ] 9.4 Keep both providers' live search suites pointed at their own backends so the objects production builds are the ones exercised.
+- [x] 9.1 The provider `switch` is gone. `dispatchPrimarySearch` now takes a `PrimarySearchBackendResolver`, and the agent-plane entry resolves it per call through `ctx.nishiProviders.byRoute(route)?.webSearch` — per call, because a provider may register after the tool is mounted, and one unmounted provider must not disable the others. An unknown route and a provider without the capability are the same honest outcome: `WEB_SEARCH_UNSUPPORTED`, with no hardcoded provider list in the message.
+- [x] 9.2 `primary-web-search` folded into the core and its package deleted, which is what 9.1 unblocked. `./web-search` is a real preset row (`nishi-dsh-core/web-search`), verified as resolvable in Task 0. Family: 5 packages.
+- [x] 9.3 The contract moved: `PrimarySearchBackend` and the resolver type live in the core, `WebSearchCapability` is a descriptor field, and `registerProvider` builds each backend on the *provider's* context so its subprocess work belongs to the provider plugin. Argv construction, event parsing and result extraction stayed provider-owned. **Deferred:** the copied `record` / `bounded` / `promptFor` helpers are Task 13's subject, not this one.
+- [x] 9.4 Both routed live suites now live with the provider whose backend they drive and import the normalizer from `nishi-dsh-core/web-search`. Keeping them in the core would have re-created the cycle through devDependencies.
+
+**Config break recorded:** the four `antigravity*` fields left the web-search tool's config. The vendor's own knobs (executable, env, dispose grace, stderr cap) belong to the vendor's plugin, which already had them, and the search timeout became the Antigravity plugin's `searchTimeoutMs` (same 60s default). The tool keeps its own per-call timeout.
+
+**Found while implementing:** the composition test forbade the strings `exa` / `perplexity` anywhere in the sources, which (a) matched the word "exact" once the scan covered the whole directory, and (b) would have failed on the comment that documents the deliberate absence of those fallbacks. It now strips comments and matches on word boundaries — a test that punishes documenting an absence is a bad test. Also: the core's own new comment named both providers while explaining the inversion, which the neutrality check caught immediately; the prose is provider-neutral now.
 
 **Verify:**
-- [ ] `pnpm test`; `echo $?` must be `0`.
-- [ ] `node -e "const p=require('./packages/core/package.json');process.exit(Object.keys({...p.dependencies,...p.peerDependencies}).some(d=>d.startsWith('nishi-dsh-'))?1:0)"`; `echo $?` must be `0`.
-- [ ] Live: routed `web_search` on Codex primary and on Antigravity primary; unsupported primary yields the explicit error.
-
----
+- [x] `pnpm --filter nishi-dsh-core test` exit `0`; `pnpm verify:local` exit `0` — 5 tarballs.
+- [x] `grep` for `nishi-dsh-codex` / `nishi-dsh-antigravity` in `packages/core` returns nothing, in `src` and in the manifest.
+- [ ] Live: routed `web_search` on both primaries, and an unsupported primary — deferred to the Task 16 acceptance run, which is where live quota is spent deliberately.
 
 ### Task 10: Usage on descriptors
 

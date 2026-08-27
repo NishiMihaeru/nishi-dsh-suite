@@ -24,7 +24,8 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:live:primary": "tsx --test test-live/primary.test.ts",
-    "test:live:web-search": "tsx --test test-live/web-search.test.ts"
+    "test:live:web-search": "tsx --test test-live/web-search.test.ts",
+    "test:live:web-search-routed": "tsx --test test-live/web-search-routed.test.ts"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",

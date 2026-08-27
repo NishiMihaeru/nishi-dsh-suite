@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { CodexSearchBackend } from 'nishi-dsh-codex/web-search-backend'
-import { normalizeProviderResult } from '../src/result.ts'
+import { CodexSearchBackend } from '../src/web-search-backend.ts'
+import { normalizeProviderResult } from 'nishi-dsh-core/web-search'
 
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'

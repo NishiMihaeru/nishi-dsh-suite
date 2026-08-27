@@ -57,5 +57,13 @@ export {
   type ModelCapability,
   type ProviderDescriptor,
   type RegisteredProvider,
+  type WebSearchCapability,
 } from '../registry/descriptor.js'
+export type {
+  PrimarySearchBackend,
+  PrimarySearchRequest,
+  PrimarySearchSource,
+  PrimaryWebSearchResult,
+} from '../web-search/types.js'
+export type { PrimarySearchRoute } from '../web-search/route.js'
 export { NishiProvidersService } from '../registry/service.js'

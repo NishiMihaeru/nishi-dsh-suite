@@ -20,6 +20,7 @@ import {
   type VendorExecutableDescriptor,
 } from 'nishi-dsh-core/runtime'
 import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
+import { AntigravitySearchBackend } from './web-search-backend.js'
 
 export const name = 'antigravity'
 export const inject = ['nishiProviders', 'subprocess', 'llm']
@@ -31,6 +32,12 @@ export const DEFAULT_ANTIGRAVITY_CATALOG_TIMEOUT_MS = 30_000
 export const DEFAULT_ANTIGRAVITY_TURN_TIMEOUT_MS = 10 * 60_000
 export const DEFAULT_ANTIGRAVITY_DISPOSE_GRACE_MS = 3_000
 export const DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES = 64_000
+/**
+ * Timeout for one native `agy search_web` run. It lives here rather than on
+ * the core's web-search tool because the vendor's own knobs belong to the
+ * vendor's plugin; the tool keeps its separate per-call timeout.
+ */
+export const DEFAULT_ANTIGRAVITY_SEARCH_TIMEOUT_MS = 60_000
 
 /** Identity and lookup facts for the Antigravity CLI executable. */
 const ANTIGRAVITY_DESCRIPTOR: VendorExecutableDescriptor = {
@@ -52,6 +59,7 @@ const DEFAULT_ANTIGRAVITY_SHARED_CONFIG: SharedProviderDefaults = {
 
 export interface Config {
   executable?: string
+  searchTimeoutMs?: number
   env?: Record<string, string>
   modelCacheMs?: number
   catalogTimeoutMs?: number
@@ -68,11 +76,13 @@ export const Config: Schema<Config> = Schema.object({
   turnTimeoutMs: Schema.number().default(DEFAULT_ANTIGRAVITY_TURN_TIMEOUT_MS),
   disposeGraceMs: Schema.number().default(DEFAULT_ANTIGRAVITY_DISPOSE_GRACE_MS),
   stderrMaxBytes: Schema.number().default(DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES),
+  searchTimeoutMs: Schema.number().default(DEFAULT_ANTIGRAVITY_SEARCH_TIMEOUT_MS),
 })
 
 /** Config after merge-and-validate: every field is present, `executable` is Antigravity-specific. */
 interface ResolvedAntigravityConfig extends SharedProviderDefaults {
   readonly executable: string
+  readonly searchTimeoutMs: number
 }
 
 /**
@@ -92,6 +102,15 @@ const antigravityDescriptor: ProviderDescriptor<ResolvedAntigravityConfig> = {
     routes: [ANTIGRAVITY_PRIMARY_PROVIDER],
     create: (ctx, config) => createAntigravityPrimaryAdapter(ctx, config),
   },
+  webSearch: {
+    create: (ctx, config) => new AntigravitySearchBackend(ctx, {
+      executable: config.executable,
+      env: config.env,
+      timeoutMs: config.searchTimeoutMs,
+      disposeGraceMs: config.disposeGraceMs,
+      stderrMaxBytes: config.stderrMaxBytes,
+    }),
+  },
 }
 
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
@@ -100,7 +119,12 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
 
   const shared = resolveSharedProviderConfig('antigravity', rawConfig, DEFAULT_ANTIGRAVITY_SHARED_CONFIG)
 
-  const config: ResolvedAntigravityConfig = { ...shared, executable }
+  const searchTimeoutMs = rawConfig.searchTimeoutMs ?? DEFAULT_ANTIGRAVITY_SEARCH_TIMEOUT_MS
+  if (!Number.isSafeInteger(searchTimeoutMs) || searchTimeoutMs < 1) {
+    throw new Error('antigravity: searchTimeoutMs must be a positive integer')
+  }
+
+  const config: ResolvedAntigravityConfig = { ...shared, executable, searchTimeoutMs }
 
   await registerProvider(ctx, antigravityDescriptor, config)
 }

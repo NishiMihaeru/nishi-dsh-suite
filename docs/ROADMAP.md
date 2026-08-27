@@ -74,12 +74,12 @@ Vendor subagents go entirely. Delegation returns later through DSH's own child a
 
 - [x] **2.B.1** Merged `provider-kit`, `usage-limits` and `usage-limits-host` into `nishi-dsh-core`; `primary-web-search` follows in 2.C, once the inversion removes the cycle that blocks it (the core cannot depend on the provider packages that depend on the core). Two mount points, not one: `nishi-dsh-core` on the host plane (bundle row — registry, usage domain, RPC, browser half) and `nishi-dsh-core/web-search` on the agent plane (preset row). Collapsing them into one mount would either give every agent `web_search` without a preset choice or make the usage registry come and go with mounted presets.
 - [x] **2.B.2** The registry service. `ctx.nishiProviders.register(descriptor, config)` records the descriptor, registers the model adapter under `descriptor.routes`, registers the usage source, and runs `install`. Provider plugins declare `inject: ['nishiProviders', ...]`; cordis owns load order, deferral and teardown.
-- [ ] **2.B.3** Canonical identity: `id: 'codex'` / `routes: ['codex-app-server']`, `id: 'antigravity'` / `routes: ['antigravity-cli']`. Route strings are unchanged — they are user-visible in saved session headers and the profile default.
+- [x] **2.B.3** Canonical identity: `id: 'codex'` / `routes: ['codex-app-server']`, `id: 'antigravity'` / `routes: ['antigravity-cli']`. Route strings are unchanged — they are user-visible in saved session headers and the profile default.
 
 ### 2.C — Web search on the registry
 
-- [ ] **2.C.1** Resolve `route.provider` through the registry instead of the `switch` in `primary-web-search/src/providers.ts:52`, and drop the `nishi-dsh-codex` / `nishi-dsh-antigravity` dependencies — the core must not depend on a provider package. Unsupported-primary behaviour is unchanged.
-- [ ] **2.C.2** One backend contract plus shared helpers in the core; argv construction, event parsing and result extraction stay provider-owned. Supersedes **2.10**. No size promise.
+- [x] **2.C.1** Resolve `route.provider` through the registry instead of the `switch` in `primary-web-search/src/providers.ts:52`, and drop the `nishi-dsh-codex` / `nishi-dsh-antigravity` dependencies — the core must not depend on a provider package. Unsupported-primary behaviour is unchanged.
+- [x] **2.C.2** One backend contract plus shared helpers in the core; argv construction, event parsing and result extraction stay provider-owned. Supersedes **2.10**. No size promise.
 
 ### 2.D — Usage on descriptors
 

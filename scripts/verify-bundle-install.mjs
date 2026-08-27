@@ -8,7 +8,6 @@ const LOCAL_FAMILY_PACKAGES = [
   'nishi-dsh-project-memory',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
-  'nishi-dsh-primary-web-search',
 ]
 
 function usage(message) {

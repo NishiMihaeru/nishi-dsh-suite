@@ -3,7 +3,6 @@ const names = [
   'nishi-dsh-core',
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
-  'nishi-dsh-primary-web-search',
   'nishi-dsh-project-memory',
   'nishi-dsh-suite',
 ]

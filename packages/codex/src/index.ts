@@ -26,6 +26,7 @@ import {
   CodexAppServerAdapter,
 } from './codex-plugin-dsh/index.js'
 import { CODEX_DESCRIPTOR } from './resolver.js'
+import { CodexSearchBackend } from './web-search-backend.js'
 import { installCodexPrimaryHistoryBridge } from './primary-history.js'
 
 export const name = 'codex'
@@ -105,6 +106,9 @@ const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
       stderrMaxBytes: config.stderrMaxBytes,
       modelPageSize: config.modelPageSize,
     }),
+  },
+  webSearch: {
+    create: (ctx) => new CodexSearchBackend(ctx),
   },
   async install(ctx) {
     await installCodexPrimaryHistoryBridge(ctx)

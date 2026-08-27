@@ -3,8 +3,8 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
-import { AntigravitySearchBackend } from 'nishi-dsh-antigravity/web-search-backend'
-import { normalizeProviderResult } from '../src/result.ts'
+import { AntigravitySearchBackend } from '../src/web-search-backend.ts'
+import { normalizeProviderResult } from 'nishi-dsh-core/web-search'
 
 function findOnPath(name: string): string | null {
   const pathEnv = process.env.PATH || ''

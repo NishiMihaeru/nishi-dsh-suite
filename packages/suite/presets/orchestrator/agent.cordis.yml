@@ -219,6 +219,6 @@
 # The host-global stock web provider may remain mounted by the base profile, but
 # this Orchestrator tool does not call ctx.web and therefore has no DeepSeek fallback.
 - id: tool-web
-  name: 'nishi-dsh-primary-web-search'
+  name: 'nishi-dsh-core/web-search'
   config:
     searchTimeoutMs: 60000

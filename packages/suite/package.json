@@ -56,7 +56,6 @@
     "nishi-dsh-core": "workspace:0.1.0-rc.3",
     "nishi-dsh-codex": "workspace:0.1.0-rc.3",
     "nishi-dsh-antigravity": "workspace:0.1.0-rc.3",
-    "nishi-dsh-primary-web-search": "workspace:0.1.0-rc.3",
     "nishi-dsh-project-memory": "workspace:0.1.0-rc.3"
   },
   "devDependencies": {

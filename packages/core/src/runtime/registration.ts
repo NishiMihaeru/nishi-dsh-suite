@@ -129,6 +129,9 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
     id: descriptor.id,
     routes,
     descriptor: descriptor as ProviderDescriptor<never>,
+    ...(descriptor.webSearch === undefined
+      ? {}
+      : { webSearch: descriptor.webSearch.create(ctx, config) }),
   })
   ctx.effect(() => forget, `${descriptor.id}: withdraw provider registration`)
 

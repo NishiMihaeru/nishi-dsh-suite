@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { PrimaryWebSearchError } from '../src/errors.js'
-import { normalizeProviderResult } from '../src/result.js'
-import { resolvePrimarySearchRoute, type PrimarySearchRoute } from '../src/route.js'
-import { dispatchPrimarySearch, type PrimarySearchBackends } from '../src/providers.js'
-import { formatSearchOutput, mergeSearchResults, parseSearchArgs, searchMetaFromValue } from '../src/tool.js'
+import { PrimaryWebSearchError } from '../src/web-search/errors.js'
+import { normalizeProviderResult } from '../src/web-search/result.js'
+import { resolvePrimarySearchRoute, type PrimarySearchRoute } from '../src/web-search/route.js'
+import { dispatchPrimarySearch } from '../src/web-search/providers.js'
+import type { PrimarySearchBackendResolver } from '../src/web-search/types.js'
+import { formatSearchOutput, mergeSearchResults, parseSearchArgs, searchMetaFromValue } from '../src/web-search/tool.js'
 
 function execFixture(input: { cwd?: string; config?: Record<string, unknown> } = {}): any {
   let currentConfig = input.config
@@ -18,11 +19,17 @@ function execFixture(input: { cwd?: string; config?: Record<string, unknown> } =
 
 function route(provider: string, model = 'model-1'): PrimarySearchRoute { return { provider, model } }
 
-function backends(calls: string[]): PrimarySearchBackends {
-  return {
-    codex: { async search(currentRoute, request) { calls.push(`codex:${currentRoute.model}:${request.query}`); return { sources: [{ url: 'https://codex.example/result' }] } } },
-    antigravity: { async search(currentRoute, request) { calls.push(`antigravity:${currentRoute.model}:${request.query}`); return { sources: [{ url: 'https://agy.example/result' }] } } },
-  }
+/**
+ * The resolver the registry hands the tool: keyed by route, with no provider
+ * known to the core itself. A route absent from this map stands for both
+ * "no such provider" and "that provider declares no search capability".
+ */
+function backends(calls: string[]): PrimarySearchBackendResolver {
+  const byRoute = new Map([
+    ['codex-app-server', { async search(currentRoute: any, request: any) { calls.push(`codex:${currentRoute.model}:${request.query}`); return { sources: [{ url: 'https://codex.example/result' }] } } }],
+    ['antigravity-cli', { async search(currentRoute: any, request: any) { calls.push(`antigravity:${currentRoute.model}:${request.query}`); return { sources: [{ url: 'https://agy.example/result' }] } } }],
+  ])
+  return (providerRoute) => byRoute.get(providerRoute)
 }
 
 test('primary route follows the live session request header without caching', () => {

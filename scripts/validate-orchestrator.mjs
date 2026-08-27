@@ -32,7 +32,7 @@ requireCount('retired subagent_claude_code', /^\s*toolName:\s*subagent_claude_co
 requireCount('retired subagent_antigravity', /^\s*toolName:\s*subagent_antigravity\s*$/gm, 0)
 requireCount('dsh-native delegation', /^\s*toolName:\s*subagent\s*$/gm)
 requireCount('dsh-native fork delegation', /^\s*toolName:\s*subagent_fork\s*$/gm)
-requireCount('primary web_search package', /^\s*name:\s*['"]?nishi-dsh-primary-web-search['"]?\s*$/gm)
+requireCount('routed web_search entry', /^\s*name:\s*['"]?nishi-dsh-core\/web-search['"]?\s*$/gm)
 requireCount('project memory package', /^\s*name:\s*['"]?nishi-dsh-project-memory['"]?\s*$/gm)
 
 for (const retired of [

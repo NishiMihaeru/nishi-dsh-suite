@@ -8,7 +8,8 @@ Everything in this package is true for every provider, and nothing in it names o
 
 | Entry | Plane | Mounted as | Owns |
 |---|---|---|---|
-| `nishi-dsh-core` | host | bundle row | the usage/limits service, its RPC projection, and the browser surface |
+| `nishi-dsh-core` | host | bundle row | the provider registry, the usage/limits service, its RPC projection |
+| `nishi-dsh-core/web-search` | agent | preset row | the routed `web_search` tool |
 | `nishi-dsh-core/client` | browser | `dsh.client` manifest | Usage & Limits and Model Accounts UI |
 | `nishi-dsh-core/runtime` | library | imported by provider packages | shared vendor CLI runtime and the registration contract |
 
@@ -24,10 +25,16 @@ The registry and usage service are process singletons: a provider may register o
 - `vendorFailure(spec)` / `recognizeVendorStderr(text, recognizers)` — one error shape carrying `product` / `stage` / `category`. Raw vendor stderr never reaches a message: only conditions a caller explicitly recognized become part of a diagnostic.
 - `resolveSharedProviderConfig(id, raw, defaults)` and `registerProvider(ctx, descriptor, config)` — the merge-and-validate step for the six config fields every provider shares, and the single registration path.
 
+## Routed web search
+
+One `web_search` tool, resolved per call through the provider registry: the session's primary route decides which provider's native search runs. A provider that declares no search capability, or a route no provider serves, produces an explicit `WEB_SEARCH_UNSUPPORTED` error — there is deliberately no DeepSeek/Exa/Perplexity fallback, because silently searching with a different vendor than the session selected is worse than saying no.
+
+It is a preset row rather than a bundle row: whether an agent can search at all is a preset choice, while the registry it resolves is a host-plane singleton.
+
 ## Usage and limits
 
 One normalized domain with a capability taxonomy in which "this provider exposes no machine-readable usage" is a legal state rather than an error, one collector shape, and one default refresh policy. The browser is served a safe projection over RPC; no vendor OAuth, session, or token material crosses that boundary.
 
 ## Provenance
 
-This package is the merge of the former `nishi-dsh-provider-kit`, `nishi-dsh-usage-limits`, and `nishi-dsh-usage-limits-host`, which were three packages describing one core. `nishi-dsh-primary-web-search` joins it once its provider-package dependency is inverted.
+This package is the merge of the former `nishi-dsh-provider-kit`, `nishi-dsh-usage-limits`, `nishi-dsh-usage-limits-host`, and `nishi-dsh-primary-web-search` — four packages describing one core. The web-search tool could only join once it stopped importing the provider packages: it now resolves backends through the registry.

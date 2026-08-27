@@ -99,11 +99,15 @@ export default ${JSON.stringify(classMap)};
 
 export default defineConfig([
   {
-    entry: { index: 'src/index.ts', runtime: 'src/runtime/index.ts' },
+    entry: { index: 'src/index.ts', runtime: 'src/runtime/index.ts', 'web-search': 'src/web-search/index.ts' },
     format: 'esm',
     platform: 'node',
     dts: true,
-    clean: false,
+    // The node config runs first and clears `lib`, so hashed shared chunks
+    // from earlier builds cannot accumulate and ship in the tarball. The
+    // client config below must keep `clean: false` or it would erase this
+    // config's output.
+    clean: true,
     outDir: 'lib',
     outExtensions: () => ({ js: '.js', dts: '.d.ts' }),
   },
