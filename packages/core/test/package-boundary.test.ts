@@ -11,13 +11,13 @@ const PROVIDER_PACKAGES = [
 ] as const
 const PROVIDER_IDS = ['codex', 'antigravity', 'claude'] as const
 
-async function sourceFiles(root: URL): Promise<string[]> {
-  const paths: string[] = []
+async function sourceFiles(root: URL): Promise<URL[]> {
+  const paths: URL[] = []
   const walk = async (directory: URL): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, directory)
       if (entry.isDirectory()) await walk(child)
-      else if (extname(entry.name) === '.ts' || extname(entry.name) === '.tsx') paths.push(child.pathname)
+      else if (extname(entry.name) === '.ts' || extname(entry.name) === '.tsx') paths.push(child)
     }
   }
   await walk(root)
@@ -61,7 +61,7 @@ test('core source never imports provider packages or hardcodes provider ids as s
   const srcRoot = new URL('../src/', import.meta.url)
   for (const path of await sourceFiles(srcRoot)) {
     const source = await readFile(path, 'utf8')
-    const relativePath = path.slice(srcRoot.pathname.length)
+    const relativePath = path.href.slice(srcRoot.href.length)
 
     for (const providerPackage of PROVIDER_PACKAGES) {
       assert.equal(
