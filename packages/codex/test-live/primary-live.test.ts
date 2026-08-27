@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
 import * as codex from '../src/index.ts'
-import { resolveManagedCodexRuntime } from '../src/resolver.ts'
+import { resolveCodexExecutable } from '../src/resolver.ts'
 
 function createRealSubprocess() {
   return {
@@ -115,14 +115,13 @@ function createLiveContext() {
 }
 
 test('LIVE PROBE: Codex primary returns CODEX_PRIMARY_OK', async () => {
-  const managed = resolveManagedCodexRuntime()
-  assert.ok(managed.executable, 'Managed Codex binary resolved')
+  const resolved = resolveCodexExecutable()
+  assert.ok(resolved.executable, 'External Codex CLI resolved')
 
   const { ctx, adapters, sessions } = createLiveContext()
 
   await codex.apply(ctx, {
-    executable: managed.executable,
-    env: { PATH: `${managed.binDir}:${process.env.PATH || ''}` },
+    executable: resolved.executable,
     turnTimeoutMs: 120_000,
   })
 
@@ -168,14 +167,13 @@ test('LIVE PROBE: Codex primary returns CODEX_PRIMARY_OK', async () => {
 })
 
 test('LIVE PROBE: Codex subagent runs and returns CODEX_SUBAGENT_OK', async () => {
-  const managed = resolveManagedCodexRuntime()
-  assert.ok(managed.executable, 'Managed Codex binary resolved')
+  const resolved = resolveCodexExecutable()
+  assert.ok(resolved.executable, 'External Codex CLI resolved')
 
   const { ctx, providers } = createLiveContext()
 
   await codex.apply(ctx, {
-    executable: managed.executable,
-    env: { PATH: `${managed.binDir}:${process.env.PATH || ''}` },
+    executable: resolved.executable,
     turnTimeoutMs: 120_000,
   })
 
