@@ -154,8 +154,8 @@ export class OfficialClaudeUsageSource {
     })()
     void protocol.catch(() => {})
 
-    let result: unknown
-    let requestError: unknown
+    let result: unknown = undefined
+    let requestError: unknown = undefined
     try {
       result = await Promise.race([protocol, timeout])
     } catch (error) {
