@@ -1,7 +1,8 @@
 import { dirname, isAbsolute, join, normalize } from 'node:path'
 import { MAX_BOOTSTRAP_BYTES, MAX_BOOTSTRAP_LINES } from './bootstrap.js'
-import { readSafeRegularFile, validateCanonicalDirectory } from './filesystem.js'
+import { readSafeRegularFile } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
+import { withExistingProjectMemoryScope } from './storage.js'
 import { recoverPendingProjectMemoryTransaction } from './transaction.js'
 
 export const MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES = 64 * 1024 // 64 KiB (65,536 bytes)
@@ -61,10 +62,6 @@ async function readInstructionFile(
     const buffer = await readSafeRegularFile(parent, filePath, {
       signal,
       maxBytes: MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES,
-      // projectRoot and dshHome are explicit workspace roots and may be
-      // represented by symlink paths. The directory is still opened and bound
-      // to one inode before the child file is opened; only canonical `.dsh`
-      // components require a no-symlink final directory path.
       allowDirectorySymlink: true,
     })
     if (buffer === null) return { exists: false, content: null, rawLength: 0 }
@@ -88,48 +85,29 @@ async function readStrictMemoryBootstrap(
   signal?: AbortSignal,
 ): Promise<CanonicalContextSource> {
   signal?.throwIfAborted()
-
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  const memoryMd = paths.memoryMd
 
   try {
-    if (!(await validateCanonicalDirectory(dshDir, signal))) {
-      return { exists: false, content: null }
-    }
-    if (!(await validateCanonicalDirectory(memoryDir, signal))) {
-      return { exists: false, content: null }
-    }
+    const result = await withExistingProjectMemoryScope(projectRoot, async (memoryScope) => {
+      const rawBuffer = await memoryScope.readRegularFile(paths.memoryMd, {
+        maxBytes: MAX_BOOTSTRAP_BYTES,
+      })
+      if (rawBuffer === null) return { exists: false, content: null }
+      signal?.throwIfAborted()
 
-    const rawBuffer = await readSafeRegularFile(memoryDir, memoryMd, {
-      signal,
-      maxBytes: MAX_BOOTSTRAP_BYTES,
-    })
-    if (rawBuffer === null) return { exists: false, content: null }
-    signal?.throwIfAborted()
-
-    const content = rawBuffer.toString('utf8')
-    if (countLines(content) > MAX_BOOTSTRAP_LINES) {
-      throw new Error('Canonical context memory bootstrap could not be read safely.')
-    }
-
-    return {
-      exists: true,
-      content,
-    }
+      const content = rawBuffer.toString('utf8')
+      if (countLines(content) > MAX_BOOTSTRAP_LINES) {
+        throw new Error('Canonical context memory bootstrap could not be read safely.')
+      }
+      return { exists: true, content }
+    }, signal)
+    return result ?? { exists: false, content: null }
   } catch (err: any) {
     if (signal?.aborted) signal.throwIfAborted()
     throw new Error('Canonical context memory bootstrap could not be read safely.')
   }
 }
 
-/**
- * Safely reads the canonical always-loaded context sources from explicit roots:
- * 1. <dshHome>/AGENTS.md (global instructions)
- * 2. <projectRoot>/DSH.md (project contract)
- * 3. <projectRoot>/.dsh/memory/MEMORY.md (memory bootstrap)
- */
 export async function readCanonicalProjectContext(
   options: ReadCanonicalProjectContextOptions,
 ): Promise<CanonicalProjectContext> {
@@ -186,7 +164,6 @@ export async function readCanonicalProjectContext(
   }
 }
 
-/** Safely reads the DSH project-only context sources from an explicit root. */
 export async function readDshProjectContext(
   options: ReadDshProjectContextOptions,
 ): Promise<DshProjectContext> {
