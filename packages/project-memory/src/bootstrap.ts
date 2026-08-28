@@ -4,8 +4,7 @@ import {
   readSafeRegularFile,
   validateCanonicalDirectory,
   withSafeFileWriterLock,
-  writeFileExclusiveAtomic,
-  writeSafeFileAtomically,
+  type SafeDirectoryScope,
 } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 import { isValidTopicIdentifier } from './topic-id.js'
@@ -102,31 +101,26 @@ function assertBootstrapBounds(content: string): void {
   }
 }
 
-/** Ensure MEMORY.md while the caller already owns its writer lock. */
 async function ensureBootstrapFile(
-  memoryDir: string,
+  scope: SafeDirectoryScope,
   memoryMd: string,
   signal?: AbortSignal,
 ): Promise<boolean> {
   signal?.throwIfAborted()
-  const existing = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+  const existing = await scope.readRegularFile(memoryMd)
   if (existing !== null) return false
-  return writeFileExclusiveAtomic(
-    memoryDir,
+  return scope.writeFileExclusiveAtomic(
     memoryMd,
     INITIAL_MEMORY_MD_CONTENT,
     { mode: 0o644 },
-    signal,
   )
 }
 
-/** Read existing bootstrap under its lock, or model the approved initial file without creating it yet. */
 async function readBootstrapOrInitial(
-  memoryDir: string,
+  scope: SafeDirectoryScope,
   memoryMd: string,
-  signal?: AbortSignal,
 ): Promise<string> {
-  const existing = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+  const existing = await scope.readRegularFile(memoryMd)
   return existing === null ? INITIAL_MEMORY_MD_CONTENT : existing.toString('utf8')
 }
 
@@ -145,7 +139,7 @@ export async function ensureProjectMemoryBootstrap(
   const created = await withSafeFileWriterLock(
     memoryDir,
     memoryMd,
-    () => ensureBootstrapFile(memoryDir, memoryMd, signal),
+    (scope) => ensureBootstrapFile(scope, memoryMd, signal),
     signal,
   )
   return { created, memoryPath: memoryMd }
@@ -189,12 +183,12 @@ export async function writeProjectMemoryBootstrap(
   await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
 
-  return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
+  return withSafeFileWriterLock(memoryDir, memoryMd, async (scope) => {
     signal?.throwIfAborted()
-    const current = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+    const current = await scope.readRegularFile(memoryMd)
     const created = current === null
     signal?.throwIfAborted()
-    await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(content, 'utf8'), signal)
+    await scope.writeFileAtomically(memoryMd, Buffer.from(content, 'utf8'))
     return { created, memoryPath: memoryMd }
   }, signal)
 }
@@ -221,9 +215,9 @@ export async function editProjectMemoryBootstrap(
     throw new Error(`Cannot edit project memory bootstrap: directory "${memoryDir}" does not exist`)
   }
 
-  return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
+  return withSafeFileWriterLock(memoryDir, memoryMd, async (scope) => {
     signal?.throwIfAborted()
-    const currentBuffer = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+    const currentBuffer = await scope.readRegularFile(memoryMd)
     if (currentBuffer === null) {
       throw new Error(`Project memory bootstrap file "${memoryMd}" does not exist; cannot edit missing file`)
     }
@@ -251,7 +245,7 @@ export async function editProjectMemoryBootstrap(
     assertBootstrapBounds(updatedContent)
     const updatedBuffer = Buffer.from(updatedContent, 'utf8')
     signal?.throwIfAborted()
-    await writeSafeFileAtomically(memoryDir, memoryMd, updatedBuffer, signal)
+    await scope.writeFileAtomically(memoryMd, updatedBuffer)
     return { memoryPath: memoryMd, bytesWritten: updatedBuffer.length }
   }, signal)
 }
@@ -325,15 +319,13 @@ export function insertTopicIntoMemoryMapContent(content: string, topic: string):
 
 /**
  * Hold the MEMORY.md writer lock while preflighting one canonical map entry.
- * Missing MEMORY.md is represented by the approved initial content in memory
- * and is not created until the supplied commit succeeds. The nested operation
- * may acquire the corresponding topic lock; lock order is always
- * MEMORY.md -> topic.md.
+ * The callback receives the same directory scope that owns MEMORY.md.lock so a
+ * nested topic lock/read/write cannot reopen a replaceable parent pathname.
  */
 export async function withMemoryMapEntryTransaction<T>(
   projectRoot: string,
   topic: string,
-  operation: (commitMap: CommitMemoryMapEntry) => Promise<T>,
+  operation: (commitMap: CommitMemoryMapEntry, memoryScope: SafeDirectoryScope) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
   signal?.throwIfAborted()
@@ -347,10 +339,10 @@ export async function withMemoryMapEntryTransaction<T>(
   await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
 
-  return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
+  return withSafeFileWriterLock(memoryDir, memoryMd, async (scope) => {
     signal?.throwIfAborted()
-    await settleCommittedProjectMemoryTransactionUnderMapLock(projectRoot, signal)
-    const currentContent = await readBootstrapOrInitial(memoryDir, memoryMd, signal)
+    await settleCommittedProjectMemoryTransactionUnderMapLock(projectRoot, scope, signal)
+    const currentContent = await readBootstrapOrInitial(scope, memoryMd)
     const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
     assertBootstrapBounds(updatedContent)
     let committed = false
@@ -358,12 +350,12 @@ export async function withMemoryMapEntryTransaction<T>(
       if (committed) return
       signal?.throwIfAborted()
       if (updatedContent !== currentContent || currentContent === INITIAL_MEMORY_MD_CONTENT) {
-        await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'), signal)
+        await scope.writeFileAtomically(memoryMd, Buffer.from(updatedContent, 'utf8'))
       }
       committed = true
     }
 
-    const result = await operation(commitMap)
+    const result = await operation(commitMap, scope)
     if (!committed) {
       throw new Error(`Project memory transaction for topic "${topic}" completed without committing the Memory map`)
     }
