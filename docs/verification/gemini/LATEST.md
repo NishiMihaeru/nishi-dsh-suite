@@ -1,89 +1,189 @@
-# Latest Gemini validation
+# Local Validation Report: Core DSH Connection/Client Compatibility Migration
 
-- Result: PASS
-- Branch: feat/core-provider-plugins-rc3
-- Tested HEAD: b3948f3443fc7d0418b64c688865fb7c0ec9eebf
-- Tested commits:
-  - `0297fcc4eaecd4aace5c06b20000ea4539a7b3e1` — fix(memory): select maintenance route before prompt assembly
-  - `b3948f3443fc7d0418b64c688865fb7c0ec9eebf` — test(memory): cover maintenance route timing
-- Environment:
-  - Node: v24.19.0 (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
-  - pnpm: 11.21.0
-  - Current installed DSH baseline: `0.1.1-rc.2` (package family `0.1.0-rc.3`)
-  - Upstream DSH reference: `dsh-v0.1.2-alpha.1` / commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
+- **Result**: `PASS`
+- **Branch**: `feat/core-provider-plugins-rc3`
+- **Tested implementation HEAD**: `59512d51e55f8121eccdb934e01523e4436b289c`
+- **Environment**:
+  - Node: `v24.19.0` (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
+  - pnpm: `11.21.0`
+  - Installed DSH baseline: `0.1.1-rc.2`
+  - Upstream DSH target: tag `dsh-v0.1.2-alpha.1` / commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
 
-## Scope
+---
 
-Strictly:
-- `packages/project-memory/src/commands.ts`
-- `packages/project-memory/test/memory-directives.test.ts`
+## 1. Exact Files Reviewed
 
-No implementation changes, no changes to root dependencies, lockfile, or workflow files.
+1. [`packages/core/src/host/connection-compat.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/connection-compat.ts) — Connection RPC arity detection and registration abstraction.
+2. [`packages/core/test/connection-compat.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/connection-compat.test.ts) — Unit tests for rc.2 3-argument and alpha.1 2-argument registration.
+3. [`packages/core/src/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/index.ts) — Host RPC channel registration through `registerConnectionRpcChannel()`.
+4. [`packages/core/src/host/rpc.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/rpc.ts) — Usage Limits RPC handler and structural error types.
+5. [`packages/core/src/host/authorization-rpc.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/authorization-rpc.ts) — Model Accounts Authorization RPC handler and structural error types.
+6. [`packages/core/src/client/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/client/index.ts) — Browser client entry using Cordis `Context` without `dsh-client-runtime`.
+7. [`packages/core/package.json`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/package.json) — Production package boundary (retired packages only in `devDependencies`).
+8. [`packages/core/test/package-boundary.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/package-boundary.test.ts) — Regression test suite enforcing isolation of retired packages.
+9. [`packages/core/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/README.md), [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md), [`docs/HANDOFF.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/HANDOFF.md), [`docs/RELEASE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/RELEASE.md), [`docs/ROADMAP.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ROADMAP.md), [`docs/verification/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/verification/README.md).
 
-## Upstream Lifecycle Findings (`dsh-v0.1.2-alpha.1`)
+---
 
-1. **Agent Loop Step Lifecycle Order (`packages/core/agent-loop/src/agent.ts:232-250`)**:
-   - In `ReactLoopAgent.prototype.preStep()`:
-     1. `const claimed = this.inbox.claim(target, position.turn)` executes first.
-     2. `Inbox.prototype.claim()` in `packages/core/agent/src/inbox.ts` mutates inbox queues and synchronously fires `notifications.claimed(message, turn)`, which dispatches the event `'agent/inbox/claimed'` with payload `{ agent, message, turn }`.
-     3. `const assembly = await this.loopCtx.systemPrompt.assemble(...)` executes second.
-     4. `agent/pre-step` waterfall executes third.
-     5. `step()` -> `buildRequest()` runs `agent/request` waterfall fourth.
+## 2. Lockfile Consistency & Gate Results
 
-2. **Model Selection Snapshot Semantics (`packages/core/agent/src/model-selection.ts`)**:
-   - `installModelSelection(agentCtx, selection)` listens on `'system-prompt/assemble'` (line 40) and snapshots `selection.assembled = selection.current`.
-   - When `'agent/request'` is dispatched (line 54), it applies `selection.assembled` to resolve `provider`, `model`, and reasoning effort.
-   - **Root Cause of Prior Bug**: When route activation waited for `'agent/pre-step'`, `selection.current` was still `undefined` during `'system-prompt/assemble'`, snapshotting `selection.assembled = undefined`. Thus, the first step of a maintenance turn was dispatched using the default route instead of the requested route.
-   - **Fix Verification**: Activating `selectionRef.current` inside the `'agent/inbox/claimed'` handler ensures `selectionRef.current` is populated *before* `'system-prompt/assemble'` executes, ensuring the first maintenance step correctly snapshots and applies the targeted route.
+### 2.1 Frozen Lockfile
+```bash
+pnpm install --frozen-lockfile
+```
+- **Exit code**: `0`
+- **Output**: `Scope: all 7 workspace projects; Already up to date; Done in 318ms`
+- **Diff check** (`git diff --exit-code -- pnpm-lock.yaml packages/core/package.json`): Exit code `0` (clean, zero diffs).
 
-3. **Baseline Compatibility (`dsh-v0.1.1-rc.2`)**:
-   - Verified that `'agent/inbox/claimed'` with signature `{ agent: Agent, message: UserMessage, turn: number }` was already part of `dsh-v0.1.1-rc.2` (`@deepseek-ai/dsh-agent/lib/types/runtime-types.d.ts:194`).
-   - The fix is fully backward-compatible with both `0.1.1-rc.2` and `0.1.2-alpha.1`.
-
-## Property & Contract Verification
-
-| # | Property / Invariant | Status | Evidence / Implementation Detail |
+### 2.2 Core Focused Gates
+| Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| 1 | `scheduleMaintenanceTurn()` no longer waits for `agent/pre-step` | PASS | `agent.ctx.on('agent/pre-step')` replaced by `agent.ctx.on('agent/inbox/claimed')`. |
-| 2 | Exact maintenance message determined by ID & object identity | PASS | Checked via `message?.id !== targetMessageId && message !== maintenanceMessage`. |
-| 3 | On `agent/inbox/claimed` for maintenance message, route & turn are set | PASS | Sets `selectionRef.current = { provider: route.provider, model: route.model }`, `activated = true`, and captures `turn`. |
-| 4 | Route selection occurs before `system-prompt/assemble` | PASS | Verified against upstream `agent.ts:236-237` sequence; `installModelSelection` sees `selection.current` immediately. |
-| 5 | First `agent/request` receives selected provider/model | PASS | `selection.assembled` has selected route, overriding default provider/model. |
-| 6 | Selection is scoped to the maintenance turn | PASS | `disposeTurnStopping` and `disposeError` check matching `payload.turn === maintenanceTurn`. |
-| 7 | Cleanup runs on turn-stopping, error, whenIdle(), and steer() error | PASS | Handled in `disposeTurnStopping`, `disposeError`, `agent.whenIdle().then(cleanup, cleanup)`, and `try { agent.steer() } catch { cleanup(); throw err }`. |
-| 8 | Cleanup clears state and disposes all listeners | PASS | Sets `selectionRef.current = undefined`, `selectionRef.assembled = undefined`, removes agent from `activeMaintenanceAgents`, and calls all disposer functions. |
-| 9 | Duplicate concurrent maintenance rejected on same agent | PASS | Guarded by `activeMaintenanceAgents.has(agent)` WeakSet check in `/memory` and `/consolidate` command handlers. |
-| 10 | No listener, promise, or handle leaks | PASS | Idempotent cleanup (`cleanedUp` guard) safely disposes all 4 event subscriptions and model selection hook. |
+| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 169 tests passed, 0 failed (duration: 966ms) |
+| `pnpm --filter nishi-dsh-core check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean |
+| `pnpm --filter nishi-dsh-core build` | `0` | **PASS** | `tsdown` built ESM node artifacts & CJS browser `lib/client.js` (120.92 kB) |
 
-## Regression Test Assessment
+---
 
-- Test: `maintenance route is selected when its inbox message is claimed, before prompt assembly` in `packages/project-memory/test/memory-directives.test.ts`.
-- Verified behaviors:
-  1. Steers directive message into the agent.
-  2. Emits `agent/inbox/claimed` with the steered message ID and turn index.
-  3. Validates that `system-prompt/assemble` yields variables `{ provider: 'codex-app-server', model: 'gpt-5.6-sol' }`.
-  4. Validates that `agent/request` receives `{ provider: 'codex-app-server', model: 'gpt-5.6-sol' }` and that unselected inherited reasoning effort (`reasoningEffort: 'high'`) is stripped cleanly.
-  5. Validates that on `agent.whenIdle()` resolution, all registered listeners (`agent/inbox/claimed`, `system-prompt/assemble`, `agent/request`, `agent/error`, `agent/turn-stopping`) are disposed.
+## 3. Connection API Arity & Helper Verification
 
-## Executed Commands and Results
+### 3.1 Actual Function Arity from Published/Built Packages
+- **DSH `0.1.1-rc.2`** (`@deepseek-ai/dsh-client-connection/lib/index.js`):
+  ```js
+  handle: (channel, handler, options) => this.register(owner, channel, handler, options)
+  ```
+  - **Actual `rpc.handle.length`**: `3`
+- **DSH `0.1.2-alpha.1`** (`packages/client/connection/lib/index.js` built from upstream commit `cd5ef8148`):
+  ```js
+  handle: (channel, handler) => this.register(owner, channel, handler)
+  ```
+  - **Actual `rpc.handle.length`**: `2`
+- **Build/Transpilation Impact**: Neither `tsdown` nor Rolldown alters the parameter counts or function shapes in either package build. The arity detection in `packages/core/src/host/connection-compat.ts` (`handle.length >= 3`) is deterministic and reliable.
 
-| Command | Exit Code | Result | Details |
-|---|---|---|---|
-| `pnpm --filter nishi-dsh-project-memory test` | `0` | PASS | 25/25 unit tests passed (duration: ~223ms) |
-| `pnpm --filter nishi-dsh-project-memory check` | `0` | PASS | Typecheck clean (`tsc -p tsconfig.json --noEmit`) |
-| `pnpm --filter nishi-dsh-project-memory build` | `0` | PASS | Build clean (`tsc -p tsconfig.json`) |
+### 3.2 Helper Behavior
+- [`packages/core/src/host/connection-compat.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/connection-compat.ts):
+  - In rc.2 environment: calls `handle(channel, handler, { authority: 'trusted-host' })`.
+  - In alpha.1 environment: calls `handle(channel, handler)`.
+- Verified in unit tests ([`packages/core/test/connection-compat.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/connection-compat.test.ts)) and live runtime probes.
 
-## Disposable Upstream Alpha.1 Probe
+---
 
-A disposable runtime probe was executed directly importing `installModelSelection` from `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) against `scheduleMaintenanceTurn`:
-- Exact upstream `installModelSelection` + simulated `ReactLoopAgent` pre-step sequence: **PASS**
-- Turn error teardown against upstream alpha.1: **PASS**
-- Turn-stopping teardown against upstream alpha.1: **PASS**
-- Steer exception teardown: **PASS**
-- Zero lingering listeners: **PASS**
+## 4. Host Registration, RPC Wire Shapes, & Lifecycle
 
-## Verdict
+### 4.1 Channel Registrations
+In [`packages/core/src/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/index.ts), both Core RPC channels are registered via `registerConnectionRpcChannel`:
+1. `/usage-limits` (`USAGE_LIMITS_CHANNEL`) -> `createUsageLimitsRpcHandler(hostService)`
+2. `/authorization` (`AUTHORIZATION_RPC_CHANNEL`) -> `createAuthorizationRpcHandler(authController)`
 
-**PASS**
+### 4.2 Lifecycle & Disposer Ownership
+- `Connection` is the sole lifecycle owner through `owner.effect(() => owner.webServer.register(route), ...)`.
+- Core does NOT create a second disposer or redundant effect.
+- **Mount / Unload / Remount Probe Results**:
+  - **rc.2**: Initial mount registers 2 channels (`/usage-limits`, `/authorization`). Plugin unload clears all routes (0 remaining). Remount registers exactly 2 channels without duplicates.
+  - **alpha.1**: Initial mount registers 2 channels. Plugin unload clears all routes (0 remaining). Remount registers exactly 2 channels without duplicates.
 
-The fix in `0297fcc4eaecd4aace5c06b20000ea4539a7b3e1` and regression test in `b3948f3443fc7d0418b64c688865fb7c0ec9eebf` correctly resolve the maintenance route selection timing issue before prompt assembly in accordance with DSH upstream lifecycle contracts (`dsh-v0.1.2-alpha.1` and `dsh-v0.1.1-rc.2`). All validation gates and regression tests pass with exit code 0.
+### 4.3 Structural RPC Result & Error Shapes
+- Production Core imports neither `@deepseek-ai/dsh-host-apiproxy` nor `@deepseek-ai/dsh-client-runtime`.
+- Type inference uses `type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>` and `type ConnectionRpcError = Extract<ConnectionRpcResult, { ok: false }>['error']`.
+- **Wire Shapes**:
+  - Success: `{ ok: true, value: <DTO> }`
+  - `bad-request`: `{ ok: false, error: { code: 'bad-request', message: string, details: { issues: [...] } } }`
+  - `internal`: `{ ok: false, error: { code: 'internal', message: string, details: {} } }`
+- Verified against both rc.2 and alpha.1 wire expectations; browser-facing RPC wire contract remains identical.
+
+---
+
+## 5. Browser Client Compatibility & First-Party Patterns
+
+### 5.1 Cordis Client Context Transition
+- Browser entry [`packages/core/src/client/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/client/index.ts) uses `import type { Context as ClientContext } from '@deepseek-ai/cordis'`.
+- First-party packages:
+  - **rc.2**: Supported by existing client runtime graph (`ui-sidebar`, `ui-settings`, `locale`).
+  - **alpha.1**: `dsh-client-runtime` is completely removed upstream. Upstream client plugins (`ui-sidebar`, `ui-settings`, `locale`, `ui-renderer`) use Cordis `Context` directly.
+- Service declarations provide Core access to:
+  - `ctx.connection` (via `@deepseek-ai/dsh-client-connection/client`)
+  - `ctx.locale` (via `@deepseek-ai/dsh-client-locale/client`)
+  - `ctx.slots` (via `@deepseek-ai/dsh-client-ui-renderer/client` / `@deepseek-ai/dsh-client-ui-slots`)
+- Slot components registered:
+  - `sidebar.footer.action` (`id: 'usage-limits'`)
+  - `settings.section` (`id: 'usage-limits'`)
+  - `settings.section` (`id: 'model-accounts'`)
+- Dictionary namespaces registered: `usage-limits`, `model-accounts`.
+- Build purity gate passes cleanly and emits `lib/client.js` wrapped in `window.__ModuleLoader__.load()`.
+
+---
+
+## 6. Dependency Boundary & Regression Tests
+
+### 6.1 Package Boundary
+- `packages/core/package.json`:
+  - `dependencies`: `@deepseek-ai/schemastery` only.
+  - `peerDependencies`: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-client-connection`, `@deepseek-ai/dsh-client-locale`, `@deepseek-ai/dsh-client-ui-primitives`, `@deepseek-ai/dsh-client-ui-settings`, `@deepseek-ai/dsh-client-ui-sidebar`, `@deepseek-ai/dsh-client-ui-slots`, `@deepseek-ai/dsh-credentials`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-subprocess`, `@deepseek-ai/dsh-system-prompt`, `@deepseek-ai/dsh-timeout`, `@deepseek-ai/dsh-tools`, `react`.
+  - `@deepseek-ai/dsh-host-apiproxy` and `@deepseek-ai/dsh-client-runtime` are **completely absent** from `dependencies`, `peerDependencies`, and `dsh.client.inject`.
+  - Present only in `devDependencies` as `"0.1.1-rc.2"` backward-compatibility fixtures to keep the local rc.2 test toolchain operable.
+- Peer dependencies version range note: `peerDependencies` currently remain `0.1.1-rc.2`. Version range widening to `0.1.1-rc.2 || ^0.1.2-alpha.1` is planned for the subsequent release phase.
+
+### 6.2 Boundary Regression Suite
+- [`packages/core/test/package-boundary.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/package-boundary.test.ts) asserts:
+  - Retired packages are absent from `dependencies` and `peerDependencies`.
+  - Production TypeScript source files contain no imports or string references to retired packages.
+  - `dsh.client.inject` does not request `dsh-client-runtime`.
+  - Provider package isolation and neutrality rules are preserved.
+
+---
+
+## 7. Security Review: Transition from `{ authority: 'trusted-host' }` to alpha.1
+
+- **rc.2 Security Model**:
+  - Passed `{ authority: 'trusted-host' }` to `rpc.handle()`.
+  - `HostConnectionService.register()` evaluated `isTrustedApiRequest(req, this.trustedHosts)` to verify the Host/Origin fence (protecting against DNS rebinding and cross-site requests).
+- **alpha.1 Security Model**:
+  - Two-argument `handle(channel, handler)` executes `requestRejection(req)` on every request before the HTTP bridge invokes `fetchHandler`:
+    ```ts
+    requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
+      if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
+      return this.browserAuth.isAuthenticated(request) ? undefined : 401
+    }
+    ```
+  - **Host/Origin Fence**: Enforced first (`isTrustedApiRequest`). Untrusted Host header or cross-site request returns **`403 Forbidden`**.
+  - **Browser Authentication**: Enforced second (`browserAuth.isAuthenticated`). Validates HMAC-SHA256 signed `dsh-auth-*` cookie minted through process launch-token exchange. Missing or invalid cookie returns **`401 Unauthorized`**.
+- **Conclusion**: The transition to alpha.1 two-argument registration **strictly tightens** security. Core RPC endpoints (`/usage-limits`, `/authorization`) cannot be accessed as anonymous LAN endpoints.
+
+---
+
+## 8. Disposable DSH alpha.1 Probe Results
+
+A disposable upstream checkout was probed at tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) in `/tmp/dsh-upstream`:
+1. **Built upstream packages**: `pnpm build:lib:host` and `pnpm build:lib:client`.
+2. **Runtime probe executed**:
+   - `Alpha1HostConnectionService.rpc.handle.length === 2`: **VERIFIED**
+   - Untrusted Host header rejection -> `403 Forbidden`: **VERIFIED**
+   - Unauthenticated request rejection -> `401 Unauthorized`: **VERIFIED**
+   - Authenticated launch token exchange -> `303 Redirect` + `Set-Cookie`: **VERIFIED**
+   - Core mount / unmount / remount lifecycle -> clean teardown and zero leaks: **VERIFIED**
+   - RPC handler wire format (`get-roster`, `bad-request`, `list-flows`): **VERIFIED**
+   - Client plugin apply with Cordis `Context` (`locale`, `slots`, `connection`): **VERIFIED**
+- **Exit code**: `0`
+
+---
+
+## 9. Out-of-Scope Findings
+
+- **Registry listener / ghost-provider transaction issue**: Confirmed existing known issue, excluded from scope as instructed.
+
+---
+
+## 10. Git Status
+
+```
+HEAD: 59512d51e55f8121eccdb934e01523e4436b289c
+Branch: feat/core-provider-plugins-rc3
+Working tree: clean (only docs/verification/gemini/LATEST.md modified)
+```
+
+---
+
+## 11. Final Verdict
+
+**`Result: PASS`**
+
+Core DSH Connection and client compatibility migration successfully passes all local verification gates, backward compatibility contracts with DSH `0.1.1-rc.2`, forward compatibility runtime probes with DSH `0.1.2-alpha.1`, dependency boundary invariants, and security assessments.
