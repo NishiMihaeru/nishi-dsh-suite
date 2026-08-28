@@ -35,17 +35,13 @@ export async function findProjectRoot(cwd: string, signal?: AbortSignal): Promis
 
     const parent = dirname(currentDir)
     if (parent === currentDir) {
-      // Reached filesystem root with no .git marker found; fallback to normalized cwd
       return normalize(cwd)
     }
     currentDir = parent
   }
 }
 
-/**
- * Renders the deterministic model-facing markdown context for DSH project sources.
- * Returns null if both DSH.md and MEMORY.md are absent.
- */
+/** Renders the deterministic model-facing markdown context for DSH project sources. */
 export function renderDshProjectContext(context: DshProjectContext): string | null {
   const sections: string[] = []
 
@@ -57,10 +53,7 @@ export function renderDshProjectContext(context: DshProjectContext): string | nu
     sections.push(`## Project Memory (.dsh/memory/MEMORY.md)\n${context.memoryBootstrap.content}`)
   }
 
-  if (sections.length === 0) {
-    return null
-  }
-
+  if (sections.length === 0) return null
   return `# DSH Project Context\n\n${sections.join('\n\n')}`
 }
 
@@ -90,33 +83,17 @@ function hasVisibleProjectContext(agent: any): boolean {
   return false
 }
 
-/**
- * Internal runtime registration for project-memory context injection at agent/pre-step.
- */
+/** Internal runtime registration for project-memory context injection at agent/pre-step. */
 export function registerProjectContextRuntime(ctx: Context): void {
   const initializedRoots = new Set<string>()
-  const inFlightInits = new Map<string, Promise<void>>()
 
-  async function ensureProjectInitialized(projectRoot: string): Promise<void> {
+  async function ensureProjectInitialized(projectRoot: string, signal?: AbortSignal): Promise<void> {
     const normRoot = normalize(projectRoot)
-    if (initializedRoots.has(normRoot)) {
-      return
-    }
-
-    let inFlight = inFlightInits.get(normRoot)
-    if (!inFlight) {
-      inFlight = (async () => {
-        try {
-          await initializeDshProject(normRoot)
-          initializedRoots.add(normRoot)
-        } finally {
-          inFlightInits.delete(normRoot)
-        }
-      })()
-      inFlightInits.set(normRoot, inFlight)
-    }
-
-    await inFlight
+    if (initializedRoots.has(normRoot)) return
+    signal?.throwIfAborted()
+    await initializeDshProject(normRoot, signal)
+    signal?.throwIfAborted()
+    initializedRoots.add(normRoot)
   }
 
   ctx.on(
@@ -125,26 +102,12 @@ export function registerProjectContextRuntime(ctx: Context): void {
       payload.signal?.throwIfAborted()
 
       const decision = await next()
-      if (decision.kind === 'reject') {
-        return decision
-      }
+      if (decision.kind === 'reject') return decision
 
       payload.signal?.throwIfAborted()
-
-      // Do NOT inject a standalone request for an empty first-step decision:
-      if (payload.step === 1 && decision.messages.length === 0) {
-        return decision
-      }
-
-      // Check visible surface nodes
-      if (hasVisibleProjectContext(payload.agent)) {
-        return decision
-      }
-
-      // Check current decision messages
-      if (decision.messages.some(isTask7ProjectContextMessage)) {
-        return decision
-      }
+      if (payload.step === 1 && decision.messages.length === 0) return decision
+      if (hasVisibleProjectContext(payload.agent)) return decision
+      if (decision.messages.some(isTask7ProjectContextMessage)) return decision
 
       const rawCwd = payload.agent?.session?.header?.cwd
       if (typeof rawCwd !== 'string' || rawCwd.trim().length === 0 || !isAbsolute(rawCwd)) {
@@ -154,7 +117,7 @@ export function registerProjectContextRuntime(ctx: Context): void {
       const projectRoot = await findProjectRoot(rawCwd, payload.signal)
       payload.signal?.throwIfAborted()
 
-      await ensureProjectInitialized(projectRoot)
+      await ensureProjectInitialized(projectRoot, payload.signal)
       payload.signal?.throwIfAborted()
 
       const projectContext = await readDshProjectContext({
@@ -164,9 +127,7 @@ export function registerProjectContextRuntime(ctx: Context): void {
       payload.signal?.throwIfAborted()
 
       const rendered = renderDshProjectContext(projectContext)
-      if (!rendered) {
-        return decision
-      }
+      if (!rendered) return decision
 
       const contextMessage = createUserMessage({
         source: {
