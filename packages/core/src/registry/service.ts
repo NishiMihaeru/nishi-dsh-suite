@@ -21,10 +21,12 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+type RegistryChangeListener = () => void | PromiseLike<void>
+
 export class NishiProvidersService extends Service {
   readonly #byId = new Map<string, RegisteredProvider>()
   readonly #byRoute = new Map<string, RegisteredProvider>()
-  readonly #listeners = new Set<() => void>()
+  readonly #listeners = new Set<RegistryChangeListener>()
   readonly #invalidationListeners = new Set<(providerId: string) => void>()
 
   constructor(ctx: Context) {
@@ -47,6 +49,10 @@ export class NishiProvidersService extends Service {
    * would let the Map key disagree with the RegisteredProvider it returns.
    * Duplicate ids, duplicate routes between providers, and duplicate routes
    * inside one provider are all rejected before any state is changed.
+   *
+   * Change listeners are observers, not transaction participants. Once the
+   * registry commit is complete, one broken observer must not turn a valid
+   * registration into a thrown call whose disposer the caller never receives.
    */
   record(entry: RegisteredProvider): () => void {
     const id = canonicalProviderId(entry.id, 'nishiProviders: provider id')
@@ -105,7 +111,7 @@ export class NishiProvidersService extends Service {
    * registrations rather than a fixed list, so a provider mounted after the
    * browser has rendered must be able to appear.
    */
-  onChange(listener: () => void): () => void {
+  onChange(listener: RegistryChangeListener): () => void {
     this.#listeners.add(listener)
     return () => {
       this.#listeners.delete(listener)
@@ -128,7 +134,21 @@ export class NishiProvidersService extends Service {
     }
   }
 
+  /** Notify every observer independently; registry changes are non-vetoing. */
   #announce(): void {
-    for (const listener of [...this.#listeners]) listener()
+    for (const listener of [...this.#listeners]) {
+      try {
+        const returned = listener()
+        if (returned != null && typeof returned.then === 'function') {
+          // An async observer rejection is equally non-vetoing and must not
+          // become an unhandled rejection after the registry commit.
+          void Promise.resolve(returned).catch(() => {})
+        }
+      } catch {
+        // The registry is already committed. Observer failures are contained
+        // so later observers still run and the caller always receives its
+        // withdrawal handle.
+      }
+    }
   }
 }
