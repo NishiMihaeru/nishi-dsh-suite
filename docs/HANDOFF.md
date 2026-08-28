@@ -1,6 +1,6 @@
 # Handoff
 
-Updated for `0.1.0-rc.3` after the independent Core + Project Memory audit/remediation pass.
+Updated for `0.1.0-rc.3` after the independent Core + Project Memory audit/remediation and successful re-freeze validation.
 
 This is the **only session handoff file**. Update it in place when the active task changes. Do not create dated session-summary, plan or handoff documents.
 
@@ -26,14 +26,14 @@ OS: Linux/CachyOS
 Windows: NOT TESTED
 ```
 
-Official compatibility source target:
+Official compatibility source target used for foundation validation:
 
 ```text
 dsh-v0.1.2-alpha.1
 cd5ef8148158c3a752a658978873241fdf8e2bbc
 ```
 
-For DSH compatibility questions, actual upstream source/runtime contracts at that exact tag/commit are primary truth. Documentation may lag implementation.
+For DSH compatibility questions, actual upstream source/runtime contracts at the exact target being audited are primary truth. Documentation may lag implementation.
 
 ## Read before editing
 
@@ -46,101 +46,103 @@ For DSH compatibility questions, actual upstream source/runtime contracts at tha
 
 Use `docs/verification/README.md` only to confirm already accepted evidence. `docs/verification/gemini/LATEST.md` is the rolling raw Gemini report, not the durable project state.
 
-## Foundation status — GITHUB REMEDIATION COMPLETE, LOCAL RE-VERIFICATION REQUIRED
+## Foundation status — FROZEN
 
-The historical foundation freeze at implementation HEAD:
-
-```text
-0c7a177d2f4fceab58513cbd0d87fcf9c31b025b
-```
-
-and its old PASS report remain historical evidence only. An independent audit from branch HEAD `42203ca50ea2555cfcc675d9c73e52bb86a48324`, strictly against official DSH `0.1.2-alpha.1`, found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects.
-
-The GitHub remediation implementation is complete for source review. Core and Project Memory are still **NOT FROZEN** because the final changed tree must pass a fresh local executable rerun after the first remediation validation exposed two Project Memory defects.
-
-### First remediation validation
-
-Gemini tested implementation HEAD:
+Core and Project Memory were reopened by an independent audit from branch HEAD:
 
 ```text
-f3ee493bbea95b3ae7cc34c2c812a4dc23d6118f
+42203ca50ea2555cfcc675d9c73e52bb86a48324
 ```
 
-The raw report was committed as `b87f6e22824e5c1bce9c902905e5bf31a2c7889a` and recorded overall **FAIL**:
+strictly against official DSH `0.1.2-alpha.1`. The audit found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects. Follow-up implementation review also found additional parent/intermediate-path, cancellation-settlement and recovery ownership races, which were remediated before final validation.
 
-- Core: `178/178` tests PASS, check PASS, build PASS, alpha.1 authorization seam PASS;
-- Project Memory: `56/57` tests PASS, one concurrent-removal assertion FAIL;
-- Project Memory check/build: TS2322 because compound rollback callbacks could fall through to `undefined` at the type level;
-- alpha.1 Project Memory runtime probes otherwise passed the descriptor-chain, cancellation, settlement and WAL recovery seams, but compound `memory_write` / `memory_edit` could not be accepted while that return typing was broken.
+Accepted foundation implementation checkpoint:
 
-Both concrete defects were then corrected without broad refactoring:
+```text
+eb95ef6425c788f63339befd0c2437f78bc8dde1
+```
 
-- `e5d6dbe3b36d805c7f708afb45552581455dd9c1` — compound catch paths now `return rollbackJournaledTransaction(...)`, preserving the `Promise<never>` contract instead of admitting `undefined`;
-- `649d29f2e93e690d0ae31c65c183d2396062cfd7` — concurrent removal regression now asserts the actual idempotent convergence contract (`at least one removal reports success` + final path absent) instead of requiring exactly one boolean winner.
+Raw PASS report commit:
 
-A fresh local rerun on the current HEAD is required. Do not reuse the FAIL report as evidence for the corrective commits.
+```text
+f491d681390924a171211a5c0dd0c8991f6a7faf
+```
 
-### Core remediation
+Accepted final evidence:
 
-- credential-store read failure projects a sanitized `ERROR` state instead of `NOT_CONFIGURED`;
-- failed legacy-grant `deleteRecord()` is not swallowed as a successful logout;
-- targeted authorization RPC regressions cover both failure paths;
-- no broad alpha.1 Core API/ABI migration was required.
+- `pnpm install --frozen-lockfile` PASS;
+- Core focused tests `178/178` PASS;
+- Core check/build PASS;
+- Project Memory focused tests `57/57` PASS;
+- Project Memory check/build PASS;
+- full workspace test/check/build PASS;
+- `pnpm verify:local` PASS;
+- disposable official `dsh-v0.1.2-alpha.1` runtime compatibility PASS for changed Core and Project Memory seams;
+- real alpha.1 `memory_read`, `memory_write`, `memory_edit` PASS;
+- changed descriptor-chain, cancellation, mandatory-settlement, WAL and recovery fail-closed regressions PASS;
+- working-tree integrity PASS during the validation run;
+- GitHub Actions/hosted CI NOT USED;
+- Windows NOT TESTED.
 
-### Project Memory remediation
+Core and Project Memory are therefore **FROZEN** again. Do not change their contracts or implementation during provider cleanup unless a new concrete defect or compatibility failure proves the foundation must be reopened.
 
-- POSIX package-owned descendants are opened through one canonical descriptor chain: `projectRoot -> .dsh -> memory/local`;
-- explicit symlinked workspace roots remain supported while package-owned `.dsh`, `.dsh/memory`, and `.dsh/local` components must be real directories;
-- RMW lock/read/render/write stays on one opened `SafeDirectoryScope`; compound memory/local scopes belong to the same pinned `.dsh` generation;
-- initial canonical files are fully written before no-clobber publication;
-- model-facing tools and lazy initialization forward `AbortSignal` through ordinary lock waits and commit boundaries;
-- if cancellation/failure occurs after a durable participant write, exact rollback uses mandatory settlement on the already-opened scopes instead of being cancelled again;
-- named-topic + Memory-map writes use a `pending`/`committed` WAL under `.dsh/local/` with exact pre-images;
-- dead `pending` transactions roll back exactly; dead `committed` transactions preserve participant data and clean protocol debris;
-- recovery ownership/WAL mutation ambiguity after dead unresolved state has been observed is fail-closed;
-- cleanup is idempotent under concurrent recovery;
-- regressions cover static symlinks, symlinked explicit roots, locked-parent replacement, intermediate `.dsh` replacement, cancellation, mandatory settlement, compound serialization, pending/committed recovery, live-PID abandoned recovery, and recovery ownership transfer.
-
-Windows remains **NOT TESTED**. The descriptor-chain TOCTOU guarantee is a Linux/POSIX implementation guarantee; Windows uses the fallback identity-revalidation path and must not be described as equivalently proven.
-
-Core and Project Memory production DSH peers remain intentionally restricted to:
+Their production DSH peer family remains:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Their local DSH dev graph remains pinned to `0.1.1-rc.2`.
+Provider packages do not inherit that support automatically.
 
-## Immediate task — repeat local foundation verification and re-freeze decision
+## Frozen Core contract to preserve
 
-Do **not** resume Codex cleanup and do not repair code during the validation run unless a failing seam is first reported back for review.
+- credential-store failure is distinct from ordinary account absence;
+- failed durable legacy-grant deletion is not reported as successful logout;
+- browser/RPC projections do not expose credential/backend secret material;
+- providers register through shared `registerProvider()`;
+- registry observers are non-vetoing;
+- routed web search follows the exact current route with no vendor fallback;
+- Core remains provider-independent.
 
-Required local gates on the exact checked-out current HEAD:
+## Frozen Project Memory contract to preserve
 
-1. record `git rev-parse HEAD` and ensure the working tree is clean;
-2. `pnpm install --frozen-lockfile`;
-3. Project Memory focused `test`, `check`, `build` first, including the two previously failing seams;
-4. Core focused `test`, `check`, `build` (fresh evidence on the new HEAD, even though the first run passed);
-5. full workspace `test`, `check`, `build`;
-6. `pnpm verify:local`;
-7. disposable official `0.1.2-alpha.1` compatibility verification for the changed Core authorization seam and Project Memory tool/filesystem/cancellation contracts, with explicit `memory_write` / `memory_edit` success after the return-type fix;
-8. overwrite `docs/verification/gemini/LATEST.md` with exact commands, exit codes, failures/skips and final verdict;
-9. commit/push only that verification report, even on FAIL.
+- one provider-independent root policy for context and tools;
+- POSIX package-owned descendants use the pinned `projectRoot -> .dsh -> memory/local` descriptor chain;
+- RMW lock/read/render/write uses one stable `SafeDirectoryScope`;
+- named-topic participant locks use `MEMORY.md -> topic.md` order;
+- named-topic + Memory-map mutation uses the `pending`/`committed` WAL with exact pre-images;
+- cancellation propagates through ordinary work and preserves caller cancellation reason;
+- mandatory settlement may ignore an already-fired caller signal only to restore already-durable partial state;
+- recovery is fail-closed when ownership/WAL state becomes ambiguous after recovery protocol begins;
+- Windows remains NOT TESTED and must not inherit the stronger POSIX TOCTOU guarantee.
 
-If all gates PASS, the next assistant pass may fold durable evidence into `docs/verification/README.md` and re-freeze Core/Project Memory in canonical docs. A failing gate reopens only the concrete failing seam; do not paper over it by restoring old freeze wording.
+## Immediate task — Codex provider audit / cleanup / freeze
 
-## Next task after foundation re-freeze — Codex cleanup and freeze
-
-The next provider package remains:
+Target package:
 
 ```text
 packages/codex
 ```
 
-Its prior task block is paused, not cancelled. Codex does not inherit foundation alpha.1 compatibility automatically.
+Start independently from the current code and actual upstream DSH contracts. Do not assume that earlier provider findings are exhaustive and do not inherit Core/Project Memory alpha.1 compatibility by association.
+
+Required direction:
+
+1. inspect current Codex README, source and tests after canonical project docs;
+2. independently determine the Codex package's actual compatibility with installed DSH `0.1.1-rc.2` and official `0.1.2-alpha.1`;
+3. reconcile Codex DSH dependencies/peers only to generations proven by that provider-specific audit;
+4. move genuinely provider-neutral failure/helper logic onto the already-frozen Core contracts where appropriate, without moving Codex protocol translation into Core;
+5. preserve the reviewed Codex App Server adapter boundary;
+6. keep vendor-specific subagent integrations absent;
+7. prove vendor-native memory/project-doc suppression for primary Codex invocation;
+8. run focused test/check/build, then required local/live Codex acceptance;
+9. freeze Codex only after its own validation evidence is accepted.
+
+Historical Codex pre-work evidence exists in `docs/verification/README.md`, including a prior `31/31` focused PASS and live primary `CODEX_PRIMARY_OK`, but it is only a starting point and not a current Codex freeze.
 
 ## Invariants to preserve
 
+- Core and Project Memory remain frozen unless a concrete new failure requires reopening them;
 - providers register only through shared `registerProvider()`;
 - Core remains provider-independent;
 - Project Memory remains provider-independent;
@@ -159,20 +161,20 @@ The assistant edits GitHub; Gemini validates on the maintainer's local machine.
 
 For each narrow issue:
 
-1. Fetch the current target file + SHA immediately before editing.
-2. Make one logically complete change.
-3. Provide one complete Gemini validation prompt.
+1. fetch the current target file + SHA immediately before editing;
+2. make one logically complete change;
+3. provide one complete Gemini validation prompt;
 4. Gemini uses:
 
    ```bash
    export PATH="$HOME/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH"
    ```
 
-5. Gemini validates but does not repair implementation unless explicitly authorized.
-6. Gemini overwrites only `docs/verification/gemini/LATEST.md`.
-7. Gemini commits/pushes `LATEST.md` even on FAIL.
-8. Maintainer replies `готово`.
-9. Assistant reads fresh `LATEST.md`; FAIL -> fix the exact cause, PASS -> fold durable evidence into `docs/verification/README.md` and continue.
+5. Gemini validates but does not repair implementation unless explicitly authorized;
+6. Gemini overwrites only `docs/verification/gemini/LATEST.md`;
+7. Gemini commits/pushes `LATEST.md` even on FAIL;
+8. maintainer replies `готово`;
+9. assistant reads fresh `LATEST.md`; FAIL -> fix the exact cause, PASS -> fold durable evidence into `docs/verification/README.md` and continue.
 
 ## Hard constraints
 
@@ -182,7 +184,7 @@ For each narrow issue:
 - Windows remains **NOT TESTED**.
 - Read command exit codes directly; avoid pipelines that mask failures.
 
-## Remaining sequence after foundation
+## Remaining sequence
 
 1. Codex cleanup/compatibility/freeze
 2. Antigravity cleanup/compatibility/freeze
