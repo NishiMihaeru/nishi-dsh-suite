@@ -129,19 +129,15 @@ export function scheduleMaintenanceTurn(agent: Agent, route: ResolvedModelRoute,
     activeMaintenanceAgents.delete(agent)
     selectionRef.current = undefined
     selectionRef.assembled = undefined
-    disposeModelSelection(); disposePreStep(); disposeTurnStopping(); disposeError()
+    disposeModelSelection(); disposeClaimed(); disposeTurnStopping(); disposeError()
   }
-  const disposePreStep = agent.ctx.on('agent/pre-step', async (payload: any, next: () => Promise<any>) => {
-    if (cleanedUp) return await next()
-    if (activated && typeof payload?.turn === 'number' && payload.turn !== maintenanceTurn) { cleanup(); return await next() }
-    const decision = await next()
-    if (cleanedUp) return decision
-    if (!activated && decision?.kind === 'enter' && Array.isArray(decision.messages) && decision.messages.some((m: any) => m?.id === targetMessageId || m === maintenanceMessage)) {
-      selectionRef.current = { provider: route.provider, model: route.model }
-      activated = true
-      maintenanceTurn = typeof payload?.turn === 'number' ? payload.turn : undefined
-    }
-    return decision
+  const disposeClaimed = agent.ctx.on('agent/inbox/claimed', (payload: any) => {
+    if (cleanedUp || activated) return
+    const message = payload?.message
+    if (message?.id !== targetMessageId && message !== maintenanceMessage) return
+    selectionRef.current = { provider: route.provider, model: route.model }
+    activated = true
+    maintenanceTurn = typeof payload?.turn === 'number' ? payload.turn : undefined
   })
   const disposeError = agent.ctx.on('agent/error', (payload: any) => {
     if (!activated) return
