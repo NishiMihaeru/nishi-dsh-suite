@@ -9,7 +9,10 @@ import {
 } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 import { isValidTopicIdentifier } from './topic-id.js'
-import { settleCommittedProjectMemoryTransactionUnderMapLock } from './transaction.js'
+import {
+  recoverPendingProjectMemoryTransaction,
+  settleCommittedProjectMemoryTransactionUnderMapLock,
+} from './transaction.js'
 
 export const MAX_BOOTSTRAP_LINES = 200
 export const MAX_BOOTSTRAP_BYTES = 25 * 1024
@@ -132,6 +135,7 @@ export async function ensureProjectMemoryBootstrap(
   signal?: AbortSignal,
 ): Promise<EnsureProjectMemoryResult> {
   signal?.throwIfAborted()
+  await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
@@ -152,6 +156,7 @@ export async function readProjectMemoryBootstrap(
   signal?: AbortSignal,
 ): Promise<ReadProjectMemoryResult> {
   signal?.throwIfAborted()
+  await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
@@ -176,6 +181,7 @@ export async function writeProjectMemoryBootstrap(
   if (!isAbsolute(projectRoot)) throw new Error(`projectRoot must be an absolute path, received "${projectRoot}"`)
   if (typeof content !== 'string') throw new Error('Project memory bootstrap content must be a string')
   assertBootstrapBounds(content)
+  await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
@@ -203,6 +209,7 @@ export async function editProjectMemoryBootstrap(
   if (!isAbsolute(projectRoot)) throw new Error(`projectRoot must be an absolute path, received "${projectRoot}"`)
   if (typeof oldText !== 'string' || oldText.length === 0) throw new Error('oldText must be a non-empty string')
   if (typeof newText !== 'string') throw new Error('newText must be a string')
+  await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
@@ -332,6 +339,7 @@ export async function withMemoryMapEntryTransaction<T>(
   signal?.throwIfAborted()
   if (!isAbsolute(projectRoot)) throw new Error(`projectRoot must be an absolute path, received "${projectRoot}"`)
   if (!isValidTopicIdentifier(topic)) throw new Error(`Invalid topic memory identifier "${topic}"`)
+  await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
