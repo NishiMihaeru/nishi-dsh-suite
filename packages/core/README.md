@@ -39,9 +39,19 @@ The host registration seam covers the DSH Connection API transition:
 
 `registerConnectionRpcChannel()` isolates that transition. It preserves the rc.2 trusted-host argument when the installed handle exposes the legacy three-argument contract, and uses the authenticated two-argument form for alpha.1. Connection remains the lifecycle owner of the returned effect-scoped registration.
 
-The browser entry is typed directly as Cordis `Context`, following the alpha.1 first-party client-plugin pattern. `@deepseek-ai/dsh-client-runtime` is no longer a production peer or explicit client injection. The package may keep rc.2-only retired packages in `devDependencies` while backward-compatibility tests still run on the installed rc.2 toolchain; dev dependencies do not form the published runtime boundary.
+The browser entry is typed directly as Cordis `Context`, following the alpha.1 first-party client-plugin pattern. `@deepseek-ai/dsh-client-runtime` is no longer a production peer or explicit client injection. The package keeps rc.2-only retired packages in `devDependencies` while backward-compatibility tests run on the installed rc.2 toolchain; dev dependencies do not form the published runtime boundary.
 
-The remaining DSH peer version declarations are intentionally not broadened yet. Final supported-version ranges are reconciled only after source/runtime compatibility probes pass.
+### Supported DSH peer family
+
+Every production `@deepseek-ai/dsh-*` peer is deliberately constrained to the two generations that have actual source/runtime evidence:
+
+```text
+0.1.1-rc.2 || 0.1.2-alpha.1
+```
+
+This is an explicit union rather than a broad comparator range: rc.3 does not claim compatibility with untested intermediate/future prereleases merely because their semver happens to sort between these versions.
+
+The local `devDependencies` remain pinned to `0.1.1-rc.2`, which is the reproducible installed development baseline. Official `dsh-v0.1.2-alpha.1` compatibility is validated in disposable source/runtime environments rather than changing the main workspace lock graph. The removed alpha.1 seams `dsh-host-apiproxy` and `dsh-client-runtime` remain rc.2-only dev fixtures and are not runtime peers.
 
 ## Provider registry and registration
 
@@ -101,6 +111,6 @@ The only named vendor-like ids in the Model Accounts surface are DSH authorizati
 
 ## Acceptance status
 
-Core 14 remains the historical accepted baseline for DSH `0.1.1-rc.2`. Core 15 accepted the Connection/client compatibility migration against both installed rc.2 and official upstream `dsh-v0.1.2-alpha.1`.
+Core 14 remains the historical accepted baseline for DSH `0.1.1-rc.2`. Core 15 accepted the Connection/client compatibility migration against both installed rc.2 and official upstream `dsh-v0.1.2-alpha.1`. Core 16 accepted the non-vetoing registry-observer transaction/preflight correction with full workspace regression coverage.
 
-Core remains **REOPENED** while integrity remediation is active. The registry-observer transaction correction described above is implemented and awaiting focused validation. Project Memory integrity work follows before the provider-independent foundation can be re-frozen. See `docs/ROADMAP.md`.
+All source/runtime blockers found in the reopened Core audit are closed. The supported peer-family declaration is implemented and Core is awaiting the final joint Core + Project Memory dual-generation validation/re-freeze in `docs/ROADMAP.md`.
