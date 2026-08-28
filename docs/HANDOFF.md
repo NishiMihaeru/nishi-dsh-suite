@@ -1,6 +1,6 @@
 # Handoff
 
-Updated for `0.1.0-rc.3` after Core and Project Memory final acceptance.
+Updated for `0.1.0-rc.3` after reopening Core and Project Memory for compatibility/integrity remediation against DSH `0.1.2-alpha.1`.
 
 This is the **only session handoff file**. Update it in place when the active task changes. Do not create dated session-summary or handoff documents.
 
@@ -16,7 +16,14 @@ Current family: six packages at `0.1.0-rc.3`.
 
 `0.1.0-rc.3` is in-repo and unpublished. Published `0.1.0-rc.1` remains the public npm family. No publish, merge, tag or release is authorized by this handoff.
 
-Core and Project Memory are **DONE / FROZEN**. The next active stage is **Codex provider cleanup and acceptance**.
+The previous Core and Project Memory acceptance remains valid for the installed DSH `0.1.1-rc.2` baseline, but both packages are now **REOPENED** after reproducible findings against official DSH tag:
+
+```text
+dsh-v0.1.2-alpha.1
+cd5ef8148158c3a752a658978873241fdf8e2bbc
+```
+
+Do not resume provider cleanup until the foundation remediation in `ROADMAP.md` is complete.
 
 ## Read before editing
 
@@ -24,118 +31,112 @@ Core and Project Memory are **DONE / FROZEN**. The next active stage is **Codex 
 2. this file
 3. `docs/ROADMAP.md`
 4. `docs/ARCHITECTURE.md`
-5. `packages/codex/README.md`, then the exact source/tests being changed
+5. target package README, then exact source/tests being changed
 
-Do not reconstruct current work from old commits or deleted historical docs unless a specific regression requires archaeology.
+For DSH compatibility questions, use actual upstream source/contracts at the exact tag/commit above as primary truth. Documentation may lag implementation.
 
-## Next task: Codex
+## Completed remediation in this audit
 
-Scope provider-local work first. Do not reopen Core or Project Memory without a reproducible blocker.
+Project Memory maintenance-route timing is fixed and accepted:
+
+- implementation: `0297fcc4eaecd4aace5c06b20000ea4539a7b3e1`;
+- regression test: `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`;
+- Gemini report commit: `10020983856a1137f286c83f9ed68c0a62605f58`;
+- package tests: 25/25 PASS;
+- typecheck/build PASS;
+- disposable probe using alpha.1 `installModelSelection` PASS.
+
+Maintenance selection now activates when the exact maintenance message is emitted through `agent/inbox/claimed`, before `system-prompt/assemble`, so the first maintenance request uses the requested provider/model.
+
+## Immediate next task: Core DSH alpha.1 Connection/client migration
+
+Keep this as one narrow compatibility block before touching the registry transaction bug.
 
 Target outcomes:
 
-- inspect remaining Codex-local failure classes/string builders and migrate only behavior that belongs to the shared core `VendorFailure` contract;
-- inspect duplicate generic helpers and reuse core helpers only where the contract is actually provider-neutral;
-- preserve Codex-specific protocol translation in the Codex package;
-- focused Codex tests/check/build;
-- then live primary/search/vendor-memory-suppression acceptance;
-- freeze Codex before moving to Antigravity.
+- remove Core's retired `@deepseek-ai/dsh-host-apiproxy` type boundary;
+- import the RPC result/error/handler contracts from current `@deepseek-ai/dsh-client-connection` instead;
+- migrate host `connection.rpc.handle` registration from the rc.2 three-argument form to the alpha.1 two-argument form while preserving effect-scoped cleanup and the Connection-owned Host/Origin + browser-auth fence;
+- remove the retired `@deepseek-ai/dsh-client-runtime` browser dependency/import;
+- type the browser plugin context through Cordis plus the actual client service augmentation packages, matching first-party alpha.1 client plugins;
+- preserve existing `connection`, locale and slots behavior;
+- add/update compatibility tests so retired DSH package seams cannot silently return;
+- focused Core `test` / `check` / `build`, then disposable alpha.1 compatibility probe.
 
-Important provider boundary:
+Do not mix the Core ghost-provider listener/transaction fix into this block. That gets its own change and validation after Connection/client migration passes.
 
-- canonical provider id: `codex`;
-- model route: `codex-app-server`;
-- model: yes;
-- native search backend: yes;
-- usage/rate limits: yes;
-- primary-history bridge: yes;
-- vendor-specific subagent: no.
+## Remaining confirmed foundation blockers
 
-## Frozen invariants
+After the immediate Core migration:
 
-Do not accidentally regress these while working on providers:
+1. Core registry listener failure can leave a ghost provider after a failed registration transaction.
+2. Project Memory read-modify-write paths need inter-process serialization where atomic replacement alone can lose concurrent updates.
+3. Project Memory topic + Memory-map compound mutations need explicit failure/partial-commit handling and tests.
+4. DSH peer/dev version declarations must be reconciled only after source compatibility is proven.
+
+`ROADMAP.md` owns completion status and order.
+
+## Invariants to preserve
 
 - providers register through the shared `registerProvider()` path;
 - Core has no provider-package dependency;
-- outer `nishi-core` has no external injection and publishes `NishiProvidersService` before the inner host child;
-- inner host child injects `nishiProviders`, `connection`, `credentials`;
+- outer `nishi-core` publishes `NishiProvidersService` before the inner host child;
 - Core does not depend on `dsh-authorization`;
-- web search routes by the exact current request-header route and never silently falls back;
+- web search follows the exact current request route and never silently falls back;
 - capability absence is legal;
 - Project Memory context/tools use one root policy;
-- Project Memory replacement writes remain atomic and path-confined;
-- vendor-specific delegation tools stay removed.
-
-See `ARCHITECTURE.md` for the full contract. Do not duplicate architecture text here.
+- Project Memory canonical path/symlink confinement remains fail-closed;
+- vendor-specific delegation tools stay removed;
+- no vendor credential/session/token stores are copied, parsed, migrated or deleted.
 
 ## Development workflow
 
-The assistant edits GitHub; Gemini validates on the maintainer's local machine where the real Node/DSH/vendor environment exists.
+The assistant edits GitHub; Gemini validates on the maintainer's local machine.
 
 For each narrow issue:
 
-1. Assistant fetches the current target file and SHA from `feat/core-provider-plugins-rc3`.
-2. Assistant edits source/tests/docs directly on the branch.
-3. Assistant provides one complete Gemini validation prompt.
+1. Fetch the current target file and SHA from `feat/core-provider-plugins-rc3` immediately before editing.
+2. Make one logically complete change with focused tests.
+3. Provide one complete Gemini validation prompt.
 4. Gemini uses:
 
    ```bash
    export PATH="$HOME/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH"
    ```
 
-5. Gemini validates but does not repair implementation unless explicitly allowed.
-6. Gemini **overwrites only**:
-
-   ```text
-   docs/verification/gemini/LATEST.md
-   ```
-
-   Do not create a new report file per issue.
+5. Gemini validates but does not repair implementation unless explicitly authorized.
+6. Gemini overwrites only `docs/verification/gemini/LATEST.md`.
 7. Gemini commits/pushes `LATEST.md` even on FAIL.
-8. Maintainer replies only `готово`.
-9. Assistant reads `LATEST.md` from GitHub and either patches the blocker or closes the issue and continues.
-10. After PASS, assistant folds durable validation status into `docs/verification/README.md`, updates this handoff/roadmap only if status changed, then reuses `LATEST.md` for the next validation.
+8. Maintainer replies `готово`.
+9. Assistant reads fresh `LATEST.md`; on FAIL fix the exact cause, on PASS fold durable evidence into `docs/verification/README.md` and continue.
 
-This keeps one raw report and one compact validation ledger instead of an ever-growing report archive. Exact older reports remain recoverable from git history.
+## Validation baselines
 
-## Validation baseline
+Local installed baseline:
 
-- Node `v24.19.0` through fnm.
-- pnpm `11.21.0`.
+- Node `v24.19.0` through fnm;
+- pnpm `11.21.0`;
 - DSH `0.1.1-rc.2`.
-- `/usr/bin/node` may be v22; do not use it for acceptance.
 
-Typical focused provider gates:
+Compatibility source target for this reopened foundation audit:
 
-```bash
-pnpm --filter <package> test
-pnpm --filter <package> check
-pnpm --filter <package> build
-```
+- DSH tag `dsh-v0.1.2-alpha.1`;
+- upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
 
-Run broader gates only when the scope justifies them. Final release gates are owned by `RELEASE.md`.
+Do not update the main working copy to alpha.1 merely to probe compatibility. Prefer disposable environments until package dependency migration is intentionally part of the scoped change.
 
 ## Hard constraints
 
 - GitHub Actions/hosted CI are not used. Do not inspect or edit `.github/workflows/*`.
+- No publish / merge / tag / release without explicit maintainer approval.
 - Do not copy, parse, migrate or delete vendor credential/session/token stores.
 - `@openai/codex*` and `@anthropic-ai/*` stay absent from the Suite runtime lock graph.
 - Windows remains **NOT TESTED**.
-- No publish / merge / tag / release without explicit maintainer approval.
-- Live provider tests consume real subscription quota; group them deliberately.
+- Read command exit codes directly; avoid pipelines that mask failures.
 
-## Operational traps
+## After foundation remediation
 
-- Cordis service access is injection-protected; type casts do not bypass the runtime proxy.
-- Provider registrations arrive after Core publishes the registry, so provider rosters must remain dynamic.
-- If Core types are intentionally changed after reopening, rebuild Core before trusting provider typecheck results that may read built declarations.
-- DSH `0.1.1-rc.2` overwrites contributed third-party preset roots; the managed Suite preset bridge is still required.
-- Vendor CLI drift is caught by vendor smoke/live tests, not ordinary unit tests.
-- Read command exit codes directly; avoid pipelines that mask the failing command.
-
-## After Codex
-
-The fixed order is:
+Resume the fixed product sequence:
 
 1. Codex
 2. Antigravity
@@ -145,4 +146,4 @@ The fixed order is:
 6. install/profile lifecycle
 7. release gate
 
-`ROADMAP.md` owns details and completion status for that sequence.
+`ROADMAP.md` owns exact status.
