@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import type { SafeDirectoryScope } from './filesystem.js'
-import { withMemoryMapEntryTransaction } from './bootstrap.js'
+import { MAX_BOOTSTRAP_BYTES, withMemoryMapEntryTransaction } from './bootstrap.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 import {
   withEnsuredProjectMemoryScope,
@@ -175,7 +175,12 @@ async function rollbackJournaledTransaction(
     const settlementMemoryScope = memoryScope.forSettlement()
     const settlementJournalScope = journalScope.forSettlement()
     await restorePendingProjectMemoryTransactionLocked(projectRoot, journal, settlementMemoryScope)
-    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournalScope)
+    await clearPendingProjectMemoryTransaction(
+      projectRoot,
+      undefined,
+      settlementJournalScope,
+      journal,
+    )
   } catch (rollbackError) {
     throw new AggregateError(
       [originalError, rollbackError],
@@ -186,12 +191,23 @@ async function rollbackJournaledTransaction(
   throw originalError
 }
 
-async function clearCommittedJournalBestEffort(projectRoot: string): Promise<void> {
+async function clearCommittedJournalBestEffort(
+  projectRoot: string,
+  committed: PendingProjectMemoryTransaction,
+  journalScope: SafeDirectoryScope,
+): Promise<void> {
   try {
-    await clearPendingProjectMemoryTransaction(projectRoot)
+    await clearPendingProjectMemoryTransaction(
+      projectRoot,
+      undefined,
+      journalScope.forSettlement(),
+      committed,
+    )
   } catch {
-    // A committed journal is preserve-and-clean recovery metadata. Leaving it
-    // behind is safe and the next Project Memory operation retries cleanup.
+    // Participants are already committed. Preserve the journal if cleanup
+    // cannot complete; recovery can safely retry. Crucially, this runs while
+    // MEMORY.md/topic locks are still held, before another generation can be
+    // created at the fixed journal pathname.
   }
 }
 
@@ -273,22 +289,27 @@ export async function writeTopicMemoryWithMap(
   const contentBuffer = topicContentBuffer(content)
   const paths = resolveProjectMemoryPaths(projectRoot)
 
-  let committedJournal: PendingProjectMemoryTransaction | undefined
-  const result = await withMemoryMapEntryTransaction(
+  return withMemoryMapEntryTransaction(
     projectRoot,
     topic,
     async (commitMap, memoryScope, journalScope) => {
       return memoryScope.withWriterLock(topicPath, async () => {
         signal?.throwIfAborted()
         const topicSnapshot = await readTopicSnapshotLocked(memoryScope, topicPath, topic, signal)
-        const memoryBefore = await memoryScope.readRegularFile(paths.memoryMd)
+        const memoryBefore = await memoryScope.readRegularFile(
+          paths.memoryMd,
+          { maxBytes: MAX_BOOTSTRAP_BYTES },
+        )
         const journal = await createPendingProjectMemoryTransaction(projectRoot, {
           topic,
           topicBefore: topicSnapshot.content,
           memoryBefore,
         }, signal, journalScope)
+
+        let writeResult: WriteTopicMemoryResult
+        let committedJournal: PendingProjectMemoryTransaction
         try {
-          const writeResult = await writeTopicMemoryLocked(
+          writeResult = await writeTopicMemoryLocked(
             memoryScope,
             topicPath,
             topic,
@@ -305,7 +326,6 @@ export async function writeTopicMemoryWithMap(
             signal,
             journalScope,
           )
-          return writeResult
         } catch (error) {
           return rollbackJournaledTransaction(
             projectRoot,
@@ -316,13 +336,16 @@ export async function writeTopicMemoryWithMap(
             journalScope,
           )
         }
+
+        // Cleanup is post-commit and therefore must never enter rollback. It
+        // stays inside MEMORY.md + topic locks so a later transaction cannot
+        // replace the fixed journal pathname before this generation settles.
+        await clearCommittedJournalBestEffort(projectRoot, committedJournal, journalScope)
+        return writeResult
       })
     },
     signal,
   )
-
-  if (committedJournal !== undefined) await clearCommittedJournalBestEffort(projectRoot)
-  return result
 }
 
 export async function editTopicMemoryWithMap(
@@ -339,8 +362,7 @@ export async function editTopicMemoryWithMap(
   if (typeof newText !== 'string') throw new Error('newText must be a string')
   const paths = resolveProjectMemoryPaths(projectRoot)
 
-  let committedJournal: PendingProjectMemoryTransaction | undefined
-  const result = await withMemoryMapEntryTransaction(
+  return withMemoryMapEntryTransaction(
     projectRoot,
     topic,
     async (commitMap, memoryScope, journalScope) => {
@@ -350,14 +372,20 @@ export async function editTopicMemoryWithMap(
         if (!topicSnapshot.exists || topicSnapshot.content === null) {
           throw new Error(`Topic memory file "${topicPath}" does not exist; cannot edit missing topic`)
         }
-        const memoryBefore = await memoryScope.readRegularFile(paths.memoryMd)
+        const memoryBefore = await memoryScope.readRegularFile(
+          paths.memoryMd,
+          { maxBytes: MAX_BOOTSTRAP_BYTES },
+        )
         const journal = await createPendingProjectMemoryTransaction(projectRoot, {
           topic,
           topicBefore: topicSnapshot.content,
           memoryBefore,
         }, signal, journalScope)
+
+        let editResult: EditTopicMemoryResult
+        let committedJournal: PendingProjectMemoryTransaction
         try {
-          const editResult = await editTopicMemoryLocked(
+          editResult = await editTopicMemoryLocked(
             memoryScope,
             topicPath,
             topic,
@@ -375,7 +403,6 @@ export async function editTopicMemoryWithMap(
             signal,
             journalScope,
           )
-          return editResult
         } catch (error) {
           return rollbackJournaledTransaction(
             projectRoot,
@@ -386,11 +413,11 @@ export async function editTopicMemoryWithMap(
             journalScope,
           )
         }
+
+        await clearCommittedJournalBestEffort(projectRoot, committedJournal, journalScope)
+        return editResult
       })
     },
     signal,
   )
-
-  if (committedJournal !== undefined) await clearCommittedJournalBestEffort(projectRoot)
-  return result
 }
