@@ -71,6 +71,25 @@ Accepted behavior includes:
 - `/memory` and `/consolidate` require `commands + llm`;
 - repository-shared memory policy excludes secret/transient/operator-personal data.
 
+## Documentation consolidation
+
+Current documentation structure and source-of-truth rules are accepted after a full Gemini rerun on commit `efabdf0f10fc4851a2446bab8678417fa9b3af88`.
+
+Accepted result:
+
+- exactly eight current files under `docs/`;
+- `docs/README.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `HANDOFF.md`, and `RELEASE.md` have non-overlapping ownership;
+- `docs/verification/README.md` is the durable ledger;
+- `docs/verification/gemini/LATEST.md` is the only rolling raw Gemini report;
+- old plans/specs/session summaries/acceptance reports/detailed Gemini reports were removed from the current tree and remain recoverable through git history;
+- no active references remain to deleted `docs/superpowers`, `docs/acceptance`, or old `docs/release/*` paths;
+- Core registration source remained functionally unchanged after comment/reference cleanup;
+- focused Core gate passed: 165 tests, typecheck PASS, build PASS;
+- full `pnpm verify:local` PASS with all workspace gates and six rc.3 tarballs;
+- no blocking documentation consistency issues remain.
+
+Future agents must update canonical docs in place rather than creating new dated plans, handoffs, session summaries or per-task verification reports.
+
 ## Historical release/acceptance baseline
 
 Published `0.1.0-rc.1` historically passed Linux/CachyOS local and registry-only installation smoke, including Suite resolution, managed preset lifecycle and normal removal. rc.2 was intentionally parked unpublished after local/live work.
