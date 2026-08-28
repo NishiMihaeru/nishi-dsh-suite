@@ -61,30 +61,33 @@ The old `ctx.projectMemory` delegated service boundary is gone. Current memory s
 
 ## Foundation evidence — ACCEPTED
 
-Final foundation implementation HEAD:
+Accepted foundation implementation checkpoint:
 
 ```text
-0c7a177d2f4fceab58513cbd0d87fcf9c31b025b
+eb95ef6425c788f63339befd0c2437f78bc8dde1
 ```
 
-Final raw PASS report commit:
+Raw PASS report commit:
 
 ```text
-c209be795601ac7c4a3328c4af6bdbefde7f9f82
+f491d681390924a171211a5c0dd0c8991f6a7faf
 ```
 
 Accepted final foundation gates:
 
 - `pnpm install --frozen-lockfile` PASS;
-- Core `176/176` tests + check/build PASS;
-- Project Memory `39/39` tests + check/build PASS;
-- full workspace `270/270` tests + check/build PASS;
-- `pnpm verify:local` PASS;
-- six rc.3 local tarballs generated;
-- packed Core/Project Memory metadata PASS;
-- actual rc.2 + official alpha.1 Core runtime/client compatibility PASS;
-- actual rc.2 + official alpha.1 Project Memory tool/locking/maintenance compatibility PASS;
-- retired Core Connection/client seams remain outside the production runtime boundary.
+- Core `178/178` focused tests + check/build PASS;
+- Project Memory `57/57` focused tests + check/build PASS;
+- full workspace test/check/build PASS;
+- `pnpm verify:local` PASS, including release-family/package-contract/orchestrator checks and local packing of all six rc.3 packages;
+- official disposable `dsh-v0.1.2-alpha.1` runtime compatibility PASS for the changed Core and Project Memory seams;
+- real alpha.1 Project Memory `memory_read`, `memory_write` and `memory_edit` PASS;
+- descriptor-chain replacement, cancellation, mandatory-settlement, WAL recovery and recovery fail-closed regressions PASS;
+- working-tree integrity PASS during the validation run;
+- GitHub Actions/hosted CI NOT USED;
+- Windows NOT TESTED.
+
+The report commit is documentation-only; the implementation actually tested and accepted is `eb95ef6425c788f63339befd0c2437f78bc8dde1`.
 
 Foundation state:
 
@@ -92,6 +95,8 @@ Foundation state:
 Core: FROZEN
 Project Memory: FROZEN
 ```
+
+Provider-specific work must not reopen the foundation without a new concrete defect or compatibility failure.
 
 ## Open release work
 
