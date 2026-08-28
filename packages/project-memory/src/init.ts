@@ -1,13 +1,13 @@
 import { lstat } from 'node:fs/promises'
-import { dirname, isAbsolute, join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import {
-  ensureCanonicalDirectory,
-  readSafeRegularFile,
   withSafeFileWriterLock,
   writeFileExclusiveAtomic,
+  type SafeDirectoryScope,
 } from './filesystem.js'
 import { ensureProjectMemoryBootstrap } from './bootstrap.js'
 import { resolveProjectMemoryPaths } from './paths.js'
+import { withEnsuredProjectDshScope } from './storage.js'
 import { recoverPendingProjectMemoryTransaction } from './transaction.js'
 
 export const INITIAL_DSH_MD_CONTENT = `# DSH Project Contract
@@ -66,15 +66,7 @@ async function validateExistingDir(dirPath: string, logicalName: string): Promis
   }
 }
 
-async function validateExistingProjectJson(
-  projectJsonPath: string,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  const exists = await validateExistingFile(projectJsonPath, '.dsh/project.json')
-  if (!exists) return false
-
-  const raw = await readSafeRegularFile(dirname(projectJsonPath), projectJsonPath, { signal })
-  if (raw === null) return false
+function validateProjectJsonBuffer(raw: Buffer): void {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw.toString('utf8'))
@@ -83,15 +75,38 @@ async function validateExistingProjectJson(
   }
 
   if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    Array.isArray(parsed) ||
-    (parsed as any).schemaVersion !== 1
+    typeof parsed !== 'object'
+    || parsed === null
+    || Array.isArray(parsed)
+    || (parsed as any).schemaVersion !== 1
   ) {
     throw new Error('Canonical ".dsh/project.json" must be an object with schemaVersion === 1')
   }
+}
 
-  return true
+async function ensureProjectJson(
+  dshScope: SafeDirectoryScope,
+  projectJsonPath: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  signal?.throwIfAborted()
+  const existing = await dshScope.readRegularFile(projectJsonPath)
+  if (existing !== null) {
+    validateProjectJsonBuffer(existing)
+    return false
+  }
+
+  const created = await dshScope.writeFileExclusiveAtomic(
+    projectJsonPath,
+    INITIAL_PROJECT_JSON_CONTENT,
+    { mode: 0o644 },
+  )
+  if (created) return true
+
+  const winner = await dshScope.readRegularFile(projectJsonPath)
+  if (winner === null) throw new Error('Canonical ".dsh/project.json" disappeared during initialization')
+  validateProjectJsonBuffer(winner)
+  return false
 }
 
 async function ensureGitignoreEntry(
@@ -124,11 +139,10 @@ async function ensureGitignoreEntry(
 
     const prefix =
       content.length === 0 || content.endsWith('\n') || content.endsWith('\r') ? '' : '\n'
-    const appendContent = `${prefix}.dsh/local/\n`
     signal?.throwIfAborted()
     await scope.writeFileAtomically(
       gitignorePath,
-      Buffer.from(content + appendContent, 'utf8'),
+      Buffer.from(`${content}${prefix}.dsh/local/\n`, 'utf8'),
     )
     return true
   }, signal, rootOptions)
@@ -148,19 +162,16 @@ export async function initializeDshProject(
   const dshDir = join(root, '.dsh')
   const gitignorePath = join(root, '.gitignore')
 
+  // Root-level preflight is safe because these are direct children of the
+  // explicit workspace root. Package-owned descendants are validated through
+  // the descriptor chain below rather than by reopening full pathnames.
   await validateExistingFile(paths.dshMd, 'DSH.md')
   await validateExistingDir(dshDir, '.dsh')
-  await validateExistingProjectJson(paths.projectJson, signal)
-  await validateExistingDir(paths.memoryDir, '.dsh/memory')
-  await validateExistingFile(paths.memoryMd, '.dsh/memory/MEMORY.md')
-  await validateExistingDir(paths.localDir, '.dsh/local')
   await validateExistingFile(gitignorePath, '.gitignore')
   signal?.throwIfAborted()
 
   await recoverPendingProjectMemoryTransaction(root, signal)
   signal?.throwIfAborted()
-
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
 
   const dshMdCreated = await writeFileExclusiveAtomic(
     root,
@@ -172,20 +183,21 @@ export async function initializeDshProject(
   )
   if (!dshMdCreated) await validateExistingFile(paths.dshMd, 'DSH.md')
 
-  const projectJsonCreated = await writeFileExclusiveAtomic(
-    dshDir,
-    paths.projectJson,
-    INITIAL_PROJECT_JSON_CONTENT,
-    { mode: 0o644 },
+  const projectJsonCreated = await withEnsuredProjectDshScope(
+    root,
+    (dshScope) => ensureProjectJson(dshScope, paths.projectJson, signal),
     signal,
   )
-  if (!projectJsonCreated) await validateExistingProjectJson(paths.projectJson, signal)
 
   const bootstrapResult = await ensureProjectMemoryBootstrap(root, signal)
 
-  const localDirExists = await validateExistingDir(paths.localDir, '.dsh/local')
-  if (!localDirExists) await ensureCanonicalDirectory(paths.localDir, signal)
-  const localDirCreated = !localDirExists
+  let localDirCreated = false
+  await withEnsuredProjectDshScope(root, async (dshScope) => {
+    const existing = await dshScope.withExistingChildDirectory(paths.localDir, async () => true)
+    if (existing !== undefined) return
+    await dshScope.withEnsuredChildDirectory(paths.localDir, async () => undefined)
+    localDirCreated = true
+  }, signal)
 
   const gitignoreEntryCreated = await ensureGitignoreEntry(root, gitignorePath, signal)
 
