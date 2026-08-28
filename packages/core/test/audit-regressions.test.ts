@@ -104,32 +104,30 @@ test('an authoritative cached-read omission clears prior client usage so ensureF
   assert.equal(controller.getSnapshot().providers.fixture?.usage?.observedAtMs, 2_000)
 })
 
-test('legacy logout never deletes an api-key record that replaced the grant after observation', async () => {
-  let current: any = { kind: 'grant', payload: { accessToken: 'legacy-token' } }
+test('legacy logout fails closed instead of entering a read-check-delete credential race', async () => {
+  const grant = { kind: 'grant', payload: { accessToken: 'legacy-token' } }
+  let current: any = grant
   let describeCalls = 0
   let deleteCalls = 0
   const controller = new AuthorizationHostController({
     credentials: {
       async describeRecord() {
         describeCalls += 1
-        const observed = current
-        if (describeCalls === 1) current = { kind: 'api-key', key: 'replacement-api-key' }
-        return observed === undefined
-          ? { configured: false, writable: true }
-          : { configured: true, kind: observed.kind, writable: true }
+        return { configured: true, kind: current.kind, writable: true }
       },
       async deleteRecord() {
         deleteCalls += 1
-        current = undefined
+        current = { kind: 'api-key', key: 'replacement-must-survive' }
       },
     },
   } as any)
 
-  const flow = await controller.logout('openai-codex')
+  await assert.rejects(
+    () => controller.logout('openai-codex'),
+    /Unsupported provider .* legacy grant removal/,
+  )
 
-  assert.equal(current?.kind, 'api-key')
-  assert.equal(current?.key, 'replacement-api-key')
+  assert.equal(current, grant)
+  assert.equal(describeCalls, 0)
   assert.equal(deleteCalls, 0)
-  assert.equal(flow.credentialKind, 'api-key')
-  assert.equal(flow.status, 'NOT_CONFIGURED')
 })
