@@ -54,7 +54,7 @@ For documentation changes, prefer links to a canonical owner over copying paragr
 
 - Local development/validation baseline remains DSH `0.1.1-rc.2`.
 - Official `dsh-v0.1.2-alpha.1` at `cd5ef8148158c3a752a658978873241fdf8e2bbc` is the compatibility source target currently used by rc.3 work.
-- Core and Project Memory are frozen with exact production peer support for `0.1.1-rc.2 || 0.1.2-alpha.1`.
+- Core and Project Memory production peers remain the exact union `0.1.1-rc.2 || 0.1.2-alpha.1`, but both packages are currently **REOPENED PENDING VERIFICATION** after independent alpha.1 audit remediation. Do not call them frozen again until the fresh local gates pass on the final remediation HEAD.
 - Provider packages do **not** inherit that support automatically. Codex, Antigravity and Claude must each prove their own DSH compatibility before their dependency/peer ranges change.
 - For compatibility decisions, actual upstream source/runtime contracts at the exact tested tag/commit take priority over documentation when they disagree.
 
