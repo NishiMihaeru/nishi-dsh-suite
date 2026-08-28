@@ -12,6 +12,7 @@ import {
   writeTopicMemoryWithMap,
   editTopicMemoryWithMap,
 } from './topics.js'
+import { recoverPendingProjectMemoryTransaction } from './transaction.js'
 
 interface SessionHeaderHolder {
   session?: {
@@ -80,15 +81,17 @@ const memoryReadTool = defineTool({
     exec.signal.throwIfAborted()
     try {
       const projectRoot = await projectRootFromToolExecution(exec)
+      await recoverPendingProjectMemoryTransaction(projectRoot, exec.signal)
+      exec.signal.throwIfAborted()
       if (isBootstrapTopic(args.topic)) {
-        const res = await readProjectMemoryBootstrap(projectRoot)
+        const res = await readProjectMemoryBootstrap(projectRoot, exec.signal)
         return {
           topic: 'memory',
           exists: res.exists,
           content: res.content,
         }
       }
-      const res = await readTopicMemory(projectRoot, args.topic)
+      const res = await readTopicMemory(projectRoot, args.topic, exec.signal)
       return {
         topic: res.topic,
         exists: res.exists,
@@ -136,8 +139,10 @@ const memoryWriteTool = defineTool({
     exec.signal.throwIfAborted()
     try {
       const projectRoot = await projectRootFromToolExecution(exec)
+      await recoverPendingProjectMemoryTransaction(projectRoot, exec.signal)
+      exec.signal.throwIfAborted()
       if (isBootstrapTopic(args.topic)) {
-        const res = await writeProjectMemoryBootstrap(projectRoot, args.content)
+        const res = await writeProjectMemoryBootstrap(projectRoot, args.content, exec.signal)
         const bytesWritten = Buffer.byteLength(args.content, 'utf8')
         return {
           topic: 'memory',
@@ -145,7 +150,7 @@ const memoryWriteTool = defineTool({
           bytes_written: bytesWritten,
         }
       }
-      const res = await writeTopicMemoryWithMap(projectRoot, args.topic, args.content)
+      const res = await writeTopicMemoryWithMap(projectRoot, args.topic, args.content, exec.signal)
       const bytesWritten = Buffer.byteLength(args.content, 'utf8')
       return {
         topic: res.topic,
@@ -197,14 +202,16 @@ const memoryEditTool = defineTool({
     exec.signal.throwIfAborted()
     try {
       const projectRoot = await projectRootFromToolExecution(exec)
+      await recoverPendingProjectMemoryTransaction(projectRoot, exec.signal)
+      exec.signal.throwIfAborted()
       if (isBootstrapTopic(args.topic)) {
-        const res = await editProjectMemoryBootstrap(projectRoot, args.old_text, args.new_text)
+        const res = await editProjectMemoryBootstrap(projectRoot, args.old_text, args.new_text, exec.signal)
         return {
           topic: 'memory',
           bytes_written: res.bytesWritten,
         }
       }
-      const res = await editTopicMemoryWithMap(projectRoot, args.topic, args.old_text, args.new_text)
+      const res = await editTopicMemoryWithMap(projectRoot, args.topic, args.old_text, args.new_text, exec.signal)
       return {
         topic: res.topic,
         bytes_written: res.bytesWritten,
