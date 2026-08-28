@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -141,6 +141,20 @@ test('invalid Memory map preflight leaves an existing topic byte-for-byte unchan
       /Ambiguous multiple "## Memory map" sections/,
     )
     assert.equal(await readFile(join(paths.memoryDir, 'architecture.md'), 'utf8'), original)
+  })
+})
+
+test('failed compound edit does not create a missing MEMORY.md as a preflight side effect', async () => {
+  await withTempProject(async (projectRoot) => {
+    const paths = resolveProjectMemoryPaths(projectRoot)
+    await mkdir(paths.memoryDir, { recursive: true })
+
+    await assert.rejects(
+      () => editTopicMemoryWithMap(projectRoot, 'architecture', 'old', 'new'),
+      /does not exist; cannot edit missing topic/,
+    )
+    await assertMissing(paths.memoryMd)
+    await assertMissing(join(paths.memoryDir, 'architecture.md'))
   })
 })
 
