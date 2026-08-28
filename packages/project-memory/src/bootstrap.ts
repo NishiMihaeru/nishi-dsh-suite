@@ -136,7 +136,7 @@ export async function ensureProjectMemoryBootstrap(
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
   const created = await withSafeFileWriterLock(
     memoryDir,
@@ -180,7 +180,7 @@ export async function writeProjectMemoryBootstrap(
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
 
   return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
@@ -336,7 +336,7 @@ export async function withMemoryMapEntryTransaction<T>(
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
 
   return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
