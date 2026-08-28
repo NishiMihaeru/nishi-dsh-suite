@@ -193,6 +193,25 @@ export async function clearPendingProjectMemoryTransaction(
   await removeSafeRegularFile(paths.localDir, pendingProjectMemoryTransactionPath(projectRoot), signal)
 }
 
+/**
+ * Called only while the caller already owns MEMORY.md.lock. A committed journal
+ * may outlive its writer lock by a few instructions; holding the next map lock
+ * proves the previous participant transaction has released that critical
+ * section, so the journal can be removed even if its process remains alive.
+ */
+export async function settleCommittedProjectMemoryTransactionUnderMapLock(
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const current = await readPendingTransaction(projectRoot, signal)
+  if (current === null) return false
+  if (current.phase !== 'committed') {
+    throw new Error('Project memory has a pending transaction while the Memory map lock is available')
+  }
+  await clearPendingProjectMemoryTransaction(projectRoot, signal)
+  return true
+}
+
 export async function restorePendingProjectMemoryTransactionLocked(
   projectRoot: string,
   record: PendingProjectMemoryTransaction,
@@ -274,17 +293,6 @@ async function claimRecoveryJournal(
   }, signal)
 }
 
-async function finishCommittedRecovery(
-  projectRoot: string,
-  record: PendingProjectMemoryTransaction,
-): Promise<boolean> {
-  if (record.phase !== 'committed') {
-    throw new Error('Project memory committed recovery received a pending journal')
-  }
-  await clearPendingProjectMemoryTransaction(projectRoot)
-  return true
-}
-
 async function waitForLiveTransactionToFinish(
   projectRoot: string,
   signal?: AbortSignal,
@@ -352,7 +360,8 @@ export async function recoverPendingProjectMemoryTransaction(
     }
 
     if (current.phase === 'committed') {
-      return finishCommittedRecovery(projectRoot, current)
+      await clearPendingProjectMemoryTransaction(projectRoot)
+      return true
     }
 
     return withSafeFileWriterLock(paths.memoryDir, topicPath, async () => {
