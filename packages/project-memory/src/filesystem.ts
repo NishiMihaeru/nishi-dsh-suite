@@ -53,6 +53,8 @@ export interface SafeDirectoryScope {
     targetFilePath: string,
     operation: (scope: SafeDirectoryScope) => Promise<T>,
   ): Promise<T>
+  /** Same opened directory identity, but no caller AbortSignal checks. Use only to settle already-durable state. */
+  forSettlement(): SafeDirectoryScope
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -379,6 +381,10 @@ function createDirectoryScope(
       } finally {
         if (acquired) await rm(lockPath, { force: true })
       }
+    },
+
+    forSettlement() {
+      return createDirectoryScope(dirPath, anchor)
     },
   }
 
