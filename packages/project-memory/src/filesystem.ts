@@ -21,7 +21,6 @@ const DEFAULT_LOCK_WAIT_MS = 2_000
 interface DirectoryAnchor {
   readonly path: string
   readonly identity: Stats
-  readonly descriptorAnchored: boolean
 }
 
 interface DirectoryAnchorOptions {
@@ -51,6 +50,14 @@ export interface SafeDirectoryScope {
   removeRegularFile(targetFilePath: string): Promise<boolean>
   withWriterLock<T>(
     targetFilePath: string,
+    operation: (scope: SafeDirectoryScope) => Promise<T>,
+  ): Promise<T>
+  withExistingChildDirectory<T>(
+    childDirPath: string,
+    operation: (scope: SafeDirectoryScope) => Promise<T>,
+  ): Promise<T | undefined>
+  withEnsuredChildDirectory<T>(
+    childDirPath: string,
     operation: (scope: SafeDirectoryScope) => Promise<T>,
   ): Promise<T>
   /** Same opened directory identity, but no caller AbortSignal checks. Use only to settle already-durable state. */
@@ -126,6 +133,61 @@ async function descriptorAnchorPath(fd: number, expected: Stats): Promise<string
   return undefined
 }
 
+async function openChildAnchor(
+  logicalParentPath: string,
+  parentAnchor: DirectoryAnchor,
+  childDirPath: string,
+  create: boolean,
+  signal?: AbortSignal,
+): Promise<{ anchor: DirectoryAnchor; handle: FileHandle } | undefined> {
+  throwIfAborted(signal)
+  const childName = directChildName(logicalParentPath, childDirPath)
+  const anchoredChildPath = resolve(parentAnchor.path, childName)
+
+  let before: Stats
+  try {
+    before = await lstat(anchoredChildPath)
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT' || !create) {
+      if (error?.code === 'ENOENT') return undefined
+      throw error
+    }
+    try {
+      await mkdir(anchoredChildPath)
+    } catch (mkdirError: any) {
+      if (mkdirError?.code !== 'EEXIST') throw mkdirError
+    }
+    before = await lstat(anchoredChildPath)
+  }
+  assertDirectory(before, childDirPath, false)
+  throwIfAborted(signal)
+
+  const handle = await open(anchoredChildPath, constants.O_RDONLY | constants.O_DIRECTORY)
+  try {
+    const opened = await handle.stat()
+    if (!opened.isDirectory() || !sameIdentity(before, opened)) {
+      throw new Error(`Directory at "${childDirPath}" changed while it was being opened`)
+    }
+    const visible = await lstat(anchoredChildPath)
+    assertDirectory(visible, childDirPath, false)
+    if (!sameIdentity(opened, visible)) {
+      throw new Error(`Directory at "${childDirPath}" changed while it was being opened`)
+    }
+    throwIfAborted(signal)
+    const descriptorPath = await descriptorAnchorPath(handle.fd, opened)
+    return {
+      handle,
+      anchor: {
+        path: descriptorPath ?? anchoredChildPath,
+        identity: opened,
+      },
+    }
+  } catch (error) {
+    await handle.close()
+    throw error
+  }
+}
+
 async function withDirectoryAnchor<T>(
   dirPath: string,
   operation: (anchor: DirectoryAnchor) => Promise<T>,
@@ -141,7 +203,7 @@ async function withDirectoryAnchor<T>(
   throwIfAborted(signal)
 
   if (process.platform === 'win32') {
-    const result = await operation({ path: dirPath, identity: before, descriptorAnchored: false })
+    const result = await operation({ path: dirPath, identity: before })
     await assertDirectoryPathIdentity(dirPath, before, allowDirectorySymlink)
     return result
   }
@@ -159,12 +221,8 @@ async function withDirectoryAnchor<T>(
     const anchor: DirectoryAnchor = {
       path: descriptorPath ?? dirPath,
       identity: opened,
-      descriptorAnchored: descriptorPath !== undefined,
     }
     const result = await operation(anchor)
-    // Descriptor anchoring prevents redirection into a replacement directory,
-    // while this final check prevents a successful operation from silently
-    // reporting success after the logical pathname stopped naming that inode.
     await assertDirectoryPathIdentity(dirPath, opened, allowDirectorySymlink)
     return result
   } finally {
@@ -227,6 +285,22 @@ function createDirectoryScope(
   const anchoredPath = (targetFilePath: string): string => {
     const targetName = directChildName(dirPath, targetFilePath)
     return resolve(anchor.path, targetName)
+  }
+
+  async function withChildDirectory<T>(
+    childDirPath: string,
+    operation: (scope: SafeDirectoryScope) => Promise<T>,
+    create: boolean,
+  ): Promise<T | undefined> {
+    const child = await openChildAnchor(dirPath, anchor, childDirPath, create, signal)
+    if (child === undefined) return undefined
+    try {
+      const result = await operation(createDirectoryScope(childDirPath, child.anchor, signal))
+      await assertDirectoryPathIdentity(childDirPath, child.anchor.identity, false)
+      return result
+    } finally {
+      await child.handle.close()
+    }
   }
 
   const scope: SafeDirectoryScope = {
@@ -383,6 +457,24 @@ function createDirectoryScope(
       }
     },
 
+    async withExistingChildDirectory<T>(
+      childDirPath: string,
+      operation: (childScope: SafeDirectoryScope) => Promise<T>,
+    ): Promise<T | undefined> {
+      return withChildDirectory(childDirPath, operation, false)
+    },
+
+    async withEnsuredChildDirectory<T>(
+      childDirPath: string,
+      operation: (childScope: SafeDirectoryScope) => Promise<T>,
+    ): Promise<T> {
+      const result = await withChildDirectory(childDirPath, operation, true)
+      if (result === undefined) {
+        throw new Error(`Canonical directory at "${childDirPath}" was not created`)
+      }
+      return result
+    },
+
     forSettlement() {
       return createDirectoryScope(dirPath, anchor)
     },
@@ -393,9 +485,8 @@ function createDirectoryScope(
 
 /**
  * Run multiple child operations against one opened parent-directory identity.
- * On POSIX, all child lookups remain anchored to the descriptor path for the
- * lifetime of the callback. A successful callback is reported only if the
- * logical directory pathname still names the same inode at the end.
+ * Child scopes can only be opened through this pinned parent, which prevents an
+ * intermediate canonical component swap from redirecting descendant I/O.
  */
 export async function withSafeDirectoryScope<T>(
   dirPath: string,
@@ -411,10 +502,6 @@ export async function withSafeDirectoryScope<T>(
   )
 }
 
-/**
- * Asserts that a canonical directory component, if present, is a real directory
- * and not a symbolic link, junction, or non-directory entry.
- */
 export async function validateCanonicalDirectory(dirPath: string, signal?: AbortSignal): Promise<boolean> {
   throwIfAborted(signal)
   const stats = await canonicalDirectoryStats(dirPath)
@@ -422,11 +509,6 @@ export async function validateCanonicalDirectory(dirPath: string, signal?: Abort
   return stats !== undefined
 }
 
-/**
- * Ensures a canonical directory exists as a real final component. The caller
- * may explicitly allow only its parent directory to be a symlink-resolved
- * workspace root; the newly created canonical component itself remains real.
- */
 export async function ensureCanonicalDirectory(
   dirPath: string,
   signal?: AbortSignal,
@@ -454,11 +536,6 @@ export async function ensureCanonicalDirectory(
   }
 }
 
-/**
- * Run one complete writer operation while holding the exact same `<target>.lock`
- * namespace used by DSH atomic-write. The callback receives the same directory
- * scope that owns the lock, so its reads/writes can remain on one parent inode.
- */
 export async function withSafeFileWriterLock<T>(
   dirPath: string,
   targetFilePath: string,
@@ -474,11 +551,6 @@ export async function withSafeFileWriterLock<T>(
   )
 }
 
-/**
- * Read a regular file through one opened parent-directory scope and one opened
- * final-file handle. `allowDirectorySymlink` is reserved for explicit workspace
- * roots such as projectRoot/dshHome.
- */
 export async function readSafeRegularFile(
   dirPath: string,
   targetFilePath: string,
@@ -496,7 +568,6 @@ export async function readSafeRegularFile(
   )
 }
 
-/** Atomically replace one regular file through one opened parent directory. */
 export async function writeSafeFileAtomically(
   dirPath: string,
   targetFilePath: string,
@@ -512,11 +583,6 @@ export async function writeSafeFileAtomically(
   )
 }
 
-/**
- * Publish a complete new file without overwriting a concurrent external
- * creator. A hard-link commit occurs only after the sibling temp inode is fully
- * written.
- */
 export async function writeFileExclusiveAtomic(
   dirPath: string,
   targetFilePath: string,
@@ -533,7 +599,6 @@ export async function writeFileExclusiveAtomic(
   )
 }
 
-/** Remove an existing regular canonical file without following a symlink. */
 export async function removeSafeRegularFile(
   dirPath: string,
   targetFilePath: string,
