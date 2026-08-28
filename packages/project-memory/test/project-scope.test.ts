@@ -7,6 +7,7 @@ import {
   ensureProjectMemoryBootstrap,
   initializeDshProject,
   resolveProjectMemoryPaths,
+  writeTopicMemory,
 } from '../src/index.js'
 import { findProjectRoot } from '../src/runtime.js'
 import { projectRootFromToolExecution } from '../src/tools.js'
@@ -67,6 +68,29 @@ test('direct bootstrap creation keeps a symlinked explicit project root usable',
 
     assert.equal(result.created, true)
     assert.match(await readFile(linkedPaths.memoryMd, 'utf8'), /# Project Memory/)
+  } finally {
+    await rm(parent, { recursive: true, force: true })
+  }
+})
+
+test('direct topic write keeps a symlinked explicit project root usable', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('directory symlink creation is not reliably available on Windows')
+    return
+  }
+
+  const parent = await mkdtemp(join(tmpdir(), 'dsh-memory-symlink-topic-'))
+  const realRoot = join(parent, 'real-project')
+  const linkedRoot = join(parent, 'linked-project')
+  try {
+    await mkdir(realRoot)
+    await symlink(realRoot, linkedRoot, 'dir')
+
+    const result = await writeTopicMemory(linkedRoot, 'architecture', 'linked-root topic\n')
+    const linkedPaths = resolveProjectMemoryPaths(linkedRoot)
+
+    assert.equal(result.created, true)
+    assert.equal(await readFile(join(linkedPaths.memoryDir, 'architecture.md'), 'utf8'), 'linked-root topic\n')
   } finally {
     await rm(parent, { recursive: true, force: true })
   }
