@@ -6,7 +6,7 @@ This file owns **task status and order only**. Architecture belongs in `ARCHITEC
 
 ## Foundation compatibility remediation
 
-The previous Core and Project Memory acceptance remains valid for the installed DSH `0.1.1-rc.2` baseline, but a source-level audit against official tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) found reproducible compatibility/integrity blockers. Both packages are therefore **REOPENED** until the blockers below are fixed and revalidated.
+The previous Core and Project Memory acceptance remains valid for the installed DSH `0.1.1-rc.2` baseline. The source/runtime blockers found against official tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) are now corrected and individually validated. Foundation status remains **REOPENED** only until the final supported-family validation/re-freeze passes.
 
 ### Core — REOPENED pending final family re-freeze
 
@@ -27,29 +27,28 @@ Current remediation:
 - [x] Core host RPC compatibility across DSH `0.1.1-rc.2` and `0.1.2-alpha.1`; retired `dsh-host-apiproxy` production boundary removed; rc.2/alpha.1 mount-unmount-remount + security probes PASS on `59512d51e55f8121eccdb934e01523e4436b289c`.
 - [x] Core browser entry migrated away from retired production `dsh-client-runtime`; Cordis/client service context works against rc.2 and disposable alpha.1.
 - [x] Registry observer/transaction correction PASS on `b925e2a328168e7c978126fc6474b7af11d7a63d`: change notifications are non-vetoing, expected usage policy/collector/default-policy failures are preflighted before registry mutation, post-record rollback remains intact.
-- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family after Project Memory remediation passes.
-- [ ] Re-freeze Core together with Project Memory after final supported-family validation.
+- [x] Core production DSH peers reconciled to the exact validated family `0.1.1-rc.2 || 0.1.2-alpha.1`; local/dev DSH graph remains pinned to rc.2 for reproducibility and retired rc.2 seams remain dev-only fixtures.
+- [ ] Final joint rc.2 + alpha.1 validation and re-freeze with Project Memory.
 
-### Project Memory — REOPENED
+### Project Memory — REOPENED pending final family re-freeze
 
-Previously accepted root/path/context behavior remains unless a new blocker proves otherwise.
+Previously accepted root/path/context behavior remains unless a new regression proves otherwise.
 
 Current remediation:
 
 - [x] Maintenance route is selected when the exact maintenance inbox message is claimed, before prompt assembly; first request uses the requested provider/model. Gemini + disposable alpha.1 probe PASS on `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`.
 - [x] Inter-process per-file RMW serialization PASS on `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`: 29/29 package tests, full workspace gates, child-process stress, foreign-lock preservation, symlink safety and disposable alpha.1 lock probe PASS.
-- [ ] Compound named-topic + Memory-map transaction implemented and awaiting focused validation: fixed lock order `MEMORY.md -> topic.md`, map preflight before topic mutation, late map-failure rollback under both locks, and model-facing `memory_write` / `memory_edit` routed through the compound path.
-- [ ] Reconcile Project Memory DSH peer/dev dependency declarations with the supported DSH family after the compound transaction passes.
-- [ ] Final focused/full workspace + disposable alpha.1 foundation validation.
-- [ ] Re-freeze Project Memory with Core.
+- [x] Compound named-topic + Memory-map transaction PASS on `dbe1b7a3894bc05c1c4863148060bff59166bc17`: 39/39 package tests, 277/277 workspace tests, map preflight before topic mutation, late-map rollback under held locks, exact-byte restore, explicit rollback-failure aggregation and actual model-facing tool-path coverage PASS.
+- [x] Project Memory production DSH peers reconciled to the exact validated family `0.1.1-rc.2 || 0.1.2-alpha.1`; local/dev DSH graph remains pinned to rc.2.
+- [ ] Final joint rc.2 + alpha.1 validation and re-freeze with Core.
 
 ## Current sequence
 
 Foundation remediation must finish before provider cleanup resumes.
 
-### 1. Core + Project Memory compatibility/integrity
+### 1. Core + Project Memory final supported-family re-freeze
 
-Complete the open items above and re-freeze both packages.
+Run one final dual-generation validation of the complete corrected foundation, including package/peer boundaries, local rc.2 workspace gates and disposable alpha.1 Core/Memory installation/runtime probes. If PASS, mark both packages frozen again.
 
 ### 2. Codex
 
