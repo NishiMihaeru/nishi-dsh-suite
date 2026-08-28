@@ -24,13 +24,11 @@ Previously accepted rc.2-baseline behavior remains:
 
 Current remediation:
 
-- [ ] Migrate Core host RPC to DSH `0.1.2-alpha.1` Connection contracts: remove the retired `dsh-host-apiproxy` type boundary and old third `rpc.handle(..., { authority })` argument.
-- [ ] Migrate Core browser entry away from retired `dsh-client-runtime` to the alpha.1 Cordis/client-plugin context pattern while preserving existing Connection/locale/slot behavior.
-- [ ] Fix registry commit semantics so a throwing change listener cannot leave a ghost provider after failed registration; add regression coverage.
-- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family only after source compatibility is proven.
-- [ ] Focused Core `test` / `check` / `build` PASS.
-- [ ] Disposable compatibility probe against official `dsh-v0.1.2-alpha.1` PASS.
-- [ ] Re-freeze Core.
+- [x] Core host RPC compatibility across DSH `0.1.1-rc.2` and `0.1.2-alpha.1`; retired `dsh-host-apiproxy` production boundary removed; rc.2/alpha.1 mount-unmount-remount + security probes PASS on `59512d51e55f8121eccdb934e01523e4436b289c`.
+- [x] Core browser entry migrated away from retired production `dsh-client-runtime`; Cordis/client service context works against rc.2 and disposable alpha.1.
+- [ ] Registry observer/transaction correction: non-vetoing change notifications plus preflight usage policy/collector/default-policy validation are implemented and awaiting focused validation.
+- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family only after all source/runtime remediation is proven.
+- [ ] Re-freeze Core after the registry correction and final supported-family validation.
 
 ### Project Memory — REOPENED
 
