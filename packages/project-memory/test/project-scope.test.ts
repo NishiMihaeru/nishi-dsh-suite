@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, normalize, resolve } from 'node:path'
 import test from 'node:test'
-import { initializeDshProject, resolveProjectMemoryPaths } from '../src/index.js'
+import {
+  ensureProjectMemoryBootstrap,
+  initializeDshProject,
+  resolveProjectMemoryPaths,
+} from '../src/index.js'
 import { findProjectRoot } from '../src/runtime.js'
 import { projectRootFromToolExecution } from '../src/tools.js'
 
@@ -42,6 +46,29 @@ test('context and memory tools resolve the same git project root from a nested s
     assert.notEqual(resolveProjectMemoryPaths(toolRoot).memoryMd, join(nestedCwd, '.dsh', 'memory', 'MEMORY.md'))
   } finally {
     await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('direct bootstrap creation keeps a symlinked explicit project root usable', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('directory symlink creation is not reliably available on Windows')
+    return
+  }
+
+  const parent = await mkdtemp(join(tmpdir(), 'dsh-memory-symlink-bootstrap-'))
+  const realRoot = join(parent, 'real-project')
+  const linkedRoot = join(parent, 'linked-project')
+  try {
+    await mkdir(realRoot)
+    await symlink(realRoot, linkedRoot, 'dir')
+
+    const result = await ensureProjectMemoryBootstrap(linkedRoot)
+    const linkedPaths = resolveProjectMemoryPaths(linkedRoot)
+
+    assert.equal(result.created, true)
+    assert.match(await readFile(linkedPaths.memoryMd, 'utf8'), /# Project Memory/)
+  } finally {
+    await rm(parent, { recursive: true, force: true })
   }
 })
 
