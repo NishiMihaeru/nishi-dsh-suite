@@ -51,15 +51,16 @@ Providers declare `inject: ['nishiProviders', ...]` and call the shared `registe
 
 - validates canonical provider and route identities;
 - validates `presentation.id` against the provider id;
+- validates/detaches an explicit `usage.refreshPolicy` before any capability factory or registry mutation;
 - constructs provider-owned search and usage capabilities on the provider context;
 - records the provider in `NishiProvidersService`;
 - registers model routes through `ctx.llm.registerAdapter` when a model capability exists;
 - runs provider-specific `install`;
-- is intended to roll back core-owned registry/adapter state transactionally if registration fails.
+- rolls back core-owned registry/adapter state transactionally if a later transaction stage fails.
+
+Registry change listeners are non-vetoing observers. A synchronous observer exception or async observer rejection cannot turn an already committed registry change into a thrown `record()` call, cannot starve later observers, and cannot deny the caller its withdrawal handle. Descriptor data that may legitimately reject registration is validated before the commit instead.
 
 The registry supports late registration and withdrawal. Usage composition follows registry changes instead of snapshotting a static provider list.
-
-A separate audit finding remains open: a synchronous registry change-listener failure can currently escape after registry mutation but before the withdrawal capability reaches `registerProvider()`. That transaction correction is deliberately not mixed into the Connection/client migration and is tracked in `docs/ROADMAP.md`.
 
 ## Shared vendor CLI runtime (`./runtime`)
 
@@ -100,14 +101,6 @@ The only named vendor-like ids in the Model Accounts surface are DSH authorizati
 
 ## Acceptance status
 
-Core 14 acceptance remains the historical accepted baseline for DSH `0.1.1-rc.2`:
+Core 14 remains the historical accepted baseline for DSH `0.1.1-rc.2`. Core 15 accepted the Connection/client compatibility migration against both installed rc.2 and official upstream `dsh-v0.1.2-alpha.1`.
 
-- full core/package/workspace gates PASS;
-- six rc.3 tarballs installed into a disposable DSH profile;
-- exported core subpaths resolved from the installed package;
-- real DSH host boot and HTTP readiness PASS;
-- agent-plane `nishi-dsh-core/web-search` mount PASS;
-- registry-first child lifecycle PASS;
-- unload/remount produced no duplicate registry, usage service or RPC handlers.
-
-Core is currently **REOPENED** after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). The Connection/client compatibility migration described above is awaiting focused rc.2 + disposable alpha.1 validation; the registry transaction correction follows as a separate block. See `docs/ROADMAP.md`.
+Core remains **REOPENED** while integrity remediation is active. The registry-observer transaction correction described above is implemented and awaiting focused validation. Project Memory integrity work follows before the provider-independent foundation can be re-frozen. See `docs/ROADMAP.md`.
