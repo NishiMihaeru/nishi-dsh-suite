@@ -1,8 +1,8 @@
 # Handoff
 
-Updated for `0.1.0-rc.3` after the Core + Project Memory foundation re-freeze.
+Updated for `0.1.0-rc.3` after the independent Core + Project Memory audit/remediation pass.
 
-This is the **only session handoff file**. Update it in place when the active task changes. Do not create dated session-summary or handoff documents.
+This is the **only session handoff file**. Update it in place when the active task changes. Do not create dated session-summary, plan or handoff documents.
 
 ## Current branch/state
 
@@ -46,84 +46,75 @@ For DSH compatibility questions, actual upstream source/runtime contracts at tha
 
 Use `docs/verification/README.md` only to confirm already accepted evidence. `docs/verification/gemini/LATEST.md` is the rolling raw Gemini report, not the durable project state.
 
-## Foundation status — FROZEN
+## Foundation status — REOPENED, REMEDIATED, NOT YET RE-FROZEN
 
-Core and Project Memory are re-frozen. Do not reopen or refactor them during provider work unless a new reproducible regression requires it.
-
-Final foundation implementation HEAD:
+The historical foundation freeze at implementation HEAD:
 
 ```text
 0c7a177d2f4fceab58513cbd0d87fcf9c31b025b
 ```
 
-Final raw PASS report commit:
+and its old PASS report remain historical evidence only. An independent audit from branch HEAD `42203ca50ea2555cfcc675d9c73e52bb86a48324`, strictly against official DSH `0.1.2-alpha.1`, found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects. Those findings have now been remediated in the current branch, but the changed tree has not yet completed its fresh local executable gates.
 
-```text
-c209be795601ac7c4a3328c4af6bdbefde7f9f82
-```
+### Core remediation
 
-Accepted final gates:
+- credential-store read failure now projects a sanitized `ERROR` state instead of `NOT_CONFIGURED`;
+- failed legacy-grant `deleteRecord()` is no longer swallowed as a successful logout;
+- targeted authorization RPC regressions cover both failure paths;
+- no broad alpha.1 Core API/ABI migration was required.
 
-- `pnpm install --frozen-lockfile` PASS;
-- Core `176/176` tests + check/build PASS;
-- Project Memory `39/39` tests + check/build PASS;
-- full workspace `270/270` tests + check/build PASS;
-- `pnpm verify:local` PASS;
-- six local rc.3 tarballs generated;
-- packed Core/Project Memory metadata PASS;
-- Core + Project Memory actual compatibility against installed DSH `0.1.1-rc.2` and official `0.1.2-alpha.1` PASS.
+### Project Memory remediation
 
-Core and Project Memory production DSH peers intentionally accept only:
+- POSIX canonical file I/O is attached to opened directory/file identities instead of check-then-reopen pathnames;
+- explicit symlinked workspace roots remain supported while `.dsh`, `.dsh/memory`, and `.dsh/local` final components remain real directories;
+- initial canonical files are fully written before no-clobber publication;
+- model-facing tools and lazy initialization forward `AbortSignal` through lock waits and commit boundaries;
+- named-topic + Memory-map writes use a `pending`/`committed` WAL under `.dsh/local/` with exact pre-images;
+- dead `pending` transactions roll back exactly; dead `committed` transactions preserve participant data and only clean protocol debris;
+- cleanup is idempotent under concurrent recovery;
+- regression tests cover symlink/static safety, symlinked explicit roots, cancellation, compound serialization and pending/committed recovery.
+
+Windows remains **NOT TESTED**. The descriptor-anchored TOCTOU guarantee is a Linux/POSIX implementation guarantee; Windows uses the fallback identity-revalidation path and must not be described as equivalently proven.
+
+Core and Project Memory production DSH peers remain intentionally restricted to:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Their local DSH dev graph remains pinned to `0.1.1-rc.2`. This does **not** imply that Codex, Antigravity, Claude or the complete Suite already support alpha.1; each provider has its own compatibility/freeze block.
+Their local DSH dev graph remains pinned to `0.1.1-rc.2`.
 
-## Immediate task — Codex cleanup and freeze
+## Immediate task — foundation verification and re-freeze decision
 
-The next package is:
+Do **not** resume Codex cleanup until the changed foundation passes fresh executable validation.
+
+Required local gates on the final remediation HEAD:
+
+1. `pnpm install --frozen-lockfile`;
+2. Core focused `test`, `check`, `build`;
+3. Project Memory focused `test`, `check`, `build`;
+4. full workspace test/check/build gate used by the repository;
+5. `pnpm verify:local`;
+6. disposable official `0.1.2-alpha.1` compatibility verification for the changed Core authorization seam and Project Memory tool/filesystem/cancellation contracts as applicable;
+7. if all PASS, overwrite `docs/verification/gemini/LATEST.md`, commit/push the report, then fold durable evidence into `docs/verification/README.md` and re-freeze Core/Project Memory in the canonical docs.
+
+A failing gate reopens only the concrete failing seam. Do not paper over a failure by restoring old freeze wording.
+
+## Next task after foundation re-freeze — Codex cleanup and freeze
+
+The next provider package remains:
 
 ```text
 packages/codex
 ```
 
-Start from `packages/codex/README.md`, then inspect current source/tests and the actual upstream DSH contracts used by the package.
-
-Current known Codex state:
-
-- provider id `codex`;
-- canonical model route `codex-app-server`;
-- registration goes through Core `registerProvider()`;
-- native Codex web search is contributed as a backend to `nishi-dsh-core/web-search`;
-- vendor-specific delegation/subagent integration is removed;
-- primary invocation disables vendor-native memories/project-doc injection with `memories.use_memories=false`, `memories.generate_memories=false`, `project_doc_max_bytes=0`;
-- runtime uses the user's official `codex` executable; no `@openai/codex*` runtime package is bundled;
-- existing repaired live primary fixture previously passed with `gpt-5.6-sol`.
-
-Codex is **not frozen yet**. Its DSH package declarations are still rc.2-specific and must not be broadened merely because Core/Project Memory were broadened.
-
-### Codex block goals
-
-1. Audit current Codex production source against actual DSH `0.1.1-rc.2` and official `0.1.2-alpha.1` contracts used by the package.
-2. Replace remaining provider-local failure/string-builder logic with the shared Core failure contract where it is genuinely provider-neutral.
-3. Remove provider-local duplicates of provider-neutral helpers only where Core already owns the contract; do not move vendor protocol translation into Core.
-4. Reconcile Codex DSH dependency/peer declarations only to versions actually proven by the provider-specific audit. Do not infer support from the foundation range.
-5. Preserve the reviewed `wingoo/codex-plugin-dsh` snapshot boundary and its notice unless a separate upstream update is intentionally authorized.
-6. Run focused `test` / `check` / `build`.
-7. Run live primary acceptance.
-8. Run routed native `web_search` acceptance.
-9. Prove the primary invocation still suppresses vendor-native memory/project-doc injection.
-10. Freeze Codex only after the focused/local/live block passes.
-
-Do not start Antigravity until Codex is frozen.
+Its prior task block is paused, not cancelled. Codex does not inherit foundation alpha.1 compatibility automatically.
 
 ## Invariants to preserve
 
 - providers register only through shared `registerProvider()`;
-- Core remains provider-independent and frozen;
-- Project Memory remains provider-independent and frozen;
+- Core remains provider-independent;
+- Project Memory remains provider-independent;
 - model capability implies at least one canonical route;
 - capability absence is legal;
 - web search follows the exact current route with no vendor fallback;
@@ -162,11 +153,12 @@ For each narrow issue:
 - Windows remains **NOT TESTED**.
 - Read command exit codes directly; avoid pipelines that mask failures.
 
-## Remaining sequence after Codex
+## Remaining sequence after foundation
 
-1. Antigravity cleanup/compatibility/freeze
-2. Claude usage-only cleanup/compatibility/freeze
-3. repository-wide provider invariants
-4. cross-provider/product live acceptance
-5. install/profile lifecycle
-6. final release gate
+1. Codex cleanup/compatibility/freeze
+2. Antigravity cleanup/compatibility/freeze
+3. Claude usage-only cleanup/compatibility/freeze
+4. repository-wide provider invariants
+5. cross-provider/product live acceptance
+6. install/profile lifecycle
+7. final release gate
