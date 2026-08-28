@@ -41,7 +41,7 @@ On `agent/pre-step` the runtime lazily initializes the project once per canonica
 
 Topic files are never concatenated automatically. The bootstrap Memory map is the discovery surface; detailed topics are read on demand with `memory_read`.
 
-Concurrent initialization of one root is deduplicated.
+Concurrent initialization of one root is deduplicated inside one process; shared file writers are also serialized across DSH processes as described below.
 
 ## Maintenance commands
 
@@ -64,9 +64,19 @@ There is currently no `memory_delete` tool; consolidation is rewrite/edit based,
 
 Canonical `.dsh` and `.dsh/memory` path components must be real directories, not symlinks/junctions. Existing memory targets must be regular files.
 
-Replacement writes use `@deepseek-ai/dsh-atomic-write`. The package revalidates the canonical parent and target before atomic replacement, so a pre-existing symlink target is rejected rather than followed. Initialization uses exclusive-create (`wx`) for files that are absent.
+Replacement writes use `@deepseek-ai/dsh-atomic-write`. The package revalidates the canonical parent and target before atomic replacement, so a pre-existing symlink target is rejected rather than followed. Initialization keeps exclusive-create (`wx`) behavior for absent user-visible files where overwriting a non-cooperating external creator would be unsafe.
 
-Atomic replacement guarantees old-or-new replacement of an individual target, but it is not by itself a multi-process read-modify-write transaction. Inter-process RMW serialization and compound topic/Memory-map mutation failure semantics are currently reopened integrity work and are tracked in `docs/ROADMAP.md`.
+Every Project Memory file that participates in read-modify-write uses DSH's `withFileLock()` with the exact target path as its lock namespace (`<target>.lock`). The lock covers the complete read/render/atomic-commit cycle, and whole-file writers of the same target honor that same lock so they cannot interleave between the read and commit of an edit.
+
+Current serialized shared writers are:
+
+- `.dsh/memory/MEMORY.md`: bootstrap create/write/edit and Memory-map updates;
+- `.dsh/memory/<topic>.md`: whole-file writes and exact edits;
+- root `.gitignore`: initializer create/update of the `.dsh/local/` rule.
+
+Readers remain lock-free because the final replacement is atomic. `DSH.md` and `.dsh/project.json` are create-if-absent state rather than read-modify-write and retain exclusive-create conflict handling.
+
+The remaining open integrity issue is separate: `memory_write` / `memory_edit` for a named topic still perform a topic mutation and a subsequent `MEMORY.md` map mutation as two files. Compound cross-file failure semantics are addressed in the next remediation block rather than hidden inside per-file locking.
 
 Project memory never owns vendor credentials or authentication state.
 
@@ -92,6 +102,6 @@ PM03 maintenance route timing is also accepted:
 - disposable runtime probe against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) PASS;
 - compatibility with installed `0.1.1-rc.2` `agent/inbox/claimed` contract confirmed.
 
-The package is **REOPENED**, not frozen, until the remaining integrity/compatibility items in `docs/ROADMAP.md` pass.
+Cross-process per-file RMW serialization is implemented and awaiting focused validation. The package remains **REOPENED**, not frozen, until the remaining integrity/compatibility items in `docs/ROADMAP.md` pass.
 
 Windows remains **NOT TESTED** for rc.3.
