@@ -5,18 +5,23 @@ import {
   lstat,
   mkdir,
   open,
+  readdir,
   rename,
   rm,
+  rmdir,
   stat,
   writeFile,
   type FileHandle,
 } from 'node:fs/promises'
-import { basename, dirname, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { currentProcessIdentity } from './process-identity.js'
 
 const LOCK_RETRY_INITIAL_MS = 20
 const LOCK_RETRY_MAX_MS = 200
 const DEFAULT_LOCK_WAIT_MS = 2_000
+const WRITER_LOCK_VERSION = 1
+const MAX_LOCK_OWNER_BYTES = 1024
 
 interface DirectoryAnchor {
   readonly path: string
@@ -35,19 +40,41 @@ export interface ExclusiveAtomicWriteOptions {
   readonly mode: number
 }
 
+export interface SafeAtomicWriteOptions {
+  readonly mode?: number
+}
+
 export interface SafeReadOptions {
+  /** Reject a file whose complete size exceeds this bound. */
   readonly maxBytes?: number
+  /** Read at most this prefix after validating the opened file identity. */
+  readonly prefixBytes?: number
+}
+
+export interface WriterLockOwner {
+  readonly format: 'v1' | 'legacy'
+  readonly pid: number
+  readonly processIdentity?: string
+  readonly token?: string
+  /** Internal owner marker name for v1 directory locks. */
+  readonly markerName?: string
 }
 
 export interface SafeDirectoryScope {
   readRegularFile(targetFilePath: string, options?: SafeReadOptions): Promise<Buffer | null>
-  writeFileAtomically(targetFilePath: string, buffer: Buffer): Promise<void>
+  writeFileAtomically(
+    targetFilePath: string,
+    buffer: Buffer,
+    options?: SafeAtomicWriteOptions,
+  ): Promise<void>
   writeFileExclusiveAtomic(
     targetFilePath: string,
     content: string | Buffer,
     options: ExclusiveAtomicWriteOptions,
   ): Promise<boolean>
   removeRegularFile(targetFilePath: string): Promise<boolean>
+  readWriterLockOwner(targetFilePath: string): Promise<WriterLockOwner | null>
+  removeWriterLockIfOwnedBy(targetFilePath: string, owner: WriterLockOwner): Promise<boolean>
   withWriterLock<T>(
     targetFilePath: string,
     operation: (scope: SafeDirectoryScope) => Promise<T>,
@@ -254,16 +281,22 @@ async function assertRegularTargetIfPresent(targetPath: string, logicalPath: str
   }
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path)
+    return true
+  } catch (error: any) {
+    if (error?.code === 'ENOENT') return false
+    throw error
+  }
+}
+
 async function isLockContention(error: unknown, lockPath: string): Promise<boolean> {
   const code = (error as NodeJS.ErrnoException | null)?.code
-  if (code === 'EEXIST') return true
-  if (code !== 'EPERM') return false
-  try {
-    await lstat(lockPath)
-    return true
-  } catch {
+  if (!['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES', 'ENOTDIR', 'EISDIR'].includes(code ?? '')) {
     return false
   }
+  return pathExists(lockPath)
 }
 
 async function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> {
@@ -275,6 +308,69 @@ async function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> 
     throw new Error('Project memory writer lock wait failed')
   }
   throwIfAborted(signal)
+}
+
+function assertBound(value: number | undefined, name: string): void {
+  if (value === undefined) return
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${name} must be a non-negative safe integer`)
+  }
+}
+
+function parseLegacyLockOwner(buffer: Buffer, logicalLockPath: string): WriterLockOwner {
+  const text = buffer.toString('utf8').trim()
+  if (!/^\d+$/.test(text)) {
+    throw new Error(`Malformed legacy project memory writer lock at "${logicalLockPath}"`)
+  }
+  const pid = Number(text)
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    throw new Error(`Malformed legacy project memory writer lock at "${logicalLockPath}"`)
+  }
+  return { format: 'legacy', pid }
+}
+
+function parseV1LockOwner(buffer: Buffer, markerName: string, logicalLockPath: string): WriterLockOwner {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(buffer.toString('utf8'))
+  } catch {
+    throw new Error(`Malformed project memory writer lock at "${logicalLockPath}"`)
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`Malformed project memory writer lock at "${logicalLockPath}"`)
+  }
+  const fields = parsed as Record<string, unknown>
+  const allowed = new Set(['version', 'pid', 'processIdentity', 'token'])
+  if (Object.keys(fields).some((key) => !allowed.has(key))) {
+    throw new Error(`Malformed project memory writer lock at "${logicalLockPath}"`)
+  }
+  if (
+    fields.version !== WRITER_LOCK_VERSION
+    || !Number.isSafeInteger(fields.pid)
+    || (fields.pid as number) <= 0
+    || typeof fields.token !== 'string'
+    || fields.token.length === 0
+    || fields.token.length > 256
+    || (fields.processIdentity !== undefined
+      && (typeof fields.processIdentity !== 'string'
+        || fields.processIdentity.length === 0
+        || fields.processIdentity.length > 512))
+  ) {
+    throw new Error(`Malformed project memory writer lock at "${logicalLockPath}"`)
+  }
+  return {
+    format: 'v1',
+    pid: fields.pid as number,
+    token: fields.token,
+    ...(fields.processIdentity === undefined ? {} : { processIdentity: fields.processIdentity as string }),
+    markerName,
+  }
+}
+
+function sameLockOwner(left: WriterLockOwner, right: WriterLockOwner): boolean {
+  if (left.format !== right.format || left.pid !== right.pid) return false
+  if (left.format === 'legacy') return true
+  return left.token === right.token && left.processIdentity === right.processIdentity
 }
 
 function createDirectoryScope(
@@ -303,9 +399,131 @@ function createDirectoryScope(
     }
   }
 
+  async function readWriterLockOwnerImpl(targetFilePath: string): Promise<WriterLockOwner | null> {
+    throwIfAborted(signal)
+    const logicalLockPath = `${targetFilePath}.lock`
+    const lockPath = anchoredPath(logicalLockPath)
+    let lockStats: Stats
+    try {
+      lockStats = await lstat(lockPath)
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return null
+      throw error
+    }
+    if (lockStats.isSymbolicLink()) {
+      throw new Error(`Project memory writer lock at "${logicalLockPath}" must not be a symbolic link`)
+    }
+    if (lockStats.isFile()) {
+      const legacy = await scope.readRegularFile(logicalLockPath, { maxBytes: 128 })
+      if (legacy === null) return null
+      return parseLegacyLockOwner(legacy, logicalLockPath)
+    }
+    if (!lockStats.isDirectory()) {
+      throw new Error(`Project memory writer lock at "${logicalLockPath}" has an unsupported filesystem type`)
+    }
+
+    const child = await openChildAnchor(dirPath, anchor, logicalLockPath, false, signal)
+    if (child === undefined) return null
+    try {
+      const entries = await readdir(child.anchor.path)
+      if (entries.length !== 1 || !/^owner-[A-Za-z0-9._-]+\.json$/.test(entries[0] ?? '')) {
+        throw new Error(`Malformed project memory writer lock at "${logicalLockPath}"`)
+      }
+      const markerName = entries[0]
+      const childScope = createDirectoryScope(logicalLockPath, child.anchor, signal)
+      const marker = await childScope.readRegularFile(
+        join(logicalLockPath, markerName),
+        { maxBytes: MAX_LOCK_OWNER_BYTES },
+      )
+      if (marker === null) {
+        throw new Error(`Project memory writer lock at "${logicalLockPath}" changed while it was being read`)
+      }
+      return parseV1LockOwner(marker, markerName, logicalLockPath)
+    } finally {
+      await child.handle.close()
+    }
+  }
+
+  async function removeWriterLockIfOwnedByImpl(
+    targetFilePath: string,
+    expectedOwner: WriterLockOwner,
+  ): Promise<boolean> {
+    throwIfAborted(signal)
+    const logicalLockPath = `${targetFilePath}.lock`
+    const lockPath = anchoredPath(logicalLockPath)
+    let currentStats: Stats
+    try {
+      currentStats = await lstat(lockPath)
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return false
+      throw error
+    }
+
+    if (expectedOwner.format === 'legacy') {
+      if (currentStats.isSymbolicLink() || !currentStats.isFile()) return false
+      const currentOwner = await readWriterLockOwnerImpl(targetFilePath)
+      if (currentOwner === null || !sameLockOwner(currentOwner, expectedOwner)) return false
+      // Compatibility cleanup for locks created by pre-generation builds.
+      // Current writers never create this format, so a replacement current
+      // lock is a directory and cannot be unlinked by this regular-file rm.
+      try {
+        await rm(lockPath)
+        return true
+      } catch (error: any) {
+        if (error?.code === 'ENOENT' || error?.code === 'EISDIR' || error?.code === 'EPERM') return false
+        throw error
+      }
+    }
+
+    if (currentStats.isSymbolicLink() || !currentStats.isDirectory()) return false
+    const child = await openChildAnchor(dirPath, anchor, logicalLockPath, false, signal)
+    if (child === undefined) return false
+    let openedIdentity: Stats | undefined
+    try {
+      const entries = await readdir(child.anchor.path)
+      if (entries.length !== 1 || !/^owner-[A-Za-z0-9._-]+\.json$/.test(entries[0] ?? '')) return false
+      const markerName = entries[0]
+      const childScope = createDirectoryScope(logicalLockPath, child.anchor, signal)
+      const markerPath = join(logicalLockPath, markerName)
+      const marker = await childScope.readRegularFile(markerPath, { maxBytes: MAX_LOCK_OWNER_BYTES })
+      if (marker === null) return false
+      const currentOwner = parseV1LockOwner(marker, markerName, logicalLockPath)
+      if (!sameLockOwner(currentOwner, expectedOwner)) return false
+      if (!await childScope.removeRegularFile(markerPath)) return false
+      openedIdentity = child.anchor.identity
+    } finally {
+      await child.handle.close()
+    }
+
+    if (openedIdentity === undefined) return false
+    let visible: Stats
+    try {
+      visible = await lstat(lockPath)
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return true
+      throw error
+    }
+    if (!visible.isDirectory() || visible.isSymbolicLink() || !sameIdentity(visible, openedIdentity)) {
+      return false
+    }
+    try {
+      await rmdir(lockPath)
+      return true
+    } catch (error: any) {
+      // A legitimate replacement owner is always a populated directory. If
+      // it appeared after the identity check, rmdir fails rather than deleting
+      // that new owner's generation.
+      if (error?.code === 'ENOENT') return true
+      if (error?.code === 'ENOTEMPTY' || error?.code === 'EEXIST' || error?.code === 'ENOTDIR') return false
+      throw error
+    }
+  }
+
   const scope: SafeDirectoryScope = {
     async readRegularFile(targetFilePath, options = {}) {
       throwIfAborted(signal)
+      assertBound(options.maxBytes, 'maxBytes')
+      assertBound(options.prefixBytes, 'prefixBytes')
       const targetPath = anchoredPath(targetFilePath)
       const noFollow = typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
       let file: FileHandle
@@ -349,7 +567,17 @@ function createDirectoryScope(
         }
         throwIfAborted(signal)
 
-        const buffer = await file.readFile()
+        let buffer: Buffer
+        if (options.prefixBytes === undefined) {
+          buffer = await file.readFile()
+        } else if (options.prefixBytes === 0 || opened.size === 0) {
+          buffer = Buffer.alloc(0)
+        } else {
+          const length = Math.min(options.prefixBytes, opened.size)
+          buffer = Buffer.alloc(length)
+          const { bytesRead } = await file.read(buffer, 0, length, 0)
+          buffer = buffer.subarray(0, bytesRead)
+        }
         throwIfAborted(signal)
         if (options.maxBytes !== undefined && buffer.length > options.maxBytes) {
           throw new Error(
@@ -362,7 +590,7 @@ function createDirectoryScope(
       }
     },
 
-    async writeFileAtomically(targetFilePath, buffer) {
+    async writeFileAtomically(targetFilePath, buffer, options = {}) {
       throwIfAborted(signal)
       const targetPath = anchoredPath(targetFilePath)
       await assertRegularTargetIfPresent(targetPath, targetFilePath)
@@ -370,7 +598,7 @@ function createDirectoryScope(
 
       const tempPath = `${targetPath}.${randomBytes(6).toString('hex')}.tmp`
       try {
-        await writeFile(tempPath, buffer, { mode: 0o644, flag: 'wx' })
+        await writeFile(tempPath, buffer, { mode: options.mode ?? 0o644, flag: 'wx' })
         throwIfAborted(signal)
         await rename(tempPath, targetPath)
       } catch (error) {
@@ -419,24 +647,56 @@ function createDirectoryScope(
       }
     },
 
+    readWriterLockOwner(targetFilePath) {
+      return readWriterLockOwnerImpl(targetFilePath)
+    },
+
+    removeWriterLockIfOwnedBy(targetFilePath, owner) {
+      return removeWriterLockIfOwnedByImpl(targetFilePath, owner)
+    },
+
     async withWriterLock<T>(
       targetFilePath: string,
       operation: (lockedScope: SafeDirectoryScope) => Promise<T>,
     ): Promise<T> {
       throwIfAborted(signal)
       const targetPath = anchoredPath(targetFilePath)
-      const lockPath = `${targetPath}.lock`
+      const logicalLockPath = `${targetFilePath}.lock`
+      const lockPath = anchoredPath(logicalLockPath)
       const deadline = Date.now() + DEFAULT_LOCK_WAIT_MS
       let delay = LOCK_RETRY_INITIAL_MS
+      const token = randomBytes(16).toString('hex')
+      const processIdentity = await currentProcessIdentity()
+      const owner: WriterLockOwner = {
+        format: 'v1',
+        pid: process.pid,
+        token,
+        ...(processIdentity === undefined ? {} : { processIdentity }),
+        markerName: `owner-${token}.json`,
+      }
       let acquired = false
 
       for (;;) {
         throwIfAborted(signal)
+        const tempLockPath = `${lockPath}.${randomBytes(6).toString('hex')}.tmp`
         try {
-          await writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })
+          await mkdir(tempLockPath, { mode: 0o700 })
+          const marker = {
+            version: WRITER_LOCK_VERSION,
+            pid: owner.pid,
+            ...(owner.processIdentity === undefined ? {} : { processIdentity: owner.processIdentity }),
+            token,
+          }
+          await writeFile(
+            join(tempLockPath, owner.markerName!),
+            JSON.stringify(marker) + '\n',
+            { mode: 0o600, flag: 'wx' },
+          )
+          await rename(tempLockPath, lockPath)
           acquired = true
           break
         } catch (error) {
+          await rm(tempLockPath, { recursive: true, force: true })
           if (!await isLockContention(error, lockPath)) throw error
         }
         throwIfAborted(signal)
@@ -453,7 +713,12 @@ function createDirectoryScope(
         throwIfAborted(signal)
         return await operation(scope)
       } finally {
-        if (acquired) await rm(lockPath, { force: true })
+        if (acquired) {
+          // Lock settlement must not inherit caller cancellation. The expected
+          // generation token prevents a delayed finalizer from removing a
+          // replacement owner's lock.
+          await createDirectoryScope(dirPath, anchor).removeWriterLockIfOwnedBy(targetFilePath, owner)
+        }
       }
     },
 
@@ -562,12 +827,16 @@ export async function readSafeRegularFile(
   options: {
     readonly signal?: AbortSignal
     readonly maxBytes?: number
+    readonly prefixBytes?: number
     readonly allowDirectorySymlink?: boolean
   } = {},
 ): Promise<Buffer | null> {
   return withSafeDirectoryScope(
     dirPath,
-    (scope) => scope.readRegularFile(targetFilePath, { maxBytes: options.maxBytes }),
+    (scope) => scope.readRegularFile(targetFilePath, {
+      maxBytes: options.maxBytes,
+      prefixBytes: options.prefixBytes,
+    }),
     options.signal,
     { allowDirectorySymlink: options.allowDirectorySymlink === true },
   )
