@@ -23,8 +23,10 @@ For a non-Git workspace, the normalized absolute session `cwd` is the project ro
 The package registers:
 
 - `memory_read` — read `MEMORY.md` through special topic `memory`, or one named topic;
-- `memory_write` — create/replace a topic or bootstrap and update the Memory map for new topics;
+- `memory_write` — create/replace a topic or bootstrap;
 - `memory_edit` — deterministic exact-text replacement requiring exactly one match.
+
+For named topics, `memory_write` and `memory_edit` use a compound transaction that keeps the topic file and its canonical `MEMORY.md` map entry consistent. Bootstrap topic `memory` remains a single-file operation.
 
 Topic ids are flat lowercase ASCII identifiers containing letters, digits and hyphens, at most 64 characters. `memory` and Windows reserved device names are rejected, which keeps topic paths inside `.dsh/memory`.
 
@@ -60,13 +62,13 @@ Maintenance directives permit only durable project facts. They explicitly reject
 
 There is currently no `memory_delete` tool; consolidation is rewrite/edit based, and the directives explicitly forbid substituting shell deletion for a missing memory operation.
 
-## Filesystem safety
+## Filesystem safety and transactions
 
 Canonical `.dsh` and `.dsh/memory` path components must be real directories, not symlinks/junctions. Existing memory targets must be regular files.
 
 Replacement writes use `@deepseek-ai/dsh-atomic-write`. The package revalidates the canonical parent and target before atomic replacement, so a pre-existing symlink target is rejected rather than followed. Initialization keeps exclusive-create (`wx`) behavior for absent user-visible files where overwriting a non-cooperating external creator would be unsafe.
 
-Every Project Memory file that participates in read-modify-write uses DSH's `withFileLock()` with the exact target path as its lock namespace (`<target>.lock`). The lock covers the complete read/render/atomic-commit cycle, and whole-file writers of the same target honor that same lock so they cannot interleave between the read and commit of an edit.
+Every Project Memory file that participates in read-modify-write uses DSH's `withFileLock()` with the exact target path as its lock namespace (`<target>.lock`). The lock covers the complete read/render/atomic-commit cycle, and whole-file writers of the same target honor that same lock.
 
 Current serialized shared writers are:
 
@@ -74,34 +76,34 @@ Current serialized shared writers are:
 - `.dsh/memory/<topic>.md`: whole-file writes and exact edits;
 - root `.gitignore`: initializer create/update of the `.dsh/local/` rule.
 
-Readers remain lock-free because the final replacement is atomic. `DSH.md` and `.dsh/project.json` are create-if-absent state rather than read-modify-write and retain exclusive-create conflict handling.
+Named-topic tool mutations additionally use a bounded two-file transaction with a fixed lock order:
 
-The remaining open integrity issue is separate: `memory_write` / `memory_edit` for a named topic still perform a topic mutation and a subsequent `MEMORY.md` map mutation as two files. Compound cross-file failure semantics are addressed in the next remediation block rather than hidden inside per-file locking.
+```text
+MEMORY.md -> <topic>.md
+```
+
+The Memory-map render is preflighted while `MEMORY.md.lock` is held, before the topic changes. The topic mutation then runs under its own lock. The map commit happens while both locks are still held. If that late map commit fails, an existing topic is restored to its exact previous bytes or a newly created topic is removed before either lock is released. If rollback itself fails, the original map failure and rollback failure are surfaced together as an `AggregateError` at the storage layer.
+
+A missing `MEMORY.md` is represented in-memory by the approved initial bootstrap during preflight and is not created until the successful map commit, so a failed topic operation does not leave a new bootstrap behind.
+
+Readers remain lock-free because the final replacement is atomic. `DSH.md` and `.dsh/project.json` are create-if-absent state rather than read-modify-write and retain exclusive-create conflict handling.
 
 Project memory never owns vendor credentials or authentication state.
 
 ## Acceptance status
 
-PM01 root consistency and PM02 rc.2-baseline final acceptance remain valid:
+PM01 root consistency and PM02 rc.2-baseline final acceptance remain valid.
 
-- package test/check/build PASS at accepted checkpoints;
-- full workspace `pnpm verify:local` PASS;
-- nested-cwd actual tool read/write/edit resolves to the project root;
-- `.git` directory/file, nearest nested repo and no-Git fallback behavior verified;
-- symlink/junction external-target protection PASS;
-- shared atomic writer resolves in a disposable installed Suite profile;
-- real Cordis deferred `commands + llm` injection PASS;
-- real disposable DSH host boot and HTTP readiness PASS.
-
-PM03 maintenance route timing is also accepted:
+PM03 maintenance route timing is accepted:
 
 - implementation `0297fcc4eaecd4aace5c06b20000ea4539a7b3e1`;
 - regression test `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`;
 - 25/25 package tests PASS;
 - typecheck/build PASS;
-- disposable runtime probe against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) PASS;
-- compatibility with installed `0.1.1-rc.2` `agent/inbox/claimed` contract confirmed.
+- disposable runtime probe against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) PASS.
 
-Cross-process per-file RMW serialization is implemented and awaiting focused validation. The package remains **REOPENED**, not frozen, until the remaining integrity/compatibility items in `docs/ROADMAP.md` pass.
+PM04 inter-process per-file RMW serialization is accepted on implementation HEAD `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`: 29/29 package tests, full workspace gates, real multi-process contention/stress, foreign-lock preservation, symlink safety and disposable alpha.1 locking probe PASS.
+
+Compound named-topic + Memory-map transaction handling and model-facing tool regressions are now implemented and awaiting focused validation. After that, only supported DSH version-range reconciliation and the final foundation re-freeze remain before provider cleanup resumes.
 
 Windows remains **NOT TESTED** for rc.3.
