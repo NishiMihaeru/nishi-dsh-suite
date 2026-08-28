@@ -195,7 +195,7 @@ Project Memory uses one root policy for context injection and tools:
 
 Canonical memory paths reject symlink/junction path components and non-regular targets. Replacement writes use `@deepseek-ai/dsh-atomic-write` after those checks.
 
-Every shared file that participates in read-modify-write uses DSH `withFileLock()` with the exact target as its lock namespace. The lock covers read/render/atomic-commit, and whole-file writers of the same target honor that same lock so they cannot interleave inside another writer's RMW cycle. Readers remain lock-free because replacement commit is atomic.
+Every shared file that participates in read-modify-write uses DSH `withFileLock()` with the exact target as its lock namespace. The lock covers read/render/atomic-commit, and whole-file writers of the same target honor that same lock. Readers remain lock-free because replacement commit is atomic.
 
 The per-file writer domains are:
 
@@ -205,7 +205,17 @@ The per-file writer domains are:
 
 `DSH.md` and `.dsh/project.json` remain create-if-absent state guarded by `wx`; they are not RMW documents.
 
-This per-file serialization does **not** claim a transaction across different files. A named-topic `memory_write` / `memory_edit` still mutates the topic and then updates `MEMORY.md`; explicit cross-file partial-commit/failure semantics remain the next integrity block.
+Named-topic `memory_write` / `memory_edit` add a bounded compound transaction across the topic and its Memory-map entry. The invariant lock order is always:
+
+```text
+MEMORY.md -> <topic>.md
+```
+
+While holding `MEMORY.md.lock`, Core preflights the canonical map render and its bootstrap bounds before any topic mutation. The topic then mutates while its own lock is nested under the Memory lock. The Memory-map atomic commit happens before the topic lock is released. If that late map commit fails, the topic is rolled back under the still-held topic lock: an existing topic restores its exact prior bytes and a newly created topic is removed. A rollback failure is aggregated with the original map failure rather than being hidden.
+
+Missing `MEMORY.md` is represented by the approved initial bootstrap in memory during preflight and is only materialized by a successful map commit. Therefore a failed topic operation does not create bootstrap state as a side effect.
+
+Low-level single-file topic helpers remain available and intentionally do not update the Memory map; the model-facing named-topic tools use the compound transaction helpers.
 
 `/memory` and `/consolidate` register only with both `commands` and `llm` injected. Their temporary model selection is scoped to the maintenance turn. The selected provider/model is activated when the exact steered maintenance message is emitted through `agent/inbox/claimed`, before DSH prompt assembly snapshots model selection; cleanup removes the selection/listeners on idle, matching turn stop/error or steering failure.
 
@@ -241,8 +251,9 @@ Antigravity suppression remains partly configuration and partly prompt-level gui
 12. Provider descriptor validation that can reject registration happens before registry mutation.
 13. Registry change observers are non-vetoing; a broken observer cannot create ghost provider/route state by denying the caller its withdrawal handle.
 14. Every Project Memory writer that can race an RMW cycle honors the same per-target cross-process writer lock.
-15. Per-file locking must not be described as an atomic transaction across a topic file and `MEMORY.md`.
+15. Named-topic model-facing writes/edits hold `MEMORY.md` then topic locks in that fixed order and cannot report a normal map failure after leaving the topic mutated.
+16. A compound rollback failure is explicit and aggregated; it is never silently represented as a clean rollback.
 
 ## Current implementation state
 
-Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing, Core Connection/client compatibility and Core registry transaction integrity are accepted. Project Memory per-file cross-process writer locking is implemented and awaiting focused validation; compound topic/map failure semantics and final supported-version reconciliation remain open. Provider cleanup resumes only after the foundation is re-frozen.
+Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing and per-file RMW locking, Core Connection/client compatibility and Core registry transaction integrity are accepted. Compound Project Memory topic/map transactions are implemented and awaiting focused validation. After that, supported-version reconciliation and the joint foundation re-freeze remain before provider cleanup resumes.
