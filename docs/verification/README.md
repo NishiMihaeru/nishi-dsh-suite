@@ -43,10 +43,31 @@ Core 01–14 remain accepted for the DSH `0.1.1-rc.2` baseline. The package is *
 | Core 12 | direct core `dsh-authorization` dependency removed PASS |
 | Core 13 | canonical Web Search route parsing/error taxonomy PASS |
 | Core 14 | final package/install/real DSH boot/unload-remount acceptance PASS |
+| Core 15 | DSH rc.2/alpha.1 Connection + browser-client compatibility migration PASS |
 
 Core 14 included full local workspace gates, six rc.3 tarballs, disposable Suite installation, installed Core subpath imports, real host boot/HTTP readiness, real agent-plane `nishi-dsh-core/web-search`, and unload/remount without duplicate registry/usage/RPC services.
 
-Current open Core validation is tracked in `ROADMAP.md`; confirmed alpha.1 remediation includes Connection/client API migration and a separately reproducible registry-listener transaction hole.
+### Core 15 Connection/client compatibility
+
+Accepted implementation HEAD: `59512d51e55f8121eccdb934e01523e4436b289c`.
+Gemini raw validation report commit: `c991bb6ece48acb02d5c15bce3b2b970c3da391a`.
+
+Accepted result:
+
+- frozen lockfile install PASS with no package/lockfile drift;
+- Core tests PASS: 169/169;
+- typecheck PASS;
+- build PASS;
+- actual rc.2 `HostConnectionRpc.handle.length === 3` and alpha.1 `handle.length === 2` verified from built packages;
+- compatibility helper dispatches rc.2 registrations with `{ authority: 'trusted-host' }` and alpha.1 registrations with the native two-argument API;
+- Usage Limits and Authorization channels mount/unload/remount cleanly on both DSH generations with no duplicate routes;
+- production Core no longer imports or peers on retired `@deepseek-ai/dsh-host-apiproxy` or `@deepseek-ai/dsh-client-runtime`; they remain dev-only rc.2 fixtures;
+- RPC success/error wire shapes remain compatible across both generations;
+- Core browser entry using Cordis `Context` works with rc.2 and alpha.1 client service merges;
+- disposable alpha.1 host/client probe PASS;
+- alpha.1 Connection Host/Origin fence plus browser authentication were verified before Core handlers, with untrusted requests rejected (403) and unauthenticated requests rejected (401).
+
+Current open Core validation is the separately reproducible registry-listener transaction hole; version-range reconciliation/re-freeze remains later after all foundation blockers are closed.
 
 ## Project Memory stabilization baseline
 
@@ -122,17 +143,16 @@ Published `0.1.0-rc.1` historically passed Linux/CachyOS local and registry-only
 
 Ordered open validation is now:
 
-1. Core alpha.1 Connection/client migration.
-2. Core registry listener/transaction correction.
-3. Project Memory inter-process RMW integrity.
-4. Project Memory compound topic/map mutation failure semantics and focused test gaps.
-5. Re-freeze Core + Project Memory against the intended supported DSH family.
-6. Codex provider cleanup + focused/local/live acceptance.
-7. Antigravity provider cleanup/catalog + focused/local/live acceptance.
-8. Claude usage-only cleanup/smoke.
-9. Repository-wide provider invariants.
-10. Cross-provider/product live acceptance.
-11. Final profile/install/release gates.
+1. Core registry listener/transaction correction.
+2. Project Memory inter-process RMW integrity.
+3. Project Memory compound topic/map mutation failure semantics and focused test gaps.
+4. Re-freeze Core + Project Memory against the intended supported DSH family.
+5. Codex provider cleanup + focused/local/live acceptance.
+6. Antigravity provider cleanup/catalog + focused/local/live acceptance.
+7. Claude usage-only cleanup/smoke.
+8. Repository-wide provider invariants.
+9. Cross-provider/product live acceptance.
+10. Final profile/install/release gates.
 
 See `docs/ROADMAP.md` for task status and `docs/HANDOFF.md` for the immediate next run.
 
