@@ -102,20 +102,14 @@ The explicit union deliberately avoids claiming untested intermediate or future 
 
 ## Acceptance status
 
-PM01 root consistency and PM02 rc.2-baseline final acceptance remain valid.
+PM01 root consistency and PM02 rc.2-baseline acceptance remain valid.
 
-PM03 maintenance route timing is accepted:
+PM03 maintenance route timing is accepted through `b3948f3443fc7d0418b64c688865fb7c0ec9eebf` with actual alpha.1 model-selection lifecycle proof.
 
-- implementation `0297fcc4eaecd4aace5c06b20000ea4539a7b3e1`;
-- regression test `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`;
-- 25/25 package tests PASS;
-- typecheck/build PASS;
-- disposable runtime probe against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) PASS.
+PM04 inter-process per-file RMW serialization is accepted on implementation HEAD `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`: real multi-process contention/stress, foreign-lock preservation, symlink safety and alpha.1 locking behavior PASS.
 
-PM04 inter-process per-file RMW serialization is accepted on implementation HEAD `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`: 29/29 package tests, full workspace gates, real multi-process contention/stress, foreign-lock preservation, symlink safety and disposable alpha.1 locking probe PASS.
+PM05 compound named-topic + Memory-map transaction integrity is accepted on implementation HEAD `dbe1b7a3894bc05c1c4863148060bff59166bc17`: fixed lock order, deterministic map preflight, late-map rollback for new/existing topics, exact-byte restore, explicit rollback-failure aggregation and actual model-facing tool-path coverage PASS.
 
-PM05 compound named-topic + Memory-map transaction integrity is accepted on implementation HEAD `dbe1b7a3894bc05c1c4863148060bff59166bc17`: 39/39 package tests, 277/277 workspace tests, deterministic map-preflight side-effect freedom, late-map rollback for new/existing topics, exact-byte restore, explicit rollback-failure aggregation, fixed lock order and actual model-facing tool-path coverage PASS.
-
-All source/runtime blockers found in the reopened Project Memory audit are closed. The supported peer-family declaration is implemented and the package is awaiting the final joint Core + Project Memory dual-generation validation/re-freeze.
+The final foundation re-freeze passed on implementation HEAD `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b`: Project Memory `39/39`, full workspace `270/270`, frozen install and `pnpm verify:local` PASS, with actual rc.2 + official alpha.1 runtime/tool/locking/maintenance evidence. Project Memory is **FROZEN** for provider work. Reopen it only for a new reproducible memory regression or an explicitly scoped future DSH compatibility generation.
 
 Windows remains **NOT TESTED** for rc.3.
