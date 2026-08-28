@@ -58,6 +58,23 @@ function assertPositiveSafeInteger(value: unknown, context: string): number {
   return value;
 }
 
+/**
+ * Validate and detach one usage refresh policy before it becomes registry-visible.
+ * Provider descriptors may carry a custom policy, while UsageLimitsService also
+ * accepts direct registrations in tests/other callers; both boundaries must use
+ * exactly the same numeric contract.
+ */
+export function parseUsageRefreshPolicy(value: unknown, context = 'policy'): UsageRefreshPolicy {
+  const policyObj = assertPlainObject(value, context);
+  return {
+    minRefreshIntervalMs: assertNonNegativeSafeInteger(
+      policyObj.minRefreshIntervalMs,
+      `${context}.minRefreshIntervalMs`,
+    ),
+    staleAfterMs: assertPositiveSafeInteger(policyObj.staleAfterMs, `${context}.staleAfterMs`),
+  };
+}
+
 export class UsageLimitsService {
   private readonly registrations = new Map<string, UsageProviderRegistration>();
   private readonly registrationOrder: string[] = [];
@@ -101,13 +118,11 @@ export class UsageLimitsService {
     if (!collector || typeof collector !== 'object' || typeof collector.collect !== 'function') {
       throw new UsageContractError(`${context}.collector must be an object with a callable collect method`);
     }
-    const policyObj = assertPlainObject(obj.policy, `${context}.policy`);
-    const minRefreshIntervalMs = assertNonNegativeSafeInteger(policyObj.minRefreshIntervalMs, `${context}.policy.minRefreshIntervalMs`);
-    const staleAfterMs = assertPositiveSafeInteger(policyObj.staleAfterMs, `${context}.policy.staleAfterMs`);
+    const policy = parseUsageRefreshPolicy(obj.policy, `${context}.policy`);
     const entry: UsageProviderRegistration = {
       providerId,
       collector: { collect: collector.collect.bind(collector) },
-      policy: { minRefreshIntervalMs, staleAfterMs },
+      policy,
     };
     this.registrations.set(providerId, entry);
     this.registrationOrder.push(providerId);
