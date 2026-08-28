@@ -37,7 +37,7 @@ Limits:
 
 Reads do not silently create missing memory files.
 
-Every model-facing memory operation forwards the DSH `ToolRunContext.signal` through project-root discovery, recovery, lock acquisition, reads and commit boundaries. Cancellation while waiting for a writer lock rejects before the mutation runs; cancellation is checked again immediately before atomic commit points.
+Every model-facing memory operation forwards the DSH `ToolRunContext.signal` through project-root discovery, recovery, lock acquisition, reads and commit boundaries. Cancellation while waiting for a writer lock rejects before the mutation runs; cancellation is checked again immediately before atomic commit points. If cancellation is the cause of failure, the tool rethrows the caller's cancellation reason rather than sanitizing it into an ordinary Project Memory error.
 
 ## Context injection
 
@@ -72,7 +72,9 @@ On POSIX, filesystem operations open the parent directory first, verify its devi
 
 Windows has no equivalent Node `openat` surface in this implementation; it uses the fallback path plus identity revalidation and remains **NOT TESTED** for rc.3. No strong Windows TOCTOU claim is made.
 
-Replacement writes create a complete sibling temp inode and rename it through the anchored parent. First publication of `DSH.md`, `.dsh/project.json`, `MEMORY.md`, and a newly created `.gitignore` entry is also complete-before-visible: the package writes a sibling temp inode first, then publishes it with a no-clobber hard-link commit. A concurrent external creator is preserved rather than overwritten, and a crash cannot leave a canonical zero/partial file merely because the pathname was opened with `wx` before its content finished writing.
+Replacement writes create a complete sibling temp inode and rename it through the anchored parent. First publication of `DSH.md`, `.dsh/project.json`, `MEMORY.md`, and a newly created `.gitignore` entry is also complete-before-visible: the package writes a sibling temp inode first, then publishes it with a no-clobber hard-link commit. A concurrent external creator is preserved rather than overwritten, and a process death cannot leave a canonical zero/partial file merely because the pathname was opened with `wx` before its content finished writing.
+
+These guarantees cover process-level interruption and atomic namespace publication. The implementation does not `fsync` file contents and parent directories, so sudden power-loss/storage-durability guarantees are explicitly out of scope.
 
 Every Project Memory read-modify-write target uses the same `<target>.lock` namespace as `@deepseek-ai/dsh-atomic-write`. Lock acquisition is cross-process and `AbortSignal`-aware, and the lock covers the complete read/render/atomic-commit cycle. Whole-file writers of the same target honor that same namespace.
 
@@ -93,7 +95,7 @@ Before either participant changes, the transaction writes `.dsh/local/project-me
 - `pending` — the transaction is not committed; recovery restores both exact pre-images (or removes a file that did not previously exist);
 - `committed` — both participant writes completed and the journal itself was atomically changed to `committed` while both participant locks were still held; recovery preserves the new participants and only removes stale protocol locks/journal metadata.
 
-The journal phase change is the durable logical commit point. Cleanup after lock release is best-effort and idempotent: a surviving committed journal is safe and is settled by the next Memory-map critical section or crash recovery. A dead owner is never inferred from file age; recovery checks the recorded PID and only removes lock files whose recorded owner is no longer alive.
+The journal phase change is the logical commit point. Cleanup after lock release is best-effort and idempotent: a surviving committed journal is safe and is settled by the next Memory-map critical section or crash recovery. A dead owner is never inferred from file age; recovery checks the recorded PID and only removes lock files whose recorded owner is no longer alive. If the recorded owner process is still alive, recovery first waits until it can acquire `MEMORY.md.lock`; a `pending` journal that still exists after that lock barrier is no longer an active compound transaction and is rolled back under the normal `MEMORY.md -> topic.md` lock order.
 
 The Memory-map render is preflighted while `MEMORY.md.lock` is held, before topic mutation. Ordinary pre-commit failures restore both exact pre-images before the locks are released. A missing `MEMORY.md` is modeled using the approved initial bootstrap during preflight and is not published as a side effect of a failed topic operation.
 
@@ -113,7 +115,7 @@ The explicit union deliberately avoids claiming untested intermediate or future 
 
 The historical PM01-PM05 acceptance records remain useful history, but the independent `dsh-v0.1.2-alpha.1` audit reopened Project Memory after finding filesystem TOCTOU, first-publication crash safety, cooperative cancellation, and cross-file crash-consistency defects.
 
-The current remediation line addresses those findings with descriptor-anchored POSIX I/O, complete-before-visible first publication, end-to-end `AbortSignal` propagation, and the `pending`/`committed` recovery journal described above. Regression coverage has been added for static symlinks, symlinked explicit roots, lock cancellation, model-facing cancellation, multi-process serialization, and pending/committed crash recovery.
+The current remediation line addresses those findings with descriptor-anchored POSIX I/O, complete-before-visible first publication, end-to-end `AbortSignal` propagation, and the `pending`/`committed` recovery journal described above. Regression coverage has been added for static symlinks, symlinked explicit roots, lock cancellation, model-facing cancellation, multi-process serialization, pending/committed crash recovery, abandoned live-PID pending recovery, and idempotent concurrent cleanup.
 
 This README deliberately does **not** re-declare Project Memory `FROZEN` yet. A fresh local package test/typecheck plus the repository verification gates must pass on the final remediation HEAD before the foundation is re-frozen. No such executable verification is inferred from source review alone.
 
