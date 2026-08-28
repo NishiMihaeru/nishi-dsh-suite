@@ -8,12 +8,7 @@ import {
 } from './filesystem.js'
 import { withMemoryMapEntryTransaction } from './bootstrap.js'
 import { resolveProjectMemoryPaths } from './paths.js'
-import {
-  TOPIC_IDENTIFIER_REGEX,
-  MAX_TOPIC_IDENTIFIER_LENGTH,
-  RESERVED_TOPIC_IDENTIFIERS,
-  isValidTopicIdentifier,
-} from './topic-id.js'
+import { isValidTopicIdentifier } from './topic-id.js'
 
 export {
   TOPIC_IDENTIFIER_REGEX,
