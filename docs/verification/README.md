@@ -124,14 +124,18 @@ Source-level changes now present include targeted regressions and implementation
 
 - Core credential-store read failure -> safe `ERROR` instead of false absence;
 - Core failed durable legacy-grant deletion -> sanitized RPC failure instead of nominal success;
-- POSIX directory/file descriptor identity anchoring for Project Memory I/O;
-- explicit symlinked project roots with strict package-owned `.dsh` final components;
+- POSIX Project Memory descriptor chain `projectRoot -> .dsh -> memory/local`, with explicit workspace-root symlink support but strict package-owned real directories;
+- stable `SafeDirectoryScope` ownership for each RMW lock/read/render/write cycle, with compound `memory` and WAL `local` scopes bound to the same `.dsh` generation;
+- file-handle reads with final-entry identity checks and no-follow behavior where supported;
 - complete-before-visible no-clobber first publication;
 - AbortSignal-aware lock acquisition and model/lazy-init propagation;
-- `pending`/`committed` transaction journal with exact participant pre-images;
+- mandatory non-cancellable settlement only after a durable partial participant commit, so cancellation cannot prevent exact rollback;
+- `pending`/`committed` transaction WAL with exact participant pre-images;
 - dead pending rollback and committed preserve/cleanup recovery;
 - recovery of abandoned pending state after the Memory-map lock barrier even when the old process PID remains alive;
-- idempotent concurrent recovery cleanup.
+- fail-closed recovery when a dead-owner WAL transfers to another live owner, disappears, or mutates incompatibly after claim protocol begins;
+- idempotent concurrent recovery cleanup;
+- regressions for locked-parent replacement and intermediate `.dsh` replacement with an external symlink, in addition to the cancellation and crash-recovery cases above.
 
 These are implementation facts, **not PASS evidence**. They become accepted only after the current `HANDOFF.md` foundation validation block succeeds.
 
