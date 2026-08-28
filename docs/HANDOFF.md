@@ -46,7 +46,7 @@ For DSH compatibility questions, actual upstream source/runtime contracts at tha
 
 Use `docs/verification/README.md` only to confirm already accepted evidence. `docs/verification/gemini/LATEST.md` is the rolling raw Gemini report, not the durable project state.
 
-## Foundation status — REOPENED, REMEDIATED, NOT YET RE-FROZEN
+## Foundation status — GITHUB REMEDIATION COMPLETE, LOCAL VERIFICATION REQUIRED
 
 The historical foundation freeze at implementation HEAD:
 
@@ -54,27 +54,32 @@ The historical foundation freeze at implementation HEAD:
 0c7a177d2f4fceab58513cbd0d87fcf9c31b025b
 ```
 
-and its old PASS report remain historical evidence only. An independent audit from branch HEAD `42203ca50ea2555cfcc675d9c73e52bb86a48324`, strictly against official DSH `0.1.2-alpha.1`, found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects. Those findings have now been remediated in the current branch, but the changed tree has not yet completed its fresh local executable gates.
+and its old PASS report remain historical evidence only. An independent audit from branch HEAD `42203ca50ea2555cfcc675d9c73e52bb86a48324`, strictly against official DSH `0.1.2-alpha.1`, found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects.
+
+The GitHub remediation implementation is now complete for source review. Core and Project Memory are still **NOT FROZEN** because the final changed tree has not yet passed fresh local executable gates.
 
 ### Core remediation
 
-- credential-store read failure now projects a sanitized `ERROR` state instead of `NOT_CONFIGURED`;
-- failed legacy-grant `deleteRecord()` is no longer swallowed as a successful logout;
+- credential-store read failure projects a sanitized `ERROR` state instead of `NOT_CONFIGURED`;
+- failed legacy-grant `deleteRecord()` is not swallowed as a successful logout;
 - targeted authorization RPC regressions cover both failure paths;
 - no broad alpha.1 Core API/ABI migration was required.
 
 ### Project Memory remediation
 
-- POSIX canonical file I/O is attached to opened directory/file identities instead of check-then-reopen pathnames;
-- explicit symlinked workspace roots remain supported while `.dsh`, `.dsh/memory`, and `.dsh/local` final components remain real directories;
+- POSIX package-owned descendants are opened through one canonical descriptor chain: `projectRoot -> .dsh -> memory/local`;
+- explicit symlinked workspace roots remain supported while package-owned `.dsh`, `.dsh/memory`, and `.dsh/local` components must be real directories;
+- RMW lock/read/render/write stays on one opened `SafeDirectoryScope`; compound memory/local scopes belong to the same pinned `.dsh` generation;
 - initial canonical files are fully written before no-clobber publication;
-- model-facing tools and lazy initialization forward `AbortSignal` through lock waits and commit boundaries;
+- model-facing tools and lazy initialization forward `AbortSignal` through ordinary lock waits and commit boundaries;
+- if cancellation/failure occurs after a durable participant write, exact rollback uses mandatory settlement on the already-opened scopes instead of being cancelled again;
 - named-topic + Memory-map writes use a `pending`/`committed` WAL under `.dsh/local/` with exact pre-images;
-- dead `pending` transactions roll back exactly; dead `committed` transactions preserve participant data and only clean protocol debris;
+- dead `pending` transactions roll back exactly; dead `committed` transactions preserve participant data and clean protocol debris;
+- recovery ownership/WAL mutation ambiguity after dead unresolved state has been observed is fail-closed;
 - cleanup is idempotent under concurrent recovery;
-- regression tests cover symlink/static safety, symlinked explicit roots, cancellation, compound serialization and pending/committed recovery.
+- regressions cover static symlinks, symlinked explicit roots, locked-parent replacement, intermediate `.dsh` replacement, cancellation, mandatory settlement, compound serialization, pending/committed recovery, live-PID abandoned recovery, and recovery ownership transfer.
 
-Windows remains **NOT TESTED**. The descriptor-anchored TOCTOU guarantee is a Linux/POSIX implementation guarantee; Windows uses the fallback identity-revalidation path and must not be described as equivalently proven.
+Windows remains **NOT TESTED**. The descriptor-chain TOCTOU guarantee is a Linux/POSIX implementation guarantee; Windows uses the fallback identity-revalidation path and must not be described as equivalently proven.
 
 Core and Project Memory production DSH peers remain intentionally restricted to:
 
@@ -84,21 +89,23 @@ Core and Project Memory production DSH peers remain intentionally restricted to:
 
 Their local DSH dev graph remains pinned to `0.1.1-rc.2`.
 
-## Immediate task — foundation verification and re-freeze decision
+## Immediate task — local foundation verification and re-freeze decision
 
-Do **not** resume Codex cleanup until the changed foundation passes fresh executable validation.
+Do **not** resume Codex cleanup and do not repair code during the validation run unless a failing seam is first reported back for review.
 
-Required local gates on the final remediation HEAD:
+Required local gates on the exact checked-out final remediation HEAD:
 
-1. `pnpm install --frozen-lockfile`;
-2. Core focused `test`, `check`, `build`;
-3. Project Memory focused `test`, `check`, `build`;
-4. full workspace test/check/build gate used by the repository;
-5. `pnpm verify:local`;
-6. disposable official `0.1.2-alpha.1` compatibility verification for the changed Core authorization seam and Project Memory tool/filesystem/cancellation contracts as applicable;
-7. if all PASS, overwrite `docs/verification/gemini/LATEST.md`, commit/push the report, then fold durable evidence into `docs/verification/README.md` and re-freeze Core/Project Memory in the canonical docs.
+1. record `git rev-parse HEAD` and ensure the working tree is clean;
+2. `pnpm install --frozen-lockfile`;
+3. Core focused `test`, `check`, `build`;
+4. Project Memory focused `test`, `check`, `build`;
+5. full workspace `test`, `check`, `build`;
+6. `pnpm verify:local`;
+7. disposable official `0.1.2-alpha.1` compatibility verification for the changed Core authorization seam and Project Memory tool/filesystem/cancellation contracts as applicable;
+8. overwrite `docs/verification/gemini/LATEST.md` with exact commands, exit codes, failures/skips and final verdict;
+9. commit/push only that verification report, even on FAIL.
 
-A failing gate reopens only the concrete failing seam. Do not paper over a failure by restoring old freeze wording.
+If all gates PASS, the next assistant pass may fold durable evidence into `docs/verification/README.md` and re-freeze Core/Project Memory in canonical docs. A failing gate reopens only the concrete failing seam; do not paper over it by restoring old freeze wording.
 
 ## Next task after foundation re-freeze — Codex cleanup and freeze
 
