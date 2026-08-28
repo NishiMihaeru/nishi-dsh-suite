@@ -37,68 +37,104 @@ For DSH compatibility questions, use actual upstream source/contracts at the exa
 
 ## Completed remediation in this audit
 
-### Project Memory maintenance route
+### Project Memory maintenance route — PM03
 
-Accepted:
+Accepted implementation/test through `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`, Gemini report commit `10020983856a1137f286c83f9ed68c0a62605f58`, 25/25 tests, check/build and disposable alpha.1 model-selection probe PASS.
 
-- implementation `0297fcc4eaecd4aace5c06b20000ea4539a7b3e1`;
-- regression test `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`;
-- Gemini report commit `10020983856a1137f286c83f9ed68c0a62605f58`;
-- 25/25 package tests PASS;
-- typecheck/build PASS;
-- disposable alpha.1 `installModelSelection` probe PASS.
-
-### Core Connection/client compatibility
+### Core Connection/client compatibility — Core 15
 
 Accepted implementation HEAD `59512d51e55f8121eccdb934e01523e4436b289c` and Gemini report commit `c991bb6ece48acb02d5c15bce3b2b970c3da391a`.
 
 Accepted result includes 169/169 Core tests, check/build/frozen-lockfile PASS, rc.2 + alpha.1 Connection registration/lifecycle PASS, retired Connection/client seams removed from the production boundary, and alpha.1 Host/Origin + browser-auth security probes PASS.
 
-### Core registry observer / registration transaction
+### Core registry observer / registration transaction — Core 16
 
 Accepted implementation HEAD `b925e2a328168e7c978126fc6474b7af11d7a63d` and Gemini report commit `e17c809ce72060f8a5e0627b1a7d2c8d58c263e9`.
 
 Accepted result includes 175/175 Core tests, full workspace test/check/build PASS, non-vetoing sync/async registry observers, no unhandled observer rejection, intact post-record rollback, stale-disposer safety and preflight validation of usage policy/collector/default policy.
 
-Core source/runtime blockers found in this reopened audit are closed. Core remains formally reopened only for final supported-version-range reconciliation and joint foundation re-freeze after Project Memory remediation.
+### Project Memory inter-process RMW integrity — PM04
 
-## Immediate task: validate Project Memory inter-process RMW locking
+Accepted implementation HEAD:
 
-The implementation is now on the branch. Do not mix the next compound topic/map transaction fix into this validation.
+```text
+eae9caf03f8896f344d7c73b2f67d67cb9f86e9c
+```
 
-DSH `@deepseek-ai/dsh-atomic-write` exposes the same `withFileLock()` contract in both installed `0.1.1-rc.2` and upstream `0.1.2-alpha.1`. It uses a `wx`-created `<file>.lock` sibling and is explicitly intended to serialize read-modify-write cycles across processes.
+Gemini report commit:
+
+```text
+02e0dca62f49fc2ef6bba8626ae028c7da3986e2
+```
+
+Accepted result:
+
+- 29/29 Project Memory tests PASS;
+- full workspace test/check/build PASS (267 tests total);
+- rc.2 and alpha.1 `withFileLock()` contracts confirmed identical;
+- same-file RMW lost updates closed for `MEMORY.md`, topic files and `.gitignore`;
+- real child-process stress retained all Memory-map entries and independent topic edits;
+- whole-file writers participate in the same per-target locks;
+- foreign lock timeout preserves foreign lock + target;
+- operation failures clean own locks;
+- target/lock/canonical-parent symlink safety PASS;
+- concurrent initializer stress and disposable alpha.1 lock probe PASS.
+
+Core source/runtime blockers found in this reopened audit are closed. Project Memory now has one remaining implementation validation block before version reconciliation.
+
+## Immediate task: validate Project Memory compound topic + Memory-map transactions
+
+The implementation is on the branch. Do not mix dependency-range changes into this validation.
+
+The old model-facing named-topic path was:
+
+```text
+topic mutation -> release topic lock -> MEMORY.md map update
+```
+
+That allowed `memory_write` / `memory_edit` to report failure after the topic had already changed, and a naive later rollback could itself overwrite a concurrent writer.
 
 Implemented contract:
 
-1. `withSafeFileWriterLock()` in `src/filesystem.ts` uses the exact target file as the lock namespace and revalidates the canonical parent/existing target after acquisition.
-2. `MEMORY.md` bootstrap create/write/edit and Memory-map updates all honor the same `MEMORY.md.lock`.
-3. Whole-file topic writes and topic exact edits honor the same `<topic>.md.lock`.
-4. Root `.gitignore` initialization/update honors `.gitignore.lock` and preserves unrelated existing content.
-5. Readers remain lock-free; atomic rename still provides old-or-new reads.
-6. `DSH.md` and `.dsh/project.json` remain create-if-absent `wx` state, not RMW documents.
-7. Per-file locking is intentionally not a cross-file transaction: topic mutation followed by `MEMORY.md` map mutation remains the next separate blocker.
+1. Topic identity validation was separated into `src/topic-id.ts` so bootstrap coordination no longer depends on `topics.ts` and the compound path has no module cycle.
+2. `withMemoryMapEntryTransaction()` holds `MEMORY.md.lock`, re-reads/preflights the canonical Memory-map render and bootstrap bounds before any topic mutation, and exposes a one-shot map commit while the lock remains held.
+3. Missing `MEMORY.md` is represented by approved initial content in memory; it is not created until successful map commit.
+4. Model-facing named-topic `memory_write` / `memory_edit` use `writeTopicMemoryWithMap()` / `editTopicMemoryWithMap()`.
+5. Compound lock order is always:
 
-Cross-process regression coverage uses real child Node processes with the `tsx` loader. Tests pre-hold the target DSH writer lock, prove child operations cannot complete while it is held, then release it and verify independent changes survive after each process re-reads under the lock.
+   ```text
+   MEMORY.md -> <topic>.md
+   ```
 
-Validation must cover:
+6. Topic snapshot + mutation happen under the nested topic lock.
+7. Memory-map commit happens while both locks remain held.
+8. If the late map commit fails, rollback happens before topic lock release:
+   - existing topic -> exact prior bytes restored;
+   - newly created topic -> removed;
+   - rollback failure -> `AggregateError` retaining original map error and rollback error.
+9. Low-level `writeTopicMemory()` / `editTopicMemory()` remain single-file helpers and intentionally do not touch the Memory map.
+10. Model-facing tool errors remain sanitized; storage-layer tests/review must still prove the actual transaction behavior underneath that sanitization.
 
-- `packages/project-memory/src/filesystem.ts`
-- `packages/project-memory/src/bootstrap.ts`
-- `packages/project-memory/src/topics.ts`
-- `packages/project-memory/src/init.ts`
-- `packages/project-memory/test/atomic-write.test.ts`
-- `packages/project-memory/test/fixtures/rmw-worker.mjs`
+Focused tests now include:
 
-After this passes, the next block is compound topic + `MEMORY.md` failure/partial-commit semantics.
+- happy-path topic + map commit;
+- invalid/ambiguous Memory-map preflight leaves new/existing topic untouched;
+- compound edit repairs a missing map entry;
+- separate-process concurrent compound writes retain every topic/map pair;
+- separate-process concurrent compound edits retain independent changes;
+- lock-order proof that topic lock is not acquired while `MEMORY.md.lock` is externally blocked;
+- actual `apply()`-registered `memory_write` / `memory_edit` execution and sanitized failure behavior.
 
-## Remaining confirmed foundation blockers
+Gemini must additionally force a **late Memory-map commit failure after topic mutation** in a disposable filesystem probe and verify rollback for both a newly-created topic and an existing topic. Do not patch production code to create the failure; use filesystem/process timing or a disposable instrumented copy/probe if necessary.
 
-1. Project Memory per-file inter-process RMW serialization is implemented and **awaiting validation**.
-2. Project Memory topic + Memory-map compound mutations need explicit failure/partial-commit handling and tests.
-3. DSH peer/dev version declarations must be reconciled only after source compatibility is proven.
-4. Core + Project Memory must then be re-frozen against the intended supported DSH family.
+## Remaining foundation blockers after this validation
 
-`ROADMAP.md` owns completion status and order.
+1. Compound Project Memory transaction validation. **ACTIVE**
+2. Reconcile Core + Project Memory DSH peer/dev version declarations with the actual supported DSH family.
+3. Final rc.2 + alpha.1 focused/full-workspace foundation validation.
+4. Re-freeze Core + Project Memory.
+
+Then resume provider cleanup in the fixed sequence: Codex -> Antigravity -> Claude.
 
 ## Invariants to preserve
 
@@ -109,11 +145,12 @@ After this passes, the next block is compound topic + `MEMORY.md` failure/partia
 - web search follows the exact current request route and never silently falls back;
 - capability absence is legal;
 - registry observers cannot veto committed topology changes;
-- provider-owned usage contract errors that can reject registration happen before registry mutation;
 - Project Memory context/tools use one root policy;
 - Project Memory canonical path/symlink confinement remains fail-closed;
-- all Project Memory writers that can race one target's RMW cycle honor that same target lock;
-- per-file locks are not represented as a transaction across topic + Memory map;
+- same-file RMW writers honor the same target lock;
+- compound named-topic writes/edits acquire Memory then topic locks in one fixed order;
+- normal map failure cannot leave a named topic mutated;
+- rollback failure is explicit, not hidden;
 - vendor-specific delegation tools stay removed;
 - no vendor credential/session/token stores are copied, parsed, migrated or deleted.
 
@@ -161,17 +198,3 @@ Do not update the main working copy to alpha.1 merely to probe compatibility. Pr
 - `@openai/codex*` and `@anthropic-ai/*` stay absent from the Suite runtime lock graph.
 - Windows remains **NOT TESTED**.
 - Read command exit codes directly; avoid pipelines that mask failures.
-
-## After foundation remediation
-
-Resume the fixed product sequence:
-
-1. Codex
-2. Antigravity
-3. Claude
-4. repository-wide provider invariants
-5. cross-provider/product live acceptance
-6. install/profile lifecycle
-7. release gate
-
-`ROADMAP.md` owns exact status.
