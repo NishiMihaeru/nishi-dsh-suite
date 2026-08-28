@@ -1,6 +1,6 @@
 # Architecture
 
-Status: canonical `0.1.0-rc.3` architecture after the independent Core + Project Memory audit/remediation against DSH `0.1.2-alpha.1`. The implementation contract below is current; foundation re-freeze is pending fresh executable validation and belongs to `ROADMAP.md` / `HANDOFF.md`.
+Status: canonical `0.1.0-rc.3` architecture after the independent Core + Project Memory audit/remediation against DSH `0.1.2-alpha.1`. Foundation implementation checkpoint `eb95ef6425c788f63339befd0c2437f78bc8dde1` is **FROZEN** after the accepted local + disposable-alpha.1 validation recorded by raw report commit `f491d681390924a171211a5c0dd0c8991f6a7faf`.
 
 ## Product contract
 
@@ -42,9 +42,9 @@ Core and Project Memory publish an explicit peer union for every production `@de
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The main development graph stays pinned to DSH `0.1.1-rc.2`. Official `dsh-v0.1.2-alpha.1` at `cd5ef8148158c3a752a658978873241fdf8e2bbc` is the compatibility source target. Provider packages do not inherit this range automatically.
+The main development graph stays pinned to DSH `0.1.1-rc.2`. Official `dsh-v0.1.2-alpha.1` at `cd5ef8148158c3a752a658978873241fdf8e2bbc` is the compatibility source target used by the accepted foundation validation. Provider packages do not inherit this range automatically.
 
-The independent alpha.1 audit found no broad Core DSH API/ABI migration requirement: Connection RPC, LLM adapter registration, session request-header routing, subprocess, browser ModuleLoader and UI slot composition remain compatible. The audit did reopen one Core correctness seam and the Project Memory storage layer; those remediations are described below.
+The independent alpha.1 audit found no broad Core DSH API/ABI migration requirement: Connection RPC, LLM adapter registration, session request-header routing, subprocess, browser ModuleLoader and UI slot composition remain compatible. The audit did reopen one Core correctness seam and the Project Memory storage layer; those remediations are now part of the frozen foundation contract described below.
 
 ## Core surfaces
 
@@ -260,8 +260,10 @@ Antigravity suppression remains partly configuration and partly prompt guidance;
 17. Credential backend failure is not represented as ordinary account absence, and failed durable logout is not reported as success.
 18. Core and Project Memory production DSH peers accept only `0.1.1-rc.2` and `0.1.2-alpha.1` until another generation passes its own gate.
 
-## Current implementation state
+## Current implementation state — FOUNDATION FROZEN
 
-The independent audit reopened Core and Project Memory after the historical foundation freeze. The current branch contains targeted remediation for the five confirmed findings plus follow-up race/cancellation hardening discovered during implementation. Canonical package and project docs intentionally do **not** declare the foundation frozen yet.
+The independent audit reopened Core and Project Memory after the historical foundation freeze. The current implementation checkpoint `eb95ef6425c788f63339befd0c2437f78bc8dde1` contains the accepted remediation for the five confirmed findings plus follow-up race/cancellation hardening discovered during implementation.
 
-The GitHub implementation state is ready for fresh executable validation, but no local package test/typecheck/build, workspace verification, or disposable alpha.1 run is inferred from source review. Those gates must pass on the final remediation HEAD before Core and Project Memory are re-frozen. Provider-specific cleanup remains paused until that gate completes.
+Fresh executable validation passed on that exact implementation checkpoint: Core `178/178`, Project Memory `57/57`, focused check/build, full workspace test/check/build, `pnpm verify:local`, and disposable official `dsh-v0.1.2-alpha.1` runtime probes for the changed authorization, memory tool, descriptor-chain, cancellation, settlement, WAL and recovery seams. Raw evidence is recorded by report commit `f491d681390924a171211a5c0dd0c8991f6a7faf` and durable evidence is summarized in `docs/verification/README.md`.
+
+Core and Project Memory are therefore **FROZEN** for the current rc.3 provider work. Provider-specific cleanup may use their contracts but must not casually refactor the foundation. A new concrete defect or compatibility failure is required to reopen it.
