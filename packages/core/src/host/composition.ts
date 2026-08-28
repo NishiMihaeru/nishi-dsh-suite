@@ -15,6 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   UsageLimitsService,
   UsageLimitsPublicFacade,
+  parseUsageRefreshPolicy,
   type UsageClock,
   type UsageRefreshPolicy,
 } from '../usage/index.js'
@@ -47,9 +48,12 @@ export function composeUsageLimitsHost(
   config?: UsageLimitsHostConfig,
   clock: UsageClock = () => Date.now(),
 ): ComposedUsageHost {
+  const defaultPolicy = parseUsageRefreshPolicy(
+    config?.defaultRefreshPolicy ?? DEFAULT_USAGE_REFRESH_POLICY,
+    'usage limits defaultRefreshPolicy',
+  )
   const service = new UsageLimitsService([], clock)
   const facade = new UsageLimitsPublicFacade(service, clock)
-  const defaultPolicy = config?.defaultRefreshPolicy ?? DEFAULT_USAGE_REFRESH_POLICY
 
   const registered = new Map<string, () => void>()
 
