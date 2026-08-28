@@ -1,10 +1,12 @@
 import {
   editProjectMemoryBootstrap,
   editTopicMemory,
+  editTopicMemoryWithMap,
   ensureMemoryMapEntry,
   initializeDshProject,
   writeProjectMemoryBootstrap,
   writeTopicMemory,
+  writeTopicMemoryWithMap,
 } from '../../src/index.ts'
 
 const [operation, projectRoot, ...args] = process.argv.slice(2)
@@ -30,6 +32,12 @@ switch (operation) {
     break
   case 'topic-write':
     await writeTopicMemory(projectRoot, args[0], args[1])
+    break
+  case 'topic-edit-map':
+    await editTopicMemoryWithMap(projectRoot, args[0], args[1], args[2])
+    break
+  case 'topic-write-map':
+    await writeTopicMemoryWithMap(projectRoot, args[0], args[1])
     break
   case 'init':
     await initializeDshProject(projectRoot)
