@@ -28,6 +28,8 @@ This avoids the self-dependency that would result from asking the outer core to 
 
 The Model Accounts host reads DSH credentials directly. The core does not import or inject `@deepseek-ai/dsh-authorization`.
 
+Credential-store availability is distinct from "not configured": a failed status read projects a sanitized `ERROR` state rather than pretending the account is disconnected. Legacy-grant logout is also fail-closed; `deleteRecord()` failure propagates to the RPC boundary, which returns the generic authorization internal error instead of reporting a successful logout while durable credential state may still exist. Credential material and backend error text never cross the browser RPC contract.
+
 ### DSH Connection compatibility seam
 
 Core RPC handlers depend only on `@deepseek-ai/dsh-client-connection`'s carrier-neutral `ConnectionRpcHandler` contract. Production source no longer imports `@deepseek-ai/dsh-host-apiproxy`.
@@ -51,7 +53,7 @@ Every production `@deepseek-ai/dsh-*` peer is deliberately constrained to the tw
 
 This is an explicit union rather than a broad comparator range: rc.3 does not claim compatibility with untested intermediate/future prereleases merely because their semver happens to sort between these versions.
 
-The local `devDependencies` remain pinned to `0.1.1-rc.2`, which is the reproducible installed development baseline. Official `dsh-v0.1.2-alpha.1` compatibility is validated in disposable source/runtime environments rather than changing the main workspace lock graph. The removed alpha.1 seams `dsh-host-apiproxy` and `dsh-client-runtime` remain rc.2-only dev fixtures and are not runtime peers.
+The local `devDependencies` remain pinned to `0.1.1-rc.2`, which is the reproducible installed development baseline. Official `dsh-v0.1.2-alpha.1` compatibility is validated from the upstream source/runtime contracts and should additionally be exercised in the project's disposable alpha.1 environment before re-freeze. The removed alpha.1 seams `dsh-host-apiproxy` and `dsh-client-runtime` remain rc.2-only dev fixtures and are not runtime peers.
 
 ## Provider registry and registration
 
@@ -113,4 +115,8 @@ The only named vendor-like ids in the Model Accounts surface are DSH authorizati
 
 Core 14 remains the historical accepted baseline for DSH `0.1.1-rc.2`. Core 15 accepted the Connection/client compatibility migration against both installed rc.2 and official upstream `dsh-v0.1.2-alpha.1`. Core 16 accepted the non-vetoing registry-observer transaction/preflight correction with full workspace regression coverage.
 
-The final foundation re-freeze passed on implementation HEAD `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b`: Core `176/176`, full workspace `270/270`, frozen install and `pnpm verify:local` PASS, with actual rc.2 + official alpha.1 runtime/client evidence. Core is **FROZEN** for provider work. Reopen it only for a new reproducible Core regression or an explicitly scoped future DSH compatibility generation.
+The independent `dsh-v0.1.2-alpha.1` audit later reopened Core after finding one Model Accounts correctness defect: credential backend failures could be presented as ordinary absence, and failed legacy-grant deletion could be hidden behind a nominally successful logout. The current remediation line separates storage-unavailable state from `NOT_CONFIGURED` and lets failed durable deletion reach the sanitized RPC error boundary; targeted regression tests were added for both paths.
+
+The earlier source-level alpha.1 compatibility conclusions for Connection, LLM registration, session request-header routing, subprocess, browser ModuleLoader and UI slot composition remain unchanged; no broad Core migration was required.
+
+This README deliberately does **not** re-declare Core `FROZEN` yet. A fresh Core test/typecheck plus the repository verification gates must pass on the final remediation HEAD before re-freeze. No executable PASS is inferred from source review alone.
