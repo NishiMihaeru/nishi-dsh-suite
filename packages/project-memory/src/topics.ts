@@ -12,6 +12,7 @@ import { isValidTopicIdentifier } from './topic-id.js'
 import {
   clearPendingProjectMemoryTransaction,
   createPendingProjectMemoryTransaction,
+  markProjectMemoryTransactionCommitted,
   recoverPendingProjectMemoryTransaction,
   restorePendingProjectMemoryTransactionLocked,
   type PendingProjectMemoryTransaction,
@@ -128,7 +129,6 @@ function renderExactTopicEdit(
     throw new Error(`Exact match for oldText not found in topic memory "${topic}" (${topicPath})`)
   }
 
-  // Advance by +1 after each match to catch overlapping occurrences.
   const secondIndex = currentContent.indexOf(oldText, firstIndex + 1)
   if (secondIndex !== -1) {
     let count = 2
@@ -180,8 +180,6 @@ async function rollbackJournaledTransaction(
   originalError: unknown,
 ): Promise<never> {
   try {
-    // Rollback must converge even when the caller signal caused the original
-    // failure, so it deliberately does not inherit that aborted signal.
     await restorePendingProjectMemoryTransactionLocked(projectRoot, journal)
     await clearPendingProjectMemoryTransaction(projectRoot)
   } catch (rollbackError) {
@@ -194,12 +192,18 @@ async function rollbackJournaledTransaction(
   throw originalError
 }
 
-/**
- * Reads a topic memory file under the 256 KiB cap.
- * Does not concatenate, does not auto-create missing files.
- * Fails closed with size error if content > 256 KiB (no silent truncation).
- * Fails closed if any canonical path component or file is a symlink or non-regular entry.
- */
+async function clearCommittedJournalBestEffort(projectRoot: string): Promise<void> {
+  try {
+    await clearPendingProjectMemoryTransaction(projectRoot)
+  } catch {
+    // The committed journal is itself crash-recovery metadata. Leaving it in
+    // place is safe: the next Project Memory operation preserves participant
+    // state and retries cleanup rather than turning a completed write into a
+    // false failure after its durable commit point.
+  }
+}
+
+/** Reads a topic memory file under the 256 KiB cap without auto-creation. */
 export async function readTopicMemory(
   projectRoot: string,
   topic: string,
@@ -280,8 +284,9 @@ export async function editTopicMemory(
 
 /**
  * Whole-file named-topic write plus Memory-map update as a journaled compound
- * transaction. Lock order remains MEMORY.md -> topic.md. Journal removal is the
- * commit point; until then any failure restores both exact pre-images.
+ * transaction. `pending` is rollback state; after both participant commits the
+ * journal is atomically changed to `committed` before either writer lock is
+ * released. Cleanup after lock release is best-effort and recoverable.
  */
 export async function writeTopicMemoryWithMap(
   projectRoot: string,
@@ -300,7 +305,8 @@ export async function writeTopicMemoryWithMap(
   await ensureCanonicalDirectory(memoryDir, signal)
   await ensureCanonicalDirectory(paths.localDir, signal)
 
-  return withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
+  let committedJournal: PendingProjectMemoryTransaction | undefined
+  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
     return withSafeFileWriterLock(memoryDir, topicPath, async () => {
       signal?.throwIfAborted()
       const topicSnapshot = await readTopicSnapshotLocked(memoryDir, topicPath, topic, signal)
@@ -311,7 +317,7 @@ export async function writeTopicMemoryWithMap(
         memoryBefore,
       }, signal)
       try {
-        const result = await writeTopicMemoryLocked(
+        const writeResult = await writeTopicMemoryLocked(
           memoryDir,
           topicPath,
           topic,
@@ -322,13 +328,16 @@ export async function writeTopicMemoryWithMap(
         signal?.throwIfAborted()
         await commitMap()
         signal?.throwIfAborted()
-        await clearPendingProjectMemoryTransaction(projectRoot, signal)
-        return result
+        committedJournal = await markProjectMemoryTransactionCommitted(projectRoot, journal, signal)
+        return writeResult
       } catch (error) {
         await rollbackJournaledTransaction(projectRoot, topic, journal, error)
       }
     }, signal)
   }, signal)
+
+  if (committedJournal !== undefined) await clearCommittedJournalBestEffort(projectRoot)
+  return result
 }
 
 /** Exact named-topic edit under the same journaled compound transaction contract. */
@@ -355,7 +364,8 @@ export async function editTopicMemoryWithMap(
   }
   await ensureCanonicalDirectory(paths.localDir, signal)
 
-  return withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
+  let committedJournal: PendingProjectMemoryTransaction | undefined
+  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
     return withSafeFileWriterLock(memoryDir, topicPath, async () => {
       signal?.throwIfAborted()
       const topicSnapshot = await readTopicSnapshotLocked(memoryDir, topicPath, topic, signal)
@@ -369,7 +379,7 @@ export async function editTopicMemoryWithMap(
         memoryBefore,
       }, signal)
       try {
-        const result = await editTopicMemoryLocked(
+        const editResult = await editTopicMemoryLocked(
           memoryDir,
           topicPath,
           topic,
@@ -381,11 +391,14 @@ export async function editTopicMemoryWithMap(
         signal?.throwIfAborted()
         await commitMap()
         signal?.throwIfAborted()
-        await clearPendingProjectMemoryTransaction(projectRoot, signal)
-        return result
+        committedJournal = await markProjectMemoryTransactionCommitted(projectRoot, journal, signal)
+        return editResult
       } catch (error) {
         await rollbackJournaledTransaction(projectRoot, topic, journal, error)
       }
     }, signal)
   }, signal)
+
+  if (committedJournal !== undefined) await clearCommittedJournalBestEffort(projectRoot)
+  return result
 }
