@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +13,11 @@ import {
   writeTopicMemory,
   writeTopicMemoryWithMap,
 } from '../src/index.js'
+import {
+  PENDING_TRANSACTION_VERSION,
+  pendingProjectMemoryTransactionPath,
+  recoverPendingProjectMemoryTransaction,
+} from '../src/transaction.js'
 
 const RMW_WORKER = fileURLToPath(new URL('./fixtures/rmw-worker.mjs', import.meta.url))
 
@@ -233,5 +238,46 @@ test('concurrent compound exact edits retain both independent changes and one ma
     assert.equal(await readFile(topicPath, 'utf8'), 'first=new-a\nsecond=new-b\n')
     const memory = await readFile(paths.memoryMd, 'utf8')
     assert.equal((memory.match(/`architecture`/g) ?? []).length, 1)
+  })
+})
+
+test('recovery restores exact pre-transaction state after process death between participant commits', async () => {
+  await withTempProject(async (projectRoot) => {
+    const paths = resolveProjectMemoryPaths(projectRoot)
+    const topicPath = join(paths.memoryDir, 'architecture.md')
+    const beforeTopic = 'state=before\nkeep=exact\n'
+    await writeProjectMemoryBootstrap(projectRoot, BASE_MEMORY)
+    await writeTopicMemory(projectRoot, 'architecture', beforeTopic)
+    await mkdir(paths.localDir, { recursive: true })
+
+    const deadPid = 2_000_000_000
+    const transactionPath = pendingProjectMemoryTransactionPath(projectRoot)
+    await writeFile(transactionPath, JSON.stringify({
+      version: PENDING_TRANSACTION_VERSION,
+      ownerPid: deadPid,
+      topic: 'architecture',
+      topicBefore: { exists: true, contentBase64: Buffer.from(beforeTopic, 'utf8').toString('base64') },
+      memoryBefore: { exists: true, contentBase64: Buffer.from(BASE_MEMORY, 'utf8').toString('base64') },
+    }) + '\n', 'utf8')
+
+    // Simulate a crash after both participant writes but before the journal is
+    // removed. Recovery must treat journal removal as the commit point and
+    // therefore restore the exact old state.
+    await writeFile(topicPath, 'state=partially-committed\n', 'utf8')
+    await writeFile(
+      paths.memoryMd,
+      BASE_MEMORY.replace('No topic memories yet.', '- `architecture` → `.dsh/memory/architecture.md`'),
+      'utf8',
+    )
+    await writeFile(`${paths.memoryMd}.lock`, `${deadPid}\n`, 'utf8')
+    await writeFile(`${topicPath}.lock`, `${deadPid}\n`, 'utf8')
+
+    await recoverPendingProjectMemoryTransaction(projectRoot)
+
+    assert.equal(await readFile(topicPath, 'utf8'), beforeTopic)
+    assert.equal(await readFile(paths.memoryMd, 'utf8'), BASE_MEMORY)
+    await assertMissing(transactionPath)
+    await assertMissing(`${paths.memoryMd}.lock`)
+    await assertMissing(`${topicPath}.lock`)
   })
 })
