@@ -102,6 +102,7 @@ PM01 and PM02 remain accepted for the DSH `0.1.1-rc.2` baseline. Project Memory 
 | PM01 | one root policy for context/tools; nested Git/worktree/non-Git cases PASS |
 | PM02 | package/workspace + atomic-write + Cordis commands/llm + disposable real DSH boot PASS |
 | PM03 | maintenance route selection before prompt assembly; first maintenance request uses selected provider/model PASS |
+| PM04 | inter-process writer locking prevents same-file RMW lost updates across MEMORY.md, topic files and .gitignore PASS |
 
 Accepted PM01/PM02 behavior includes no nested split-brain `.dsh/memory` tree, canonical path/symlink refusal, atomic replacement writes, `commands + llm` injection for maintenance commands, and repository-shared memory policy excluding secret/transient/operator-personal data.
 
@@ -127,7 +128,33 @@ Accepted result:
 - disposable probe using actual alpha.1 `installModelSelection` PASS with zero lingering listeners;
 - `agent/inbox/claimed` compatibility with installed rc.2 baseline confirmed.
 
-PM03 closes only the maintenance-route timing blocker. Inter-process RMW integrity and compound topic/map mutation failure semantics remain open in `ROADMAP.md`.
+### PM04 inter-process RMW integrity
+
+Accepted implementation HEAD: `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`.
+Gemini raw validation report commit: `02e0dca62f49fc2ef6bba8626ae028c7da3986e2`.
+
+Accepted result:
+
+- Project Memory tests PASS: 29/29;
+- full workspace test/check/build PASS with 267 tests total;
+- frozen lockfile PASS with no package/lockfile drift;
+- installed rc.2 and upstream alpha.1 expose the same `withFileLock()` contract and behavior;
+- MEMORY.md bootstrap creation/write/edit and Memory-map mutation share the same `<MEMORY.md>.lock` namespace;
+- topic whole writes and exact edits share each topic's `<topic>.md.lock` namespace;
+- `.gitignore` initialization/update uses `<.gitignore>.lock`;
+- read/render/atomic-commit cycles re-read state only after lock acquisition, preventing independent same-file updates from being lost;
+- real child-process probes confirmed distinct OS PIDs and filesystem-level contention;
+- concurrent Memory-map stress retained every entry exactly once;
+- independent concurrent topic edits retained both changes;
+- whole bootstrap/topic writers participate in the same locks as edits;
+- concurrent initializer stress produced one valid project state with no leftover locks;
+- operation failures release owned locks while preserving the original failure;
+- foreign lock timeout leaves the foreign lock and target untouched;
+- symlink target, lock-path and canonical-parent safety remain fail-closed;
+- no nested cross-target locks are used in PM04, and the default two-second wait is appropriate for the bounded local filesystem work performed under each lock;
+- disposable actual alpha.1 lock probe PASS.
+
+PM04 closes same-file cross-process RMW lost-update integrity. Compound named-topic + MEMORY-map transaction semantics remain the next Project Memory blocker.
 
 ## Documentation consolidation
 
@@ -167,15 +194,14 @@ Published `0.1.0-rc.1` historically passed Linux/CachyOS local and registry-only
 
 Ordered open validation is now:
 
-1. Project Memory inter-process RMW integrity.
-2. Project Memory compound topic/map mutation failure semantics and focused test gaps.
-3. Supported DSH peer/dev range reconciliation + Core/Project Memory re-freeze.
-4. Codex provider cleanup + focused/local/live acceptance.
-5. Antigravity provider cleanup/catalog + focused/local/live acceptance.
-6. Claude usage-only cleanup/smoke.
-7. Repository-wide provider invariants.
-8. Cross-provider/product live acceptance.
-9. Final profile/install/release gates.
+1. Project Memory compound topic/map mutation failure semantics and focused tool/init test gaps.
+2. Supported DSH peer/dev range reconciliation + Core/Project Memory re-freeze.
+3. Codex provider cleanup + focused/local/live acceptance.
+4. Antigravity provider cleanup/catalog + focused/local/live acceptance.
+5. Claude usage-only cleanup/smoke.
+6. Repository-wide provider invariants.
+7. Cross-provider/product live acceptance.
+8. Final profile/install/release gates.
 
 See `docs/ROADMAP.md` for task status and `docs/HANDOFF.md` for the immediate next run.
 
