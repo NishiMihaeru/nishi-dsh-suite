@@ -10,13 +10,31 @@ docs/verification/gemini/LATEST.md
 
 `LATEST.md` is overwritten on every validation run. After a PASS, fold durable facts here. Older raw reports and superseded acceptance detail remain available through git history; do not recreate dated report files.
 
-## Current validation status
+## Current validation status — FOUNDATION RE-FROZEN
 
-The historical Core/Project Memory foundation re-freeze described below was valid for implementation HEAD `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b`, but it is **not evidence for the current remediation tree**.
+Core and Project Memory were reopened by an independent audit against official DSH `0.1.2-alpha.1`, remediated, and then accepted by a fresh local + disposable-alpha.1 validation run.
 
-An independent audit against official DSH `0.1.2-alpha.1` later found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects. The branch has been changed to remediate them, so Core and Project Memory are currently **REOPENED PENDING FRESH VERIFICATION**.
+Current accepted foundation implementation HEAD:
 
-Do not cite the old `176/176`, `39/39` or workspace `270/270` counts as proof that the current branch passes. New durable evidence belongs here only after a fresh local run on the final remediation HEAD.
+```text
+eb95ef6425c788f63339befd0c2437f78bc8dde1
+```
+
+Raw PASS report commit:
+
+```text
+f491d681390924a171211a5c0dd0c8991f6a7faf
+```
+
+Result:
+
+```text
+Foundation remediation validation PASS
+Core: FROZEN
+Project Memory: FROZEN
+```
+
+The report commit is documentation-only; the implementation actually tested by Gemini is the preceding `eb95ef6425c788f63339befd0c2437f78bc8dde1`.
 
 ## Environment baseline
 
@@ -29,18 +47,111 @@ Accepted local validation baseline:
 - GitHub Actions/hosted CI: not used;
 - Windows: **NOT TESTED**.
 
-Compatibility work also uses official upstream DSH tag:
+Compatibility target validated in a disposable upstream environment:
 
 ```text
 dsh-v0.1.2-alpha.1
 cd5ef8148158c3a752a658978873241fdf8e2bbc
 ```
 
-Actual upstream source/runtime contracts at that exact tag/commit are primary truth when documentation lags.
+Actual upstream source/runtime contracts at that exact tag/commit remain primary truth when documentation lags.
+
+## Accepted foundation remediation evidence
+
+Fresh executable evidence on implementation HEAD `eb95ef6425c788f63339befd0c2437f78bc8dde1`:
+
+| Gate | Accepted result |
+|---|---|
+| `pnpm install --frozen-lockfile` | PASS |
+| Core focused tests | `178/178` PASS |
+| Core `check` | PASS |
+| Core `build` | PASS |
+| Project Memory focused tests | `57/57` PASS |
+| Project Memory `check` | PASS |
+| Project Memory `build` | PASS |
+| workspace `test` | PASS |
+| workspace `check` | PASS |
+| workspace `build` | PASS |
+| `pnpm verify:local` | PASS |
+| working-tree integrity | PASS, zero implementation/canonical-doc drift during validation |
+| hosted CI / GitHub Actions | NOT USED |
+| Windows | NOT TESTED |
+
+`pnpm verify:local` additionally passed release-family verification, package-contract verification, Orchestrator validation and local packing of all six rc.3 packages.
+
+### Core remediation accepted
+
+The independent alpha.1 audit found one Model Accounts correctness seam. Accepted behavior now includes:
+
+- credential-store read failure projects sanitized `ERROR`, not false `NOT_CONFIGURED`;
+- failed durable legacy-grant deletion returns generic internal RPC failure rather than nominal logout success;
+- credential/backend secret text does not cross the RPC boundary;
+- focused authorization regressions pass;
+- disposable alpha.1 Connection uses the native two-argument `rpc.handle(channel, handler)` contract successfully.
+
+No broad Core alpha.1 migration was required for Connection, LLM registration, session request-header routing, subprocess, browser ModuleLoader or UI slot composition.
+
+### Project Memory remediation accepted
+
+The reopened storage/cancellation/crash-consistency findings and implementation follow-ups are now accepted with executable regressions for:
+
+- POSIX descriptor chain `projectRoot -> .dsh -> memory/local`;
+- explicit symlinked workspace roots with strict real package-owned canonical directories;
+- one stable `SafeDirectoryScope` across RMW lock/read/render/write;
+- locked-parent replacement without redirected mutation;
+- intermediate `.dsh` replacement with an external symlink without external sentinel mutation;
+- complete-before-visible no-clobber first publication;
+- AbortSignal cancellation during writer-lock wait;
+- preservation of the exact caller cancellation reason at the model-facing tool boundary;
+- mandatory settlement after cancellation/failure following a durable participant write;
+- named-topic + Memory-map fixed lock order and cross-process serialization;
+- `pending` WAL exact rollback after process death;
+- `committed` WAL preserve-and-clean recovery;
+- abandoned `pending` recovery after the Memory-map lock barrier even with a still-live recorded PID;
+- fail-closed recovery ownership transfer from dead to live owner;
+- fail-closed journal disappearance/incompatible mutation after recovery claim protocol begins;
+- idempotent concurrent cleanup without surfacing ENOENT races;
+- zero stale lock/WAL leakage in the exercised recovery paths.
+
+The first remediation validation on `f3ee493bbea95b3ae7cc34c2c812a4dc23d6118f` correctly failed on one overly strict concurrent-removal assertion and two TypeScript `TS2322` fall-through paths. Those defects were corrected in `e5d6dbe3b36d805c7f708afb45552581455dd9c1` and `649d29f2e93e690d0ae31c65c183d2396062cfd7`, then the full gate was rerun from scratch on `eb95ef6425c788f63339befd0c2437f78bc8dde1` and passed.
+
+### Disposable DSH `0.1.2-alpha.1` runtime evidence
+
+The rerun verified the official upstream checkout at exact tag/commit and exercised changed seams rather than relying on old source inference.
+
+Accepted Core alpha.1 evidence:
+
+- native two-argument Connection RPC registration;
+- `/authorization` status;
+- credential-store failure containment;
+- failed legacy-grant delete rejection;
+- secret boundary protection.
+
+Accepted Project Memory alpha.1 evidence:
+
+- package imports/runtime Cordis mount;
+- real `memory_write` returning a valid `WriteTopicMemoryResult` and committing the Memory map;
+- real `memory_edit` returning a valid `EditTopicMemoryResult` and updating topic content;
+- `memory_read` for bootstrap and named topics;
+- lock-contention cancellation;
+- mandatory settlement after cancellation;
+- descriptor-chain parent replacement safety;
+- intermediate `.dsh` symlink replacement safety;
+- pending/committed WAL recovery;
+- recovery ownership-transfer fail-closed behavior;
+- zero lingering lock/WAL protocol files after exercised settlement paths.
+
+Core and Project Memory therefore retain the explicit production peer union:
+
+```text
+0.1.1-rc.2 || 0.1.2-alpha.1
+```
+
+Provider packages do not inherit that compatibility automatically.
 
 ## Historical Core acceptance
 
-Core 01–16 were accepted before the latest independent audit.
+Core 01–16 remain earlier accepted checkpoints and useful history.
 
 | Gate | Historical accepted result |
 |---|---|
@@ -66,11 +177,9 @@ Key checkpoints:
 - Core 15 implementation HEAD `59512d51e55f8121eccdb934e01523e4436b289c`, raw report commit `c991bb6ece48acb02d5c15bce3b2b970c3da391a`;
 - Core 16 implementation HEAD `b925e2a328168e7c978126fc6474b7af11d7a63d`, raw report commit `e17c809ce72060f8a5e0627b1a7d2c8d58c263e9`.
 
-The later independent audit retained the alpha.1 compatibility conclusions for Connection/browser/LLM/session/subprocess surfaces, but found a Model Accounts storage-failure correctness issue. The remediation now requires fresh focused Core validation before re-freeze.
-
 ## Historical Project Memory acceptance
 
-PM01–PM05 were accepted before the latest independent audit.
+PM01–PM05 remain earlier accepted checkpoints and useful history.
 
 | Gate | Historical accepted result |
 |---|---|
@@ -86,58 +195,23 @@ Key checkpoints:
 - PM04 implementation HEAD `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`, raw report commit `02e0dca62f49fc2ef6bba8626ae028c7da3986e2`;
 - PM05 implementation HEAD `dbe1b7a3894bc05c1c4863148060bff59166bc17`, raw report commit `8e8c1980a34d6c9b0cbd020f0d0166e7c4c00e01`.
 
-Those gates did not exercise the later-discovered validation/use replacement race, complete-before-visible first publication, abort-during-lock behavior, or process death between compound participant commits. The current remediation adds new storage/recovery contracts and therefore requires a new PM acceptance result rather than extending the old PM05 result by assumption.
+Those older PM gates did not cover the later-discovered descriptor-chain, cancellation-after-partial-commit or WAL process-death cases; the current accepted remediation evidence above supersedes that gap.
 
-## Historical final foundation re-freeze — SUPERSEDED FOR CURRENT HEAD
+## Historical foundation re-freeze — SUPERSEDED
 
-Historical foundation implementation HEAD:
+Earlier foundation implementation HEAD:
 
 ```text
 0c7a177d2f4fceab58513cbd0d87fcf9c31b025b
 ```
 
-Historical raw PASS report commit:
+Earlier raw PASS report commit:
 
 ```text
 c209be795601ac7c4a3328c4af6bdbefde7f9f82
 ```
 
-Historical accepted result at that exact implementation included:
-
-- `pnpm install --frozen-lockfile` PASS;
-- Core tests `176/176` PASS;
-- Project Memory tests `39/39` PASS;
-- full workspace tests `270/270` PASS;
-- workspace/package check + build PASS;
-- `pnpm verify:local` PASS;
-- six rc.3 local tarballs generated;
-- packed Core/Project Memory metadata PASS;
-- local resolved DSH graph `0.1.1-rc.2`;
-- production foundation peers `0.1.1-rc.2 || 0.1.2-alpha.1`;
-- official alpha.1 source/runtime compatibility for the then-current seams PASS.
-
-That freeze was subsequently reopened. It must not be projected onto the changed remediation HEAD.
-
-## Current remediation evidence awaiting local acceptance
-
-Source-level changes now present include targeted regressions and implementation for:
-
-- Core credential-store read failure -> safe `ERROR` instead of false absence;
-- Core failed durable legacy-grant deletion -> sanitized RPC failure instead of nominal success;
-- POSIX Project Memory descriptor chain `projectRoot -> .dsh -> memory/local`, with explicit workspace-root symlink support but strict package-owned real directories;
-- stable `SafeDirectoryScope` ownership for each RMW lock/read/render/write cycle, with compound `memory` and WAL `local` scopes bound to the same `.dsh` generation;
-- file-handle reads with final-entry identity checks and no-follow behavior where supported;
-- complete-before-visible no-clobber first publication;
-- AbortSignal-aware lock acquisition and model/lazy-init propagation;
-- mandatory non-cancellable settlement only after a durable partial participant commit, so cancellation cannot prevent exact rollback;
-- `pending`/`committed` transaction WAL with exact participant pre-images;
-- dead pending rollback and committed preserve/cleanup recovery;
-- recovery of abandoned pending state after the Memory-map lock barrier even when the old process PID remains alive;
-- fail-closed recovery when a dead-owner WAL transfers to another live owner, disappears, or mutates incompatibly after claim protocol begins;
-- idempotent concurrent recovery cleanup;
-- regressions for locked-parent replacement and intermediate `.dsh` replacement with an external symlink, in addition to the cancellation and crash-recovery cases above.
-
-These are implementation facts, **not PASS evidence**. They become accepted only after the current `HANDOFF.md` foundation validation block succeeds.
+That freeze was later reopened by the independent alpha.1 audit and is superseded by the current accepted remediation checkpoint `eb95ef6425c788f63339befd0c2437f78bc8dde1`.
 
 ## Codex accepted pre-work evidence
 
@@ -154,7 +228,7 @@ Accepted result at that checkpoint:
 - real `test:live:primary` PASS with `gpt-5.6-sol` returning `CODEX_PRIMARY_OK`;
 - adapter/process teardown clean.
 
-This evidence is a starting point, not a Codex freeze. Provider-specific work is paused until the foundation is re-frozen.
+This evidence is a starting point, not a Codex freeze. Provider-specific Codex audit/cleanup is the next active development stage.
 
 ## Documentation structure
 
@@ -172,13 +246,12 @@ Current rules:
 
 Ordered open validation is now:
 
-1. Core + Project Memory remediation focused/local/workspace/alpha.1 verification and re-freeze decision.
-2. Codex provider cleanup + provider-specific DSH compatibility + focused/local/live freeze acceptance.
-3. Antigravity cleanup/catalog + provider-specific compatibility + focused/local/live freeze acceptance.
-4. Claude usage-only cleanup + provider-specific compatibility/smoke.
-5. Repository-wide provider invariants.
-6. Cross-provider/product live acceptance.
-7. Final profile/install/release gates.
+1. Codex provider cleanup + provider-specific DSH compatibility + focused/local/live freeze acceptance.
+2. Antigravity cleanup/catalog + provider-specific compatibility + focused/local/live freeze acceptance.
+3. Claude usage-only cleanup + provider-specific compatibility/smoke.
+4. Repository-wide provider invariants.
+5. Cross-provider/product live acceptance.
+6. Final profile/install/release gates.
 
 See `docs/ROADMAP.md` for task status and `docs/HANDOFF.md` for the immediate next run.
 
