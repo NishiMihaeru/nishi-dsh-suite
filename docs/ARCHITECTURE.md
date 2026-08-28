@@ -163,17 +163,18 @@ There is no vendor fallback.
 3. canonical/deduplicated route validation;
 4. explicit usage refresh-policy validation/detachment, when supplied;
 5. optional web-search/usage capability construction on the provider context;
-6. registry record;
-7. Cordis withdrawal effect binding;
-8. adapter construction/registration for model providers;
-9. optional provider install;
-10. rollback of core-owned state if a later transaction stage fails.
+6. usage collector validation/binding before registry mutation;
+7. registry record;
+8. Cordis withdrawal effect binding;
+9. adapter construction/registration for model providers;
+10. optional provider install;
+11. rollback of core-owned state if a later transaction stage fails.
 
 Rollback failures are aggregated with the original failure.
 
-Registry change notifications are **non-vetoing observers**, not transaction participants. `record()` commits the provider id/routes first and always returns its withdrawal handle even if a synchronous listener throws; async listener rejections are contained as well, and later observers still run. Provider descriptor validation that can legitimately reject registration therefore belongs before the registry commit rather than inside an `onChange` observer.
+Registry change notifications are **non-vetoing observers**, not transaction participants. `record()` commits the provider id/routes first and always returns its withdrawal handle even if a synchronous listener throws; async listener rejections are contained as well, later observers still run, and observer failures are reported best-effort through the Core logger. Provider descriptor validation that can legitimately reject registration therefore belongs before the registry commit rather than inside an `onChange` observer.
 
-This avoids the previous ghost-provider failure mode where a listener could throw after Map mutation but before `registerProvider()` received the withdrawal handle.
+This avoids the previous ghost-provider failure mode where a listener could throw after Map mutation but before `registerProvider()` received the withdrawal handle. The corrected behavior is accepted by Core 16 validation.
 
 ## Core neutrality
 
@@ -194,11 +195,21 @@ Project Memory uses one root policy for context injection and tools:
 
 Canonical memory paths reject symlink/junction path components and non-regular targets. Replacement writes use `@deepseek-ai/dsh-atomic-write` after those checks.
 
+Every shared file that participates in read-modify-write uses DSH `withFileLock()` with the exact target as its lock namespace. The lock covers read/render/atomic-commit, and whole-file writers of the same target honor that same lock so they cannot interleave inside another writer's RMW cycle. Readers remain lock-free because replacement commit is atomic.
+
+The per-file writer domains are:
+
+- `.dsh/memory/MEMORY.md`: bootstrap create/write/edit plus Memory-map updates;
+- `.dsh/memory/<topic>.md`: whole-file topic writes plus exact edits;
+- root `.gitignore`: initializer creation/update of `.dsh/local/` ignore state.
+
+`DSH.md` and `.dsh/project.json` remain create-if-absent state guarded by `wx`; they are not RMW documents.
+
+This per-file serialization does **not** claim a transaction across different files. A named-topic `memory_write` / `memory_edit` still mutates the topic and then updates `MEMORY.md`; explicit cross-file partial-commit/failure semantics remain the next integrity block.
+
 `/memory` and `/consolidate` register only with both `commands` and `llm` injected. Their temporary model selection is scoped to the maintenance turn. The selected provider/model is activated when the exact steered maintenance message is emitted through `agent/inbox/claimed`, before DSH prompt assembly snapshots model selection; cleanup removes the selection/listeners on idle, matching turn stop/error or steering failure.
 
 Project memory is repository-shared data. Maintenance policy rejects secrets, credential material, quota snapshots, raw chain-of-thought, transient logs and operator-personal facts.
-
-Atomic replacement is not treated as equivalent to a multi-process read-modify-write transaction. RMW serialization and compound topic/map failure semantics are reopened integrity work and are tracked in `ROADMAP.md`.
 
 ## Provider-native memory policy
 
@@ -229,7 +240,9 @@ Antigravity suppression remains partly configuration and partly prompt-level gui
 11. Maintenance model selection must be active before prompt assembly snapshots the first maintenance step.
 12. Provider descriptor validation that can reject registration happens before registry mutation.
 13. Registry change observers are non-vetoing; a broken observer cannot create ghost provider/route state by denying the caller its withdrawal handle.
+14. Every Project Memory writer that can race an RMW cycle honors the same per-target cross-process writer lock.
+15. Per-file locking must not be described as an atomic transaction across a topic file and `MEMORY.md`.
 
 ## Current implementation state
 
-Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing and Core Connection/client compatibility are already corrected and accepted; the Core registry transaction correction is implemented and awaiting focused validation. Remaining foundation blockers and exact order live in `ROADMAP.md` / `HANDOFF.md`. Provider cleanup resumes only after the foundation is re-frozen.
+Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing, Core Connection/client compatibility and Core registry transaction integrity are accepted. Project Memory per-file cross-process writer locking is implemented and awaiting focused validation; compound topic/map failure semantics and final supported-version reconciliation remain open. Provider cleanup resumes only after the foundation is re-frozen.
