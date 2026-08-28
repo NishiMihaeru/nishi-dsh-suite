@@ -3,8 +3,9 @@ import {
   ensureCanonicalDirectory,
   readSafeRegularFile,
   validateCanonicalDirectory,
+  withSafeDirectoryScope,
   withSafeFileWriterLock,
-  writeSafeFileAtomically,
+  type SafeDirectoryScope,
 } from './filesystem.js'
 import { withMemoryMapEntryTransaction } from './bootstrap.js'
 import { resolveProjectMemoryPaths } from './paths.js'
@@ -51,11 +52,6 @@ interface TopicSnapshot {
   content: Buffer | null
 }
 
-/**
- * Deterministically resolves the canonical topic memory path:
- * PROJECT/.dsh/memory/<topic>.md
- * Fails closed on invalid topic identifier.
- */
 export function resolveTopicMemoryPath(projectRoot: string, topic: string): string {
   if (!isValidTopicIdentifier(topic)) {
     throw new Error(
@@ -80,17 +76,14 @@ function topicContentBuffer(content: string): Buffer {
 }
 
 async function readTopicSnapshotLocked(
-  memoryDir: string,
+  scope: SafeDirectoryScope,
   topicPath: string,
   topic: string,
   signal?: AbortSignal,
 ): Promise<TopicSnapshot> {
   signal?.throwIfAborted()
   try {
-    const content = await readSafeRegularFile(memoryDir, topicPath, {
-      signal,
-      maxBytes: MAX_TOPIC_BYTES,
-    })
+    const content = await scope.readRegularFile(topicPath, { maxBytes: MAX_TOPIC_BYTES })
     if (content === null) return { exists: false, content: null }
     return { exists: true, content }
   } catch (error: any) {
@@ -105,7 +98,7 @@ async function readTopicSnapshotLocked(
 }
 
 async function writeTopicMemoryLocked(
-  memoryDir: string,
+  scope: SafeDirectoryScope,
   topicPath: string,
   topic: string,
   contentBuffer: Buffer,
@@ -113,7 +106,7 @@ async function writeTopicMemoryLocked(
   signal?: AbortSignal,
 ): Promise<WriteTopicMemoryResult> {
   signal?.throwIfAborted()
-  await writeSafeFileAtomically(memoryDir, topicPath, contentBuffer, signal)
+  await scope.writeFileAtomically(topicPath, contentBuffer)
   return { created: !snapshot.exists, path: topicPath, topic }
 }
 
@@ -156,7 +149,7 @@ function renderExactTopicEdit(
 }
 
 async function editTopicMemoryLocked(
-  memoryDir: string,
+  scope: SafeDirectoryScope,
   topicPath: string,
   topic: string,
   oldText: string,
@@ -169,7 +162,7 @@ async function editTopicMemoryLocked(
   }
   const updatedBuffer = renderExactTopicEdit(snapshot.content.toString('utf8'), topic, topicPath, oldText, newText)
   signal?.throwIfAborted()
-  await writeSafeFileAtomically(memoryDir, topicPath, updatedBuffer, signal)
+  await scope.writeFileAtomically(topicPath, updatedBuffer)
   return { topic, path: topicPath, bytesWritten: updatedBuffer.length }
 }
 
@@ -178,10 +171,12 @@ async function rollbackJournaledTransaction(
   topic: string,
   journal: PendingProjectMemoryTransaction,
   originalError: unknown,
+  memoryScope: SafeDirectoryScope,
+  journalScope: SafeDirectoryScope,
 ): Promise<never> {
   try {
-    await restorePendingProjectMemoryTransactionLocked(projectRoot, journal)
-    await clearPendingProjectMemoryTransaction(projectRoot)
+    await restorePendingProjectMemoryTransactionLocked(projectRoot, journal, memoryScope)
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, journalScope)
   } catch (rollbackError) {
     throw new AggregateError(
       [originalError, rollbackError],
@@ -196,14 +191,11 @@ async function clearCommittedJournalBestEffort(projectRoot: string): Promise<voi
   try {
     await clearPendingProjectMemoryTransaction(projectRoot)
   } catch {
-    // The committed journal is itself crash-recovery metadata. Leaving it in
-    // place is safe: the next Project Memory operation preserves participant
-    // state and retries cleanup rather than turning a completed write into a
-    // false failure after its durable commit point.
+    // A committed journal is preserve-and-clean recovery metadata. Leaving it
+    // behind is safe and the next Project Memory operation retries cleanup.
   }
 }
 
-/** Reads a topic memory file under the 256 KiB cap without auto-creation. */
 export async function readTopicMemory(
   projectRoot: string,
   topic: string,
@@ -221,16 +213,18 @@ export async function readTopicMemory(
   const memoryDirExists = await validateCanonicalDirectory(memoryDir, signal)
   if (!memoryDirExists) return { exists: false, content: null, path: topicPath, topic }
 
-  const snapshot = await readTopicSnapshotLocked(memoryDir, topicPath, topic, signal)
+  const content = await readSafeRegularFile(memoryDir, topicPath, {
+    signal,
+    maxBytes: MAX_TOPIC_BYTES,
+  })
   return {
-    exists: snapshot.exists,
-    content: snapshot.content?.toString('utf8') ?? null,
+    exists: content !== null,
+    content: content?.toString('utf8') ?? null,
     path: topicPath,
     topic,
   }
 }
 
-/** Whole-file topic write under the topic writer lock, without a Memory-map mutation. */
 export async function writeTopicMemory(
   projectRoot: string,
   topic: string,
@@ -247,13 +241,12 @@ export async function writeTopicMemory(
   await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
 
-  return withSafeFileWriterLock(memoryDir, topicPath, async () => {
-    const snapshot = await readTopicSnapshotLocked(memoryDir, topicPath, topic, signal)
-    return writeTopicMemoryLocked(memoryDir, topicPath, topic, contentBuffer, snapshot, signal)
+  return withSafeFileWriterLock(memoryDir, topicPath, async (scope) => {
+    const snapshot = await readTopicSnapshotLocked(scope, topicPath, topic, signal)
+    return writeTopicMemoryLocked(scope, topicPath, topic, contentBuffer, snapshot, signal)
   }, signal)
 }
 
-/** Exact topic edit under the topic writer lock, without a Memory-map mutation. */
 export async function editTopicMemory(
   projectRoot: string,
   topic: string,
@@ -276,18 +269,12 @@ export async function editTopicMemory(
     throw new Error(`Cannot edit topic memory: directory "${memoryDir}" does not exist`)
   }
 
-  return withSafeFileWriterLock(memoryDir, topicPath, async () => {
-    const snapshot = await readTopicSnapshotLocked(memoryDir, topicPath, topic, signal)
-    return editTopicMemoryLocked(memoryDir, topicPath, topic, oldText, newText, snapshot, signal)
+  return withSafeFileWriterLock(memoryDir, topicPath, async (scope) => {
+    const snapshot = await readTopicSnapshotLocked(scope, topicPath, topic, signal)
+    return editTopicMemoryLocked(scope, topicPath, topic, oldText, newText, snapshot, signal)
   }, signal)
 }
 
-/**
- * Whole-file named-topic write plus Memory-map update as a journaled compound
- * transaction. `pending` is rollback state; after both participant commits the
- * journal is atomically changed to `committed` before either writer lock is
- * released. Cleanup after lock release is best-effort and recoverable.
- */
 export async function writeTopicMemoryWithMap(
   projectRoot: string,
   topic: string,
@@ -306,33 +293,47 @@ export async function writeTopicMemoryWithMap(
   await ensureCanonicalDirectory(paths.localDir, signal)
 
   let committedJournal: PendingProjectMemoryTransaction | undefined
-  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
-    return withSafeFileWriterLock(memoryDir, topicPath, async () => {
-      signal?.throwIfAborted()
-      const topicSnapshot = await readTopicSnapshotLocked(memoryDir, topicPath, topic, signal)
-      const memoryBefore = await readSafeRegularFile(memoryDir, paths.memoryMd, { signal })
-      const journal = await createPendingProjectMemoryTransaction(projectRoot, {
-        topic,
-        topicBefore: topicSnapshot.content,
-        memoryBefore,
-      }, signal)
-      try {
-        const writeResult = await writeTopicMemoryLocked(
-          memoryDir,
-          topicPath,
+  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap, memoryScope) => {
+    return withSafeDirectoryScope(paths.localDir, async (journalScope) => {
+      return memoryScope.withWriterLock(topicPath, async () => {
+        signal?.throwIfAborted()
+        const topicSnapshot = await readTopicSnapshotLocked(memoryScope, topicPath, topic, signal)
+        const memoryBefore = await memoryScope.readRegularFile(paths.memoryMd)
+        const journal = await createPendingProjectMemoryTransaction(projectRoot, {
           topic,
-          contentBuffer,
-          topicSnapshot,
-          signal,
-        )
-        signal?.throwIfAborted()
-        await commitMap()
-        signal?.throwIfAborted()
-        committedJournal = await markProjectMemoryTransactionCommitted(projectRoot, journal, signal)
-        return writeResult
-      } catch (error) {
-        await rollbackJournaledTransaction(projectRoot, topic, journal, error)
-      }
+          topicBefore: topicSnapshot.content,
+          memoryBefore,
+        }, signal, journalScope)
+        try {
+          const writeResult = await writeTopicMemoryLocked(
+            memoryScope,
+            topicPath,
+            topic,
+            contentBuffer,
+            topicSnapshot,
+            signal,
+          )
+          signal?.throwIfAborted()
+          await commitMap()
+          signal?.throwIfAborted()
+          committedJournal = await markProjectMemoryTransactionCommitted(
+            projectRoot,
+            journal,
+            signal,
+            journalScope,
+          )
+          return writeResult
+        } catch (error) {
+          await rollbackJournaledTransaction(
+            projectRoot,
+            topic,
+            journal,
+            error,
+            memoryScope,
+            journalScope,
+          )
+        }
+      })
     }, signal)
   }, signal)
 
@@ -340,7 +341,6 @@ export async function writeTopicMemoryWithMap(
   return result
 }
 
-/** Exact named-topic edit under the same journaled compound transaction contract. */
 export async function editTopicMemoryWithMap(
   projectRoot: string,
   topic: string,
@@ -365,37 +365,51 @@ export async function editTopicMemoryWithMap(
   await ensureCanonicalDirectory(paths.localDir, signal)
 
   let committedJournal: PendingProjectMemoryTransaction | undefined
-  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
-    return withSafeFileWriterLock(memoryDir, topicPath, async () => {
-      signal?.throwIfAborted()
-      const topicSnapshot = await readTopicSnapshotLocked(memoryDir, topicPath, topic, signal)
-      if (!topicSnapshot.exists || topicSnapshot.content === null) {
-        throw new Error(`Topic memory file "${topicPath}" does not exist; cannot edit missing topic`)
-      }
-      const memoryBefore = await readSafeRegularFile(memoryDir, paths.memoryMd, { signal })
-      const journal = await createPendingProjectMemoryTransaction(projectRoot, {
-        topic,
-        topicBefore: topicSnapshot.content,
-        memoryBefore,
-      }, signal)
-      try {
-        const editResult = await editTopicMemoryLocked(
-          memoryDir,
-          topicPath,
+  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap, memoryScope) => {
+    return withSafeDirectoryScope(paths.localDir, async (journalScope) => {
+      return memoryScope.withWriterLock(topicPath, async () => {
+        signal?.throwIfAborted()
+        const topicSnapshot = await readTopicSnapshotLocked(memoryScope, topicPath, topic, signal)
+        if (!topicSnapshot.exists || topicSnapshot.content === null) {
+          throw new Error(`Topic memory file "${topicPath}" does not exist; cannot edit missing topic`)
+        }
+        const memoryBefore = await memoryScope.readRegularFile(paths.memoryMd)
+        const journal = await createPendingProjectMemoryTransaction(projectRoot, {
           topic,
-          oldText,
-          newText,
-          topicSnapshot,
-          signal,
-        )
-        signal?.throwIfAborted()
-        await commitMap()
-        signal?.throwIfAborted()
-        committedJournal = await markProjectMemoryTransactionCommitted(projectRoot, journal, signal)
-        return editResult
-      } catch (error) {
-        await rollbackJournaledTransaction(projectRoot, topic, journal, error)
-      }
+          topicBefore: topicSnapshot.content,
+          memoryBefore,
+        }, signal, journalScope)
+        try {
+          const editResult = await editTopicMemoryLocked(
+            memoryScope,
+            topicPath,
+            topic,
+            oldText,
+            newText,
+            topicSnapshot,
+            signal,
+          )
+          signal?.throwIfAborted()
+          await commitMap()
+          signal?.throwIfAborted()
+          committedJournal = await markProjectMemoryTransactionCommitted(
+            projectRoot,
+            journal,
+            signal,
+            journalScope,
+          )
+          return editResult
+        } catch (error) {
+          await rollbackJournaledTransaction(
+            projectRoot,
+            topic,
+            journal,
+            error,
+            memoryScope,
+            journalScope,
+          )
+        }
+      })
     }, signal)
   }, signal)
 
