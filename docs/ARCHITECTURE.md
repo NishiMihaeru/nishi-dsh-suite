@@ -132,13 +132,24 @@ On `agent/pre-step`, successful initialized roots are cached. In-flight initiali
 
 ### Path binding
 
-On Linux/POSIX, the storage layer opens the target parent directory, verifies device/inode identity and uses an available descriptor path (`/proc/self/fd/<fd>` or `/dev/fd/<fd>`) for subsequent child lookup, temp-file creation, hard-link publication and rename. Reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible final entry, then read bytes from that handle.
+On Linux/POSIX, package-owned descendants are opened as a descriptor chain rather than from independently re-resolved full pathnames:
 
-A read-modify-write critical section does not reopen that parent pathname after taking its lock. `withSafeFileWriterLock()` supplies a `SafeDirectoryScope`, and the complete lock/read/render/write sequence uses that same opened directory identity. The named-topic compound path uses one memory scope for `MEMORY.md.lock`, the nested topic lock, participant snapshots, writes and rollback, plus one separate stable `.dsh/local` scope for its recovery journal. After a successful callback the logical directory pathname is revalidated against the opened inode; a parent replacement therefore cannot silently redirect the operation or still be reported as success.
+```text
+explicit projectRoot
+  -> .dsh
+     -> memory
+     -> local
+```
 
-This replaces the old `lstat(path)` -> later `readFile/writeFile(path)` check/use pattern for the supported POSIX path and prevents a concurrent parent/final-entry swap from redirecting actual RMW I/O after validation.
+The explicit project root may itself be represented by a symlink path. Once it is opened and bound to a device/inode identity, `.dsh` is opened as its direct real child. `memory` and `local` are then opened as direct real children of that same pinned `.dsh` generation. Every level verifies identity and uses `/proc/self/fd/<fd>` or `/dev/fd/<fd>` when available. Replacing an intermediate `.dsh` pathname with a symlink therefore cannot redirect later descendant I/O outside the opened canonical tree.
 
-Windows has no equivalent Node directory-fd/openat surface here. It uses pathname operations plus identity revalidation and remains **NOT TESTED**. The stronger descriptor-anchored TOCTOU guarantee is therefore a POSIX claim only.
+Reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible final entry, then read bytes from that handle. Temp-file creation, hard-link publication, rename and removal use the same opened parent-directory identity.
+
+A read-modify-write critical section does not reopen that parent pathname after taking its lock. `SafeDirectoryScope` owns the target lock plus all read/render/write operations for the critical section. Named-topic compound transactions additionally open `memory` and `local` as siblings of one pinned `.dsh` scope: `MEMORY.md.lock`, the nested topic lock, participant snapshots, participant commits and rollback stay on the memory scope, while WAL publication, phase change and cleanup stay on the paired local scope.
+
+Every opened directory scope is post-validated against its logical pathname before success is reported. Namespace replacement can therefore cause an operation to fail, but cannot silently redirect the operation and still be reported as a successful mutation.
+
+Windows has no equivalent Node directory-fd/openat surface here. It uses pathname operations plus identity revalidation and remains **NOT TESTED**. The stronger descriptor-chain TOCTOU guarantee is therefore a POSIX claim only.
 
 ### Atomic replacement and first publication
 
@@ -153,6 +164,8 @@ These are process-interruption and atomic-namespace guarantees. The storage laye
 Every Project Memory RMW target uses the DSH-compatible `<target>.lock` namespace. The lock covers read/render/commit and whole-file writers honor the same target lock. Lock ownership and all operations performed under that lock share the same `SafeDirectoryScope`.
 
 Lock acquisition is `AbortSignal`-aware. DSH tool execution and `agent/pre-step` signals are forwarded through root discovery, recovery, initialization, reads, lock waits and commit boundaries. An aborted waiter cannot later acquire the lock and commit a mutation merely because the current holder eventually released it. Model-facing tool wrappers also rethrow the caller's cancellation reason instead of converting cancellation into an ordinary sanitized Project Memory failure.
+
+If a failure/cancellation arrives after a participant has already crossed a durable replacement boundary, exact rollback becomes mandatory settlement. The same already-opened memory/local scopes are reused without the caller's fired signal until pre-images and WAL state are restored. This exception is deliberately limited to settling already-durable state; ordinary new work remains cancellation-aware.
 
 Writer domains:
 
@@ -181,24 +194,26 @@ While both participant locks are held, the transaction owns `.dsh/local/project-
 
 Protocol:
 
-1. preflight the next canonical Memory-map text while holding `MEMORY.md.lock`;
-2. acquire topic lock on the same memory-directory scope;
-3. capture exact participant pre-images through that scope;
-4. atomically publish `pending` journal through one stable `.dsh/local` scope;
-5. commit topic participant;
-6. commit Memory-map participant;
-7. atomically replace journal phase with `committed` while both participant locks still belong to this live transaction;
-8. release participant locks/scopes;
-9. remove committed journal best-effort.
+1. open one canonical `projectRoot -> .dsh -> {memory, local}` storage generation;
+2. preflight the next canonical Memory-map text while holding `MEMORY.md.lock`;
+3. acquire topic lock on the same memory-directory scope;
+4. capture exact participant pre-images through that scope;
+5. atomically publish `pending` WAL through the paired local scope;
+6. commit topic participant;
+7. commit Memory-map participant;
+8. atomically replace WAL phase with `committed` while both participant locks still belong to this live transaction;
+9. release participant locks/scopes;
+10. remove committed WAL best-effort.
 
-The phase replace in step 7 is the logical commit point. It does not acquire a separate journal lock because any competing Project Memory operation that observes this live PID must wait on the already-held `MEMORY.md.lock`; avoiding a post-marker journal-lock cleanup means a successfully written `committed` marker cannot fall back into rollback because metadata-lock cleanup failed.
+The phase replace in step 8 is the logical commit point. It does not acquire a second metadata lock during the normal transaction because any competing Project Memory operation that observes the live owner must cross the already-held `MEMORY.md.lock` barrier first.
 
 Recovery semantics:
 
-- dead `pending` -> claim recovery, restore both exact pre-images under one stable memory scope with normal Memory/topic locks, remove journal;
-- dead `committed` -> preserve both new participants, clean dead protocol locks and journal only;
-- live recorded owner -> first wait until this process can acquire `MEMORY.md.lock`; if the journal then disappeared, nothing remains to recover; if it is `committed`, preserve participants and clean metadata; if it is still `pending`, the original compound critical section has ended and the abandoned state is rolled back under the normal Memory/topic lock order even though the process itself is still alive;
-- committed journal left after an otherwise successful write -> next Memory-map critical section may remove it idempotently.
+- dead `pending` -> claim recovery, restore both exact pre-images under one stable memory scope with normal Memory/topic locks, remove WAL;
+- dead `committed` -> preserve both new participants, clean dead protocol locks and WAL only;
+- live recorded owner -> first cross the `MEMORY.md.lock` barrier; if the journal disappeared because the live transaction completed, nothing remains to recover; if it is `committed`, preserve participants and clean metadata; if it is still `pending`, the compound critical section has ended and the abandoned state is rolled back under normal Memory/topic lock order even though the process itself remains live;
+- once recovery has observed a dead unresolved WAL and entered claim protocol, transfer of that WAL to another live owner, disappearance of the WAL, or incompatible mutation of the WAL is fail-closed because coherent participant state can no longer be proven from the captured recovery state;
+- committed WAL left after an otherwise successful write is cleanup-only and may be removed idempotently by the next Memory-map critical section or recovery.
 
 A missing `MEMORY.md` is modeled in-memory during map preflight and is not created as a side effect of a failed topic operation.
 
@@ -236,16 +251,17 @@ Antigravity suppression remains partly configuration and partly prompt guidance;
 8. Vendor-specific subagent registration/tools are absent.
 9. Project Memory root selection and filesystem confinement are provider-independent.
 10. Explicit symlinked workspace roots are allowed; package-owned `.dsh` canonical final components are not symlinks/junctions.
-11. On the POSIX path, Project Memory lock/read/write composition stays on one opened directory scope; separate validation/use pathname reopens are not used inside an RMW critical section.
-12. All model-facing memory work forwards the caller cancellation signal through lock/commit boundaries and preserves the cancellation reason at the tool boundary.
-13. Every writer that can race an RMW cycle honors the same per-target lock namespace.
-14. Named-topic model-facing writes hold `MEMORY.md` then topic lock in that order on the same memory scope.
-15. A `pending` journal is rollback state; a `committed` journal is preserve-and-clean state.
-16. Credential backend failure is not represented as ordinary account absence, and failed durable logout is not reported as success.
-17. Core and Project Memory production DSH peers accept only `0.1.1-rc.2` and `0.1.2-alpha.1` until another generation passes its own gate.
+11. On POSIX, package-owned descendants are opened through one `projectRoot -> .dsh -> memory/local` descriptor chain rather than independent full-path reopens.
+12. Project Memory RMW lock/read/write composition stays on one opened directory scope; named-topic memory/local scopes belong to the same pinned `.dsh` generation.
+13. All model-facing memory work forwards caller cancellation through ordinary work; mandatory settlement may ignore an already-fired signal only to restore state after a durable partial commit.
+14. Every writer that can race an RMW cycle honors the same per-target lock namespace.
+15. Named-topic model-facing writes hold `MEMORY.md` then topic lock in that order on the same memory scope.
+16. A `pending` WAL is rollback state; a `committed` WAL is preserve-and-clean state; recovery ownership ambiguity after claim starts is fail-closed.
+17. Credential backend failure is not represented as ordinary account absence, and failed durable logout is not reported as success.
+18. Core and Project Memory production DSH peers accept only `0.1.1-rc.2` and `0.1.2-alpha.1` until another generation passes its own gate.
 
 ## Current implementation state
 
-The independent audit reopened Core and Project Memory after the historical foundation freeze. The current branch contains targeted remediation for the five confirmed findings plus follow-up race hardening discovered during implementation. Canonical package and project docs intentionally do **not** declare the foundation frozen yet.
+The independent audit reopened Core and Project Memory after the historical foundation freeze. The current branch contains targeted remediation for the five confirmed findings plus follow-up race/cancellation hardening discovered during implementation. Canonical package and project docs intentionally do **not** declare the foundation frozen yet.
 
-Fresh local package tests/typechecks/builds, workspace verification and the required disposable alpha.1 validation must run on the final remediation HEAD before Core and Project Memory are re-frozen. Provider-specific cleanup is paused until that gate completes.
+The GitHub implementation state is ready for fresh executable validation, but no local package test/typecheck/build, workspace verification, or disposable alpha.1 run is inferred from source review. Those gates must pass on the final remediation HEAD before Core and Project Memory are re-frozen. Provider-specific cleanup remains paused until that gate completes.
