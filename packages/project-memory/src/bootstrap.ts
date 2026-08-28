@@ -1,9 +1,10 @@
-import { lstat, readFile, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import {
   ensureCanonicalDirectory,
+  readSafeRegularFile,
   validateCanonicalDirectory,
   withSafeFileWriterLock,
+  writeFileExclusiveAtomic,
   writeSafeFileAtomically,
 } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
@@ -98,87 +99,66 @@ function assertBootstrapBounds(content: string): void {
 }
 
 /** Ensure MEMORY.md while the caller already owns its writer lock. */
-async function ensureBootstrapFile(memoryMd: string): Promise<boolean> {
-  try {
-    const stats = await lstat(memoryMd)
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw new Error(
-        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-      )
-    }
-    return false
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT') throw err
-  }
-
-  try {
-    await writeFile(memoryMd, INITIAL_MEMORY_MD_CONTENT, { encoding: 'utf8', flag: 'wx' })
-    return true
-  } catch (err: any) {
-    if (err?.code === 'EEXIST') {
-      const stats = await lstat(memoryMd)
-      if (stats.isSymbolicLink() || !stats.isFile()) {
-        throw new Error(
-          `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-        )
-      }
-      return false
-    }
-    throw err
-  }
+async function ensureBootstrapFile(
+  memoryDir: string,
+  memoryMd: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  signal?.throwIfAborted()
+  const existing = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+  if (existing !== null) return false
+  return writeFileExclusiveAtomic(
+    memoryDir,
+    memoryMd,
+    INITIAL_MEMORY_MD_CONTENT,
+    { mode: 0o644 },
+    signal,
+  )
 }
 
 /** Read existing bootstrap under its lock, or model the approved initial file without creating it yet. */
-async function readBootstrapOrInitial(memoryMd: string): Promise<string> {
-  try {
-    const stats = await lstat(memoryMd)
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw new Error(
-        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-      )
-    }
-    return readFile(memoryMd, 'utf8')
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') return INITIAL_MEMORY_MD_CONTENT
-    throw err
-  }
+async function readBootstrapOrInitial(
+  memoryDir: string,
+  memoryMd: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const existing = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+  return existing === null ? INITIAL_MEMORY_MD_CONTENT : existing.toString('utf8')
 }
 
 export async function ensureProjectMemoryBootstrap(
   projectRoot: string,
+  signal?: AbortSignal,
 ): Promise<EnsureProjectMemoryResult> {
+  signal?.throwIfAborted()
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir)
-  await ensureCanonicalDirectory(memoryDir)
-  const created = await withSafeFileWriterLock(memoryDir, memoryMd, () => ensureBootstrapFile(memoryMd))
+  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(memoryDir, signal)
+  const created = await withSafeFileWriterLock(
+    memoryDir,
+    memoryMd,
+    () => ensureBootstrapFile(memoryDir, memoryMd, signal),
+    signal,
+  )
   return { created, memoryPath: memoryMd }
 }
 
 export async function readProjectMemoryBootstrap(
   projectRoot: string,
+  signal?: AbortSignal,
 ): Promise<ReadProjectMemoryResult> {
+  signal?.throwIfAborted()
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  if (!(await validateCanonicalDirectory(dshDir))) return { exists: false, content: null, path: memoryMd }
-  if (!(await validateCanonicalDirectory(memoryDir))) return { exists: false, content: null, path: memoryMd }
-  let fileStats
-  try {
-    fileStats = await lstat(memoryMd)
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') return { exists: false, content: null, path: memoryMd }
-    throw err
-  }
-  if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
-    throw new Error(
-      `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-    )
-  }
-  const rawBuffer = await readFile(memoryMd)
+  if (!(await validateCanonicalDirectory(dshDir, signal))) return { exists: false, content: null, path: memoryMd }
+  if (!(await validateCanonicalDirectory(memoryDir, signal))) return { exists: false, content: null, path: memoryMd }
+  const rawBuffer = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+  if (rawBuffer === null) return { exists: false, content: null, path: memoryMd }
   return {
     exists: true,
     content: boundedUtf8Bootstrap(rawBuffer, MAX_BOOTSTRAP_LINES, MAX_BOOTSTRAP_BYTES),
@@ -189,7 +169,9 @@ export async function readProjectMemoryBootstrap(
 export async function writeProjectMemoryBootstrap(
   projectRoot: string,
   content: string,
+  signal?: AbortSignal,
 ): Promise<WriteProjectMemoryBootstrapResult> {
+  signal?.throwIfAborted()
   if (!isAbsolute(projectRoot)) throw new Error(`projectRoot must be an absolute path, received "${projectRoot}"`)
   if (typeof content !== 'string') throw new Error('Project memory bootstrap content must be a string')
   assertBootstrapBounds(content)
@@ -197,32 +179,26 @@ export async function writeProjectMemoryBootstrap(
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir)
-  await ensureCanonicalDirectory(memoryDir)
+  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(memoryDir, signal)
 
   return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
-    let created = false
-    try {
-      const stats = await lstat(memoryMd)
-      if (stats.isSymbolicLink() || !stats.isFile()) {
-        throw new Error(
-          `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-        )
-      }
-    } catch (err: any) {
-      if (err?.code === 'ENOENT') created = true
-      else throw err
-    }
-    await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(content, 'utf8'))
+    signal?.throwIfAborted()
+    const current = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+    const created = current === null
+    signal?.throwIfAborted()
+    await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(content, 'utf8'), signal)
     return { created, memoryPath: memoryMd }
-  })
+  }, signal)
 }
 
 export async function editProjectMemoryBootstrap(
   projectRoot: string,
   oldText: string,
   newText: string,
+  signal?: AbortSignal,
 ): Promise<EditProjectMemoryBootstrapResult> {
+  signal?.throwIfAborted()
   if (!isAbsolute(projectRoot)) throw new Error(`projectRoot must be an absolute path, received "${projectRoot}"`)
   if (typeof oldText !== 'string' || oldText.length === 0) throw new Error('oldText must be a non-empty string')
   if (typeof newText !== 'string') throw new Error('newText must be a string')
@@ -230,29 +206,20 @@ export async function editProjectMemoryBootstrap(
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  if (!(await validateCanonicalDirectory(dshDir))) {
+  if (!(await validateCanonicalDirectory(dshDir, signal))) {
     throw new Error(`Cannot edit project memory bootstrap: directory "${dshDir}" does not exist`)
   }
-  if (!(await validateCanonicalDirectory(memoryDir))) {
+  if (!(await validateCanonicalDirectory(memoryDir, signal))) {
     throw new Error(`Cannot edit project memory bootstrap: directory "${memoryDir}" does not exist`)
   }
 
   return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
-    let stats
-    try {
-      stats = await lstat(memoryMd)
-    } catch (err: any) {
-      if (err?.code === 'ENOENT') {
-        throw new Error(`Project memory bootstrap file "${memoryMd}" does not exist; cannot edit missing file`)
-      }
-      throw err
+    signal?.throwIfAborted()
+    const currentBuffer = await readSafeRegularFile(memoryDir, memoryMd, { signal })
+    if (currentBuffer === null) {
+      throw new Error(`Project memory bootstrap file "${memoryMd}" does not exist; cannot edit missing file`)
     }
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw new Error(
-        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-      )
-    }
-    const currentContent = await readFile(memoryMd, 'utf8')
+    const currentContent = currentBuffer.toString('utf8')
     const firstIndex = currentContent.indexOf(oldText)
     if (firstIndex === -1) {
       throw new Error(`Exact match for oldText not found in project memory bootstrap (${memoryMd})`)
@@ -275,9 +242,10 @@ export async function editProjectMemoryBootstrap(
       currentContent.slice(0, firstIndex) + newText + currentContent.slice(firstIndex + oldText.length)
     assertBootstrapBounds(updatedContent)
     const updatedBuffer = Buffer.from(updatedContent, 'utf8')
-    await writeSafeFileAtomically(memoryDir, memoryMd, updatedBuffer)
+    signal?.throwIfAborted()
+    await writeSafeFileAtomically(memoryDir, memoryMd, updatedBuffer, signal)
     return { memoryPath: memoryMd, bytesWritten: updatedBuffer.length }
-  })
+  }, signal)
 }
 
 function escapeRegex(str: string): string {
@@ -358,25 +326,29 @@ export async function withMemoryMapEntryTransaction<T>(
   projectRoot: string,
   topic: string,
   operation: (commitMap: CommitMemoryMapEntry) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted()
   if (!isAbsolute(projectRoot)) throw new Error(`projectRoot must be an absolute path, received "${projectRoot}"`)
   if (!isValidTopicIdentifier(topic)) throw new Error(`Invalid topic memory identifier "${topic}"`)
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
   const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir)
-  await ensureCanonicalDirectory(memoryDir)
+  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(memoryDir, signal)
 
   return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
-    const currentContent = await readBootstrapOrInitial(memoryMd)
+    signal?.throwIfAborted()
+    const currentContent = await readBootstrapOrInitial(memoryDir, memoryMd, signal)
     const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
     assertBootstrapBounds(updatedContent)
     let committed = false
     const commitMap: CommitMemoryMapEntry = async () => {
       if (committed) return
+      signal?.throwIfAborted()
       if (updatedContent !== currentContent || currentContent === INITIAL_MEMORY_MD_CONTENT) {
-        await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'))
+        await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'), signal)
       }
       committed = true
     }
@@ -386,12 +358,16 @@ export async function withMemoryMapEntryTransaction<T>(
       throw new Error(`Project memory transaction for topic "${topic}" completed without committing the Memory map`)
     }
     return result
-  })
+  }, signal)
 }
 
-export async function ensureMemoryMapEntry(projectRoot: string, topic: string): Promise<void> {
+export async function ensureMemoryMapEntry(
+  projectRoot: string,
+  topic: string,
+  signal?: AbortSignal,
+): Promise<void> {
   if (topic === 'memory') return
   await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
     await commitMap()
-  })
+  }, signal)
 }
