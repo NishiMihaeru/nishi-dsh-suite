@@ -1,6 +1,6 @@
 # Architecture
 
-Status: canonical `0.1.0-rc.3` architecture. This file describes the code as it exists now; compatibility remediation against DSH `0.1.2-alpha.1` is active where noted in `ROADMAP.md`.
+Status: canonical `0.1.0-rc.3` architecture. Core and Project Memory source/runtime remediation against DSH `0.1.2-alpha.1` is complete and the foundation is awaiting final dual-generation re-freeze validation.
 
 ## Product contract
 
@@ -33,6 +33,20 @@ Canonical provider identities and model routes:
 - `claude` -> no model route; usage-only
 
 Vendor-specific subagent integrations are removed. Orchestrator delegation uses DSH-native `subagent` / `subagent_fork` on the current primary route.
+
+## Supported DSH foundation family
+
+Core and Project Memory publish an explicit peer union for every production `@deepseek-ai/dsh-*` peer:
+
+```text
+0.1.1-rc.2 || 0.1.2-alpha.1
+```
+
+These are the two generations for which the reopened audit has direct source/runtime evidence. The union is intentionally exact rather than a broad comparator range, so untested intermediate/future prereleases are not accepted merely because they sort between known versions.
+
+The main development graph stays pinned to DSH `0.1.1-rc.2`, the reproducible installed baseline. Official `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) is validated in disposable source/runtime environments. Dev-only rc.2 compatibility fixtures do not form the published runtime boundary.
+
+This foundation declaration does not automatically broaden provider-package DSH ranges; provider packages are reconciled/frozen in their own roadmap blocks.
 
 ## Core surfaces
 
@@ -211,7 +225,7 @@ Named-topic `memory_write` / `memory_edit` add a bounded compound transaction ac
 MEMORY.md -> <topic>.md
 ```
 
-While holding `MEMORY.md.lock`, Core preflights the canonical map render and its bootstrap bounds before any topic mutation. The topic then mutates while its own lock is nested under the Memory lock. The Memory-map atomic commit happens before the topic lock is released. If that late map commit fails, the topic is rolled back under the still-held topic lock: an existing topic restores its exact prior bytes and a newly created topic is removed. A rollback failure is aggregated with the original map failure rather than being hidden.
+While holding `MEMORY.md.lock`, Project Memory preflights the canonical map render and its bootstrap bounds before any topic mutation. The topic then mutates while its own lock is nested under the Memory lock. The Memory-map atomic commit happens before the topic lock is released. If that late map commit fails, the topic is rolled back under the still-held topic lock: an existing topic restores its exact prior bytes and a newly created topic is removed. A rollback failure is aggregated with the original map failure rather than being hidden.
 
 Missing `MEMORY.md` is represented by the approved initial bootstrap in memory during preflight and is only materialized by a successful map commit. Therefore a failed topic operation does not create bootstrap state as a side effect.
 
@@ -253,7 +267,8 @@ Antigravity suppression remains partly configuration and partly prompt-level gui
 14. Every Project Memory writer that can race an RMW cycle honors the same per-target cross-process writer lock.
 15. Named-topic model-facing writes/edits hold `MEMORY.md` then topic locks in that fixed order and cannot report a normal map failure after leaving the topic mutated.
 16. A compound rollback failure is explicit and aggregated; it is never silently represented as a clean rollback.
+17. Core and Project Memory production DSH peers accept only the explicitly validated `0.1.1-rc.2` and `0.1.2-alpha.1` generations until another generation passes its own compatibility gate.
 
 ## Current implementation state
 
-Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing and per-file RMW locking, Core Connection/client compatibility and Core registry transaction integrity are accepted. Compound Project Memory topic/map transactions are implemented and awaiting focused validation. After that, supported-version reconciliation and the joint foundation re-freeze remain before provider cleanup resumes.
+Core 15/16 and Project Memory PM03/PM04/PM05 close every source/runtime blocker found by the reopened audit against official DSH `dsh-v0.1.2-alpha.1`. Core and Project Memory now declare the two validated DSH peer generations explicitly and are awaiting one final joint rc.2 + alpha.1 foundation validation. Provider cleanup resumes after that re-freeze passes.
