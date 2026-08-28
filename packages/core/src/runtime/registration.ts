@@ -18,7 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ProviderDescriptor } from '../registry/descriptor.js'
 import { canonicalProviderId, canonicalProviderRoute } from '../registry/identity.js'
-import { parseUsageRefreshPolicy } from '../usage/service.js'
+import { parseUsageRefreshPolicy, parseUsageSnapshotCollector } from '../usage/service.js'
 
 /** Config fields every subscription-CLI provider plugin shares. */
 export interface SharedProviderConfig {
@@ -138,17 +138,15 @@ async function rollbackRegistration(
 
 /**
  * The single registration path every provider goes through: validate its
- * identity and provider-owned policy first, construct provider-owned
+ * identity and provider-owned usage contract first, construct provider-owned
  * search/usage capabilities, record the provider, register its model route,
  * then run provider-specific install.
  *
- * Identity/policy validation happens before any capability factory runs. Once
- * core state starts mutating, registration is transactional for the resources
- * the core directly owns: the registry entry and the LLM registration. A
- * failure in model creation, adapter registration, or install withdraws both
- * before the rejection escapes. Registry change listeners are observers and
- * cannot veto a committed record; their failures are contained by the
- * registry itself.
+ * Identity/policy validation happens before any capability factory runs, and
+ * the collector returned by the usage factory is validated before registry
+ * mutation. Once core state starts mutating, registration is transactional for
+ * the resources the core directly owns: the registry entry and LLM adapter.
+ * Registry change listeners are observers and cannot veto a committed record.
  */
 export async function registerProvider<TConfig extends SharedProviderConfig>(
   ctx: Context,
@@ -193,9 +191,12 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
   const usage = descriptor.usage === undefined
     ? undefined
     : {
-        collector: descriptor.usage.create(ctx, config, {
-          invalidate: () => registry.invalidate(providerId),
-        }),
+        collector: parseUsageSnapshotCollector(
+          descriptor.usage.create(ctx, config, {
+            invalidate: () => registry.invalidate(providerId),
+          }),
+          `${providerId}: usage.collector`,
+        ),
         ...(refreshPolicy === undefined ? {} : { refreshPolicy }),
       }
 
