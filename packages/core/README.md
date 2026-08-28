@@ -113,4 +113,4 @@ The only named vendor-like ids in the Model Accounts surface are DSH authorizati
 
 Core 14 remains the historical accepted baseline for DSH `0.1.1-rc.2`. Core 15 accepted the Connection/client compatibility migration against both installed rc.2 and official upstream `dsh-v0.1.2-alpha.1`. Core 16 accepted the non-vetoing registry-observer transaction/preflight correction with full workspace regression coverage.
 
-All source/runtime blockers found in the reopened Core audit are closed. The supported peer-family declaration is implemented and Core is awaiting the final joint Core + Project Memory dual-generation validation/re-freeze in `docs/ROADMAP.md`.
+The final foundation re-freeze passed on implementation HEAD `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b`: Core `176/176`, full workspace `270/270`, frozen install and `pnpm verify:local` PASS, with actual rc.2 + official alpha.1 runtime/client evidence. Core is **FROZEN** for provider work. Reopen it only for a new reproducible Core regression or an explicitly scoped future DSH compatibility generation.
