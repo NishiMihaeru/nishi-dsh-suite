@@ -1,44 +1,46 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after the final Core + Project Memory dual-generation re-freeze.
+Status updated for `0.1.0-rc.3` after the independent Core + Project Memory audit and remediation pass against DSH `0.1.2-alpha.1`.
 
 This file owns **task status and order only**. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
-## Foundation — FROZEN
+## Foundation — REMEDIATED, VERIFICATION REQUIRED
 
-Core and Project Memory remediation against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) is complete.
+Core and Project Memory were reopened by an independent audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). The historical foundation PASS at `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b` remains historical evidence only; it does not validate the newly changed remediation tree.
 
-Final accepted foundation implementation HEAD:
+Audit findings addressed in the current branch:
 
-```text
-0c7a177d2f4fceab58513cbd0d87fcf9c31b025b
-```
+- [x] Core Model Accounts no longer converts credential-store read failures into ordinary `NOT_CONFIGURED` state;
+- [x] failed legacy-grant deletion no longer reports a nominally successful logout;
+- [x] Project Memory POSIX reads/writes are descriptor/inode anchored instead of `lstat(path)` followed by a second pathname use;
+- [x] explicit symlinked workspace roots remain supported while `.dsh` owned final components remain real directories;
+- [x] first publication of canonical project files is complete-before-visible and no-clobber;
+- [x] model-facing memory operations and lazy initialization propagate `AbortSignal` through lock waits and commit boundaries;
+- [x] named-topic + Memory-map mutation has a `pending`/`committed` recovery journal with exact pre-images;
+- [x] recovery cleanup is idempotent and committed state cannot fall back into rollback merely because cleanup metadata remains;
+- [x] targeted regression tests were added for the reopened failure modes.
 
-Final raw PASS report commit:
+Fresh gates still required before foundation re-freeze:
 
-```text
-c209be795601ac7c4a3328c4af6bdbefde7f9f82
-```
+- [ ] `pnpm install --frozen-lockfile` PASS on the final remediation HEAD;
+- [ ] Core focused `test` + `check` + `build` PASS;
+- [ ] Project Memory focused `test` + `check` + `build` PASS;
+- [ ] full workspace tests + check/build PASS;
+- [ ] `pnpm verify:local` PASS;
+- [ ] disposable official `0.1.2-alpha.1` compatibility verification repeated where the changed seams require it;
+- [ ] durable PASS evidence folded into `docs/verification/README.md`;
+- [ ] Core re-freeze accepted;
+- [ ] Project Memory re-freeze accepted.
 
-Accepted final gates:
-
-- [x] frozen install PASS;
-- [x] Core `176/176` tests + check/build PASS;
-- [x] Project Memory `39/39` tests + check/build PASS;
-- [x] full workspace `270/270` tests + check/build PASS;
-- [x] `pnpm verify:local` PASS;
-- [x] packed Core/Project Memory metadata PASS;
-- [x] actual rc.2 + official alpha.1 Core runtime/client compatibility PASS;
-- [x] actual rc.2 + official alpha.1 Project Memory tool/locking/maintenance compatibility PASS;
-- [x] production DSH peers restricted to exact `0.1.1-rc.2 || 0.1.2-alpha.1` for Core/Project Memory;
-- [x] Core re-freeze accepted;
-- [x] Project Memory re-freeze accepted.
-
-Do not reopen either package during provider cleanup without a new reproducible regression.
+Until those executable gates pass, Core and Project Memory are **NOT FROZEN**. Provider cleanup is paused rather than stacking new work on an unverified foundation.
 
 ## Current sequence
 
-### 1. Codex — ACTIVE
+### 1. Foundation verification — ACTIVE
+
+Complete the gates above without expanding scope. A verification failure reopens only the concrete failing seam.
+
+### 2. Codex — PAUSED UNTIL FOUNDATION RE-FREEZE
 
 - [ ] Audit current Codex source/runtime seams against installed DSH `0.1.1-rc.2` and official `0.1.2-alpha.1`; actual upstream source is primary truth.
 - [ ] Reconcile Codex DSH dependencies/peers only to generations proven by the provider-specific audit; do not inherit the Core/Memory range automatically.
@@ -51,7 +53,7 @@ Do not reopen either package during provider cleanup without a new reproducible 
 - [ ] Live proof that vendor-native memory/project-doc injection is suppressed on the primary invocation.
 - [ ] Freeze Codex.
 
-### 2. Antigravity
+### 3. Antigravity
 
 - [ ] Audit provider-specific DSH compatibility against the actual supported generations before changing its package ranges.
 - [ ] Replace remaining provider-local failure/helper duplication with Core contracts where applicable.
@@ -63,7 +65,7 @@ Do not reopen either package during provider cleanup without a new reproducible 
 - [ ] Routed native `web_search` PASS.
 - [ ] Freeze Antigravity.
 
-### 3. Claude
+### 4. Claude
 
 Claude remains usage-only for rc.3.
 
@@ -74,7 +76,7 @@ Claude remains usage-only for rc.3.
 - [ ] Confirm descriptor remains model-route/search-free.
 - [ ] Freeze Claude.
 
-### 4. Repository-wide provider invariants
+### 5. Repository-wide provider invariants
 
 - [ ] Provider packages do not bypass shared `registerProvider()` for LLM adapter registration.
 - [ ] Vendor-specific subagent registrations/tools remain absent.
@@ -85,7 +87,7 @@ Claude remains usage-only for rc.3.
 - [ ] Synthetic fourth-provider extension test remains green.
 - [ ] Whole-family DSH dependency declarations are consistent with provider-specific validation evidence.
 
-### 5. Product-level live acceptance
+### 6. Product-level live acceptance
 
 Use one deliberate quota-spending run after provider work is frozen:
 
@@ -101,7 +103,7 @@ Use one deliberate quota-spending run after provider work is frozen:
 
 Automatic failover remains deferred. Manual route switching ships first.
 
-### 6. Install/profile lifecycle
+### 7. Install/profile lifecycle
 
 - [ ] Fresh disposable rc.3 tarball install PASS.
 - [ ] Same-profile reconciliation/update PASS.
@@ -109,7 +111,7 @@ Automatic failover remains deferred. Manual route switching ships first.
 - [ ] Managed Orchestrator `preset install` / `status` / `update` / `remove` PASS.
 - [ ] Normal Suite removal preserves unrelated profile/session/project/vendor state.
 
-### 7. Release gate
+### 8. Release gate
 
 - [ ] `pnpm install --frozen-lockfile` exit 0 on the final provider-frozen tree.
 - [ ] `pnpm verify:local` exit 0.
