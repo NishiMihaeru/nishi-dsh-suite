@@ -1,6 +1,11 @@
 import { lstat, readFile, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, normalize } from 'node:path'
-import { ensureCanonicalDirectory, validateCanonicalDirectory, writeSafeFileAtomically } from './filesystem.js'
+import { isAbsolute, join } from 'node:path'
+import {
+  ensureCanonicalDirectory,
+  validateCanonicalDirectory,
+  withSafeFileWriterLock,
+  writeSafeFileAtomically,
+} from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 import { isValidTopicIdentifier } from './topics.js'
 
@@ -90,6 +95,39 @@ function assertBootstrapBounds(content: string): void {
   }
 }
 
+/** Ensure MEMORY.md while the caller already owns its writer lock. */
+async function ensureBootstrapFile(memoryMd: string): Promise<boolean> {
+  try {
+    const stats = await lstat(memoryMd)
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw new Error(
+        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
+      )
+    }
+    return false
+  } catch (err: any) {
+    if (err?.code !== 'ENOENT') throw err
+  }
+
+  try {
+    await writeFile(memoryMd, INITIAL_MEMORY_MD_CONTENT, { encoding: 'utf8', flag: 'wx' })
+    return true
+  } catch (err: any) {
+    // A non-cooperating external creator may still race the lock. Preserve its
+    // file instead of overwriting it, then validate the winner.
+    if (err?.code === 'EEXIST') {
+      const stats = await lstat(memoryMd)
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw new Error(
+          `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
+        )
+      }
+      return false
+    }
+    throw err
+  }
+}
+
 export async function ensureProjectMemoryBootstrap(
   projectRoot: string,
 ): Promise<EnsureProjectMemoryResult> {
@@ -99,32 +137,9 @@ export async function ensureProjectMemoryBootstrap(
   const memoryMd = paths.memoryMd
   await ensureCanonicalDirectory(dshDir)
   await ensureCanonicalDirectory(memoryDir)
-  try {
-    const stats = await lstat(memoryMd)
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw new Error(
-        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-      )
-    }
-    return { created: false, memoryPath: memoryMd }
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT') throw err
-  }
-  try {
-    await writeFile(memoryMd, INITIAL_MEMORY_MD_CONTENT, { encoding: 'utf8', flag: 'wx' })
-    return { created: true, memoryPath: memoryMd }
-  } catch (err: any) {
-    if (err?.code === 'EEXIST') {
-      const stats = await lstat(memoryMd)
-      if (stats.isSymbolicLink() || !stats.isFile()) {
-        throw new Error(
-          `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-        )
-      }
-      return { created: false, memoryPath: memoryMd }
-    }
-    throw err
-  }
+
+  const created = await withSafeFileWriterLock(memoryDir, memoryMd, () => ensureBootstrapFile(memoryMd))
+  return { created, memoryPath: memoryMd }
 }
 
 export async function readProjectMemoryBootstrap(
@@ -169,20 +184,23 @@ export async function writeProjectMemoryBootstrap(
   const memoryMd = paths.memoryMd
   await ensureCanonicalDirectory(dshDir)
   await ensureCanonicalDirectory(memoryDir)
-  let created = false
-  try {
-    const stats = await lstat(memoryMd)
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw new Error(
-        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-      )
+
+  return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
+    let created = false
+    try {
+      const stats = await lstat(memoryMd)
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw new Error(
+          `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
+        )
+      }
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') created = true
+      else throw err
     }
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') created = true
-    else throw err
-  }
-  await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(content, 'utf8'))
-  return { created, memoryPath: memoryMd }
+    await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(content, 'utf8'))
+    return { created, memoryPath: memoryMd }
+  })
 }
 
 export async function editProjectMemoryBootstrap(
@@ -203,48 +221,49 @@ export async function editProjectMemoryBootstrap(
   if (!(await validateCanonicalDirectory(memoryDir))) {
     throw new Error(`Cannot edit project memory bootstrap: directory "${memoryDir}" does not exist`)
   }
-  let stats
-  try {
-    stats = await lstat(memoryMd)
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') {
-      throw new Error(`Project memory bootstrap file "${memoryMd}" does not exist; cannot edit missing file`)
-    }
-    throw err
-  }
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new Error(
-      `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-    )
-  }
-  const currentContent = await readFile(memoryMd, 'utf8')
-  const firstIndex = currentContent.indexOf(oldText)
-  if (firstIndex === -1) {
-    throw new Error(`Exact match for oldText not found in project memory bootstrap (${memoryMd})`)
-  }
-  const secondIndex = currentContent.indexOf(oldText, firstIndex + 1)
-  if (secondIndex !== -1) {
-    let count = 2
-    let pos = secondIndex + 1
-    while (pos < currentContent.length) {
-      const next = currentContent.indexOf(oldText, pos)
-      if (next === -1) break
-      count++
-      pos = next + 1
-    }
-    throw new Error(
-      `Multiple occurrences (${count}) of oldText found in project memory bootstrap; exact single match required`,
-    )
-  }
-  const updatedContent =
-    currentContent.slice(0, firstIndex) + newText + currentContent.slice(firstIndex + oldText.length)
-  assertBootstrapBounds(updatedContent)
-  const updatedBuffer = Buffer.from(updatedContent, 'utf8')
-  await writeSafeFileAtomically(memoryDir, memoryMd, updatedBuffer)
-  return { memoryPath: memoryMd, bytesWritten: updatedBuffer.length }
-}
 
-const mapMutexes = new Map<string, Promise<void>>()
+  return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
+    let stats
+    try {
+      stats = await lstat(memoryMd)
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        throw new Error(`Project memory bootstrap file "${memoryMd}" does not exist; cannot edit missing file`)
+      }
+      throw err
+    }
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw new Error(
+        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
+      )
+    }
+    const currentContent = await readFile(memoryMd, 'utf8')
+    const firstIndex = currentContent.indexOf(oldText)
+    if (firstIndex === -1) {
+      throw new Error(`Exact match for oldText not found in project memory bootstrap (${memoryMd})`)
+    }
+    const secondIndex = currentContent.indexOf(oldText, firstIndex + 1)
+    if (secondIndex !== -1) {
+      let count = 2
+      let pos = secondIndex + 1
+      while (pos < currentContent.length) {
+        const next = currentContent.indexOf(oldText, pos)
+        if (next === -1) break
+        count++
+        pos = next + 1
+      }
+      throw new Error(
+        `Multiple occurrences (${count}) of oldText found in project memory bootstrap; exact single match required`,
+      )
+    }
+    const updatedContent =
+      currentContent.slice(0, firstIndex) + newText + currentContent.slice(firstIndex + oldText.length)
+    assertBootstrapBounds(updatedContent)
+    const updatedBuffer = Buffer.from(updatedContent, 'utf8')
+    await writeSafeFileAtomically(memoryDir, memoryMd, updatedBuffer)
+    return { memoryPath: memoryMd, bytesWritten: updatedBuffer.length }
+  })
+}
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -322,40 +341,18 @@ async function applyMemoryMapEntry(projectRoot: string, topic: string): Promise<
   const memoryMd = paths.memoryMd
   await ensureCanonicalDirectory(dshDir)
   await ensureCanonicalDirectory(memoryDir)
-  let exists = false
-  try {
-    const stats = await lstat(memoryMd)
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw new Error(
-        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
-      )
-    }
-    exists = true
-  } catch (err: any) {
-    if (err?.code !== 'ENOENT') throw err
-  }
-  if (!exists) await ensureProjectMemoryBootstrap(projectRoot)
-  const currentContent = await readFile(memoryMd, 'utf8')
-  const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
-  if (updatedContent === currentContent) return
-  assertBootstrapBounds(updatedContent)
-  await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'))
+
+  await withSafeFileWriterLock(memoryDir, memoryMd, async () => {
+    await ensureBootstrapFile(memoryMd)
+    const currentContent = await readFile(memoryMd, 'utf8')
+    const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
+    if (updatedContent === currentContent) return
+    assertBootstrapBounds(updatedContent)
+    await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'))
+  })
 }
 
 export async function ensureMemoryMapEntry(projectRoot: string, topic: string): Promise<void> {
   if (topic === 'memory') return
-  const normRoot = normalize(projectRoot)
-  const prevLock = mapMutexes.get(normRoot) ?? Promise.resolve()
-  let releaseLock: () => void = () => {}
-  const nextLock = new Promise<void>((resolve) => {
-    releaseLock = resolve
-  })
-  mapMutexes.set(normRoot, nextLock)
-  try {
-    await prevLock
-    await applyMemoryMapEntry(normRoot, topic)
-  } finally {
-    releaseLock()
-    if (mapMutexes.get(normRoot) === nextLock) mapMutexes.delete(normRoot)
-  }
+  await applyMemoryMapEntry(projectRoot, topic)
 }
