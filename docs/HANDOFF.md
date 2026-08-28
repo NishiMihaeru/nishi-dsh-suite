@@ -48,82 +48,52 @@ Accepted:
 - typecheck/build PASS;
 - disposable alpha.1 `installModelSelection` probe PASS.
 
-The exact maintenance message activates provider/model selection on `agent/inbox/claimed`, before prompt assembly snapshots the first step.
-
 ### Core Connection/client compatibility
 
-Accepted implementation HEAD:
+Accepted implementation HEAD `59512d51e55f8121eccdb934e01523e4436b289c` and Gemini report commit `c991bb6ece48acb02d5c15bce3b2b970c3da391a`.
 
-```text
-59512d51e55f8121eccdb934e01523e4436b289c
-```
-
-Gemini report commit:
-
-```text
-c991bb6ece48acb02d5c15bce3b2b970c3da391a
-```
-
-Accepted result:
-
-- 169/169 Core tests PASS;
-- check/build/frozen-lockfile PASS;
-- actual rc.2 `rpc.handle.length === 3` and alpha.1 `=== 2` verified;
-- rc.2 trusted-host and alpha.1 authenticated Connection registration both PASS;
-- Core host mount/unload/remount PASS on both generations;
-- retired `dsh-host-apiproxy` / `dsh-client-runtime` removed from production Core boundary;
-- browser client apply and alpha.1 Host/Origin + browser-auth security probes PASS.
+Accepted result includes 169/169 Core tests, check/build/frozen-lockfile PASS, rc.2 + alpha.1 Connection registration/lifecycle PASS, retired Connection/client seams removed from the production boundary, and alpha.1 Host/Origin + browser-auth security probes PASS.
 
 ### Core registry observer / registration transaction
 
-Accepted implementation HEAD:
+Accepted implementation HEAD `b925e2a328168e7c978126fc6474b7af11d7a63d` and Gemini report commit `e17c809ce72060f8a5e0627b1a7d2c8d58c263e9`.
 
-```text
-b925e2a328168e7c978126fc6474b7af11d7a63d
-```
-
-Gemini report commit:
-
-```text
-e17c809ce72060f8a5e0627b1a7d2c8d58c263e9
-```
-
-Accepted result:
-
-- 175/175 Core tests PASS;
-- Core and full-workspace test/check/build PASS;
-- sync/async registry observer failures are non-vetoing and diagnostically contained;
-- no unhandled rejection from async observers;
-- later observers still run and committed registrations always yield a withdrawal handle;
-- post-record install failure retains original error and rolls back registry/routes/adapter;
-- stale disposer cannot evict replacement generation;
-- explicit usage policy, usage collector and host default policy are validated before registry notifications can observe invalid state;
-- real Cordis proxy and usage reconciliation probes PASS.
+Accepted result includes 175/175 Core tests, full workspace test/check/build PASS, non-vetoing sync/async registry observers, no unhandled observer rejection, intact post-record rollback, stale-disposer safety and preflight validation of usage policy/collector/default policy.
 
 Core source/runtime blockers found in this reopened audit are closed. Core remains formally reopened only for final supported-version-range reconciliation and joint foundation re-freeze after Project Memory remediation.
 
-## Immediate task: Project Memory inter-process RMW integrity
+## Immediate task: validate Project Memory inter-process RMW locking
 
-Atomic file replacement prevents torn files, but does not serialize a read-modify-write transaction across multiple DSH processes. The audit found paths where two processes can read the same old state and the later atomic rename can overwrite the first process's logically independent change.
+The implementation is now on the branch. Do not mix the next compound topic/map transaction fix into this validation.
 
-Target this as one narrow integrity block before addressing compound topic + Memory-map partial commits.
+DSH `@deepseek-ai/dsh-atomic-write` exposes the same `withFileLock()` contract in both installed `0.1.1-rc.2` and upstream `0.1.2-alpha.1`. It uses a `wx`-created `<file>.lock` sibling and is explicitly intended to serialize read-modify-write cycles across processes.
 
-Required outcomes:
+Implemented contract:
 
-1. Inspect actual DSH `@deepseek-ai/dsh-atomic-write` contracts on installed rc.2 and upstream `dsh-v0.1.2-alpha.1`.
-2. Use the supported inter-process lock primitive where available/appropriate; alpha.1 exposes `withFileLock()` specifically for serialized RMW.
-3. Identify every Project Memory path that performs read-modify-write on shared repository state, including at least:
-   - `MEMORY.md` topic map updates;
-   - exact edit paths for bootstrap/topic files;
-   - project initialization updates such as `.gitignore` where concurrent writers can lose lines.
-4. Preserve current path/symlink confinement and atomic replacement behavior inside the lock.
-5. Avoid inventing a second independent lock namespace per operation that fails to serialize writers touching the same file.
-6. Add deterministic concurrent-process regression tests that would lose an update without locking and retain both updates with the fix.
-7. Keep this block separate from compound topic/map transaction semantics; a topic write plus subsequent map update will be addressed next.
+1. `withSafeFileWriterLock()` in `src/filesystem.ts` uses the exact target file as the lock namespace and revalidates the canonical parent/existing target after acquisition.
+2. `MEMORY.md` bootstrap create/write/edit and Memory-map updates all honor the same `MEMORY.md.lock`.
+3. Whole-file topic writes and topic exact edits honor the same `<topic>.md.lock`.
+4. Root `.gitignore` initialization/update honors `.gitignore.lock` and preserves unrelated existing content.
+5. Readers remain lock-free; atomic rename still provides old-or-new reads.
+6. `DSH.md` and `.dsh/project.json` remain create-if-absent `wx` state, not RMW documents.
+7. Per-file locking is intentionally not a cross-file transaction: topic mutation followed by `MEMORY.md` map mutation remains the next separate blocker.
+
+Cross-process regression coverage uses real child Node processes with the `tsx` loader. Tests pre-hold the target DSH writer lock, prove child operations cannot complete while it is held, then release it and verify independent changes survive after each process re-reads under the lock.
+
+Validation must cover:
+
+- `packages/project-memory/src/filesystem.ts`
+- `packages/project-memory/src/bootstrap.ts`
+- `packages/project-memory/src/topics.ts`
+- `packages/project-memory/src/init.ts`
+- `packages/project-memory/test/atomic-write.test.ts`
+- `packages/project-memory/test/fixtures/rmw-worker.mjs`
+
+After this passes, the next block is compound topic + `MEMORY.md` failure/partial-commit semantics.
 
 ## Remaining confirmed foundation blockers
 
-1. Project Memory read-modify-write paths need inter-process serialization where atomic replacement alone can lose concurrent updates. **ACTIVE**
+1. Project Memory per-file inter-process RMW serialization is implemented and **awaiting validation**.
 2. Project Memory topic + Memory-map compound mutations need explicit failure/partial-commit handling and tests.
 3. DSH peer/dev version declarations must be reconciled only after source compatibility is proven.
 4. Core + Project Memory must then be re-frozen against the intended supported DSH family.
@@ -142,7 +112,8 @@ Required outcomes:
 - provider-owned usage contract errors that can reject registration happen before registry mutation;
 - Project Memory context/tools use one root policy;
 - Project Memory canonical path/symlink confinement remains fail-closed;
-- Project Memory shared-state RMW must not lose independent concurrent updates across DSH processes;
+- all Project Memory writers that can race one target's RMW cycle honor that same target lock;
+- per-file locks are not represented as a transaction across topic + Memory map;
 - vendor-specific delegation tools stay removed;
 - no vendor credential/session/token stores are copied, parsed, migrated or deleted.
 
