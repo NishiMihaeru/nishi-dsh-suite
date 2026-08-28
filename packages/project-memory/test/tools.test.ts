@@ -96,7 +96,10 @@ test('model-facing memory_write reports sanitized failure without creating a top
         { topic: 'architecture', content: 'must-not-persist\n' },
         execution(projectRoot),
       ),
-      /^Project memory write failed for topic "architecture"\.$/,
+      (error: any) => {
+        assert.equal(error?.message, 'Project memory write failed for topic "architecture".')
+        return true
+      },
     )
 
     await assert.rejects(() => readFile(join(paths.memoryDir, 'architecture.md'), 'utf8'), (error: any) => {
