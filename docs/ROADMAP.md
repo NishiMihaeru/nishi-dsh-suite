@@ -1,18 +1,30 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after the independent Core + Project Memory audit and GitHub remediation pass against DSH `0.1.2-alpha.1`.
+Status updated for `0.1.0-rc.3` after the independent Core + Project Memory audit/remediation and fresh validation against DSH `0.1.2-alpha.1`.
 
 This file owns **task status and order only**. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
-## Foundation — GITHUB REMEDIATION COMPLETE, VERIFICATION REQUIRED
+## Foundation — FROZEN
 
-Core and Project Memory were reopened by an independent audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). The historical foundation PASS at `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b` remains historical evidence only; it does not validate the newly changed remediation tree.
+Core and Project Memory were reopened by an independent audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`), remediated, and then revalidated from scratch.
 
-Audit findings and implementation follow-ups addressed in the current branch:
+Accepted implementation checkpoint:
+
+```text
+eb95ef6425c788f63339befd0c2437f78bc8dde1
+```
+
+Raw PASS report commit:
+
+```text
+f491d681390924a171211a5c0dd0c8991f6a7faf
+```
+
+Accepted remediation and follow-up gates:
 
 - [x] Core Model Accounts no longer converts credential-store read failures into ordinary `NOT_CONFIGURED` state;
 - [x] failed legacy-grant deletion no longer reports a nominally successful logout;
-- [x] Project Memory POSIX package-owned descendants use a pinned `projectRoot -> .dsh -> memory/local` descriptor chain instead of independent full-path reopen sequences;
+- [x] Project Memory POSIX package-owned descendants use a pinned `projectRoot -> .dsh -> memory/local` descriptor chain;
 - [x] explicit symlinked workspace roots remain supported while package-owned `.dsh` components remain real directories;
 - [x] RMW locks and all read/render/write operations use one opened `SafeDirectoryScope`;
 - [x] named-topic `memory` and WAL `local` scopes belong to one pinned `.dsh` generation;
@@ -21,36 +33,40 @@ Audit findings and implementation follow-ups addressed in the current branch:
 - [x] rollback after a durable partial participant commit uses mandatory settlement and cannot be cancelled by the already-fired caller signal;
 - [x] named-topic + Memory-map mutation has a `pending`/`committed` recovery WAL with exact pre-images;
 - [x] recovery cleanup is idempotent and committed state cannot fall back into rollback merely because cleanup metadata remains;
-- [x] dead-owner recovery fails closed if WAL ownership changes to another live owner or WAL state disappears/changes after claim protocol begins;
-- [x] targeted regressions cover the reopened findings plus locked-parent replacement, intermediate `.dsh` replacement, mandatory settlement, and recovery ownership transfer.
+- [x] dead-owner recovery fails closed if WAL ownership/state changes after recovery protocol begins;
+- [x] targeted regressions cover locked-parent replacement, intermediate `.dsh` replacement, mandatory settlement and recovery ownership transfer;
+- [x] `pnpm install --frozen-lockfile` PASS;
+- [x] Core focused `178/178` tests + check + build PASS;
+- [x] Project Memory focused `57/57` tests + check + build PASS;
+- [x] full workspace test + check + build PASS;
+- [x] `pnpm verify:local` PASS;
+- [x] disposable official `0.1.2-alpha.1` runtime compatibility PASS for the changed Core and Project Memory seams;
+- [x] real alpha.1 `memory_read` / `memory_write` / `memory_edit` PASS;
+- [x] durable PASS evidence folded into `docs/verification/README.md`;
+- [x] Core re-freeze accepted;
+- [x] Project Memory re-freeze accepted.
 
-Fresh gates still required before foundation re-freeze:
+Windows remains **NOT TESTED**. The stronger descriptor-chain TOCTOU guarantee is a Linux/POSIX claim only.
 
-- [ ] record exact local remediation HEAD and clean working tree;
-- [ ] `pnpm install --frozen-lockfile` PASS;
-- [ ] Core focused `test` + `check` + `build` PASS;
-- [ ] Project Memory focused `test` + `check` + `build` PASS;
-- [ ] full workspace `test` + `check` + `build` PASS;
-- [ ] `pnpm verify:local` PASS;
-- [ ] disposable official `0.1.2-alpha.1` compatibility verification repeated for changed Core/Project Memory seams;
-- [ ] Gemini raw PASS/FAIL report committed to `docs/verification/gemini/LATEST.md`;
-- [ ] durable PASS evidence folded into `docs/verification/README.md`;
-- [ ] Core re-freeze accepted;
-- [ ] Project Memory re-freeze accepted.
+Core and Project Memory production DSH peers remain intentionally restricted to:
 
-Until those executable gates pass, Core and Project Memory are **NOT FROZEN**. Provider cleanup remains paused rather than stacking new work on an unverified foundation.
+```text
+0.1.1-rc.2 || 0.1.2-alpha.1
+```
+
+Provider packages do not inherit that compatibility automatically.
 
 ## Current sequence
 
-### 1. Foundation executable verification — ACTIVE
+### 1. Foundation — COMPLETE / FROZEN
 
-Run the exact local gates above without implementation repair during the validation pass. A verification failure reopens only the concrete failing seam and returns to GitHub remediation.
+Do not reopen Core or Project Memory without a new concrete defect or compatibility failure. Provider work must treat their current public/runtime contracts as fixed foundation interfaces.
 
-### 2. Codex — PAUSED UNTIL FOUNDATION RE-FREEZE
+### 2. Codex — ACTIVE
 
-- [ ] Audit current Codex source/runtime seams against installed DSH `0.1.1-rc.2` and official `0.1.2-alpha.1`; actual upstream source is primary truth.
+- [ ] Independently audit current Codex source/runtime seams against installed DSH `0.1.1-rc.2` and official `0.1.2-alpha.1`; actual upstream source is primary truth.
 - [ ] Reconcile Codex DSH dependencies/peers only to generations proven by the provider-specific audit; do not inherit the Core/Memory range automatically.
-- [ ] Replace remaining provider-local failure/string-builder logic with the Core `VendorFailure`/recognizer contract where the behavior is provider-neutral.
+- [ ] Replace remaining provider-local failure/string-builder logic with the Core `VendorFailure`/recognizer contract where the behavior is genuinely provider-neutral.
 - [ ] Remove provider-local copies of genuinely provider-neutral helpers where a shared Core contract already exists.
 - [ ] Preserve vendor protocol translation and the reviewed Codex App Server adapter boundary inside the provider package.
 - [ ] Focused package `test` / `check` / `build` PASS.
