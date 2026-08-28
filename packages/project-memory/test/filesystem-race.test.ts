@@ -93,8 +93,9 @@ test('child directory scope never follows a swapped canonical parent symlink', a
             return true
           })
           assert.equal(memoryResult, true)
+          return true
         })
-        assert.notEqual(dshResult, undefined)
+        assert.equal(dshResult, true)
       }),
       /changed during the filesystem operation|symbolic link|real directory/,
     )
