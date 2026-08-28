@@ -7,7 +7,7 @@ import {
   writeSafeFileAtomically,
 } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
-import { isValidTopicIdentifier } from './topics.js'
+import { isValidTopicIdentifier } from './topic-id.js'
 
 export const MAX_BOOTSTRAP_LINES = 200
 export const MAX_BOOTSTRAP_BYTES = 25 * 1024
@@ -41,6 +41,8 @@ export interface EditProjectMemoryBootstrapResult {
   memoryPath: string
   bytesWritten: number
 }
+
+export type CommitMemoryMapEntry = () => Promise<void>
 
 export function truncateLines(content: string, maxLines: number): string {
   if (maxLines <= 0) return ''
@@ -332,7 +334,18 @@ export function insertTopicIntoMemoryMapContent(content: string, topic: string):
   return lines.join(eol)
 }
 
-async function applyMemoryMapEntry(projectRoot: string, topic: string): Promise<void> {
+/**
+ * Hold the MEMORY.md writer lock while preflighting one canonical map entry.
+ * The supplied operation may acquire the corresponding topic lock, but the
+ * lock order is always MEMORY.md -> topic.md. The operation must call the
+ * supplied commit callback before returning successfully; this lets the topic
+ * mutation keep its lock through the Memory-map commit and any rollback.
+ */
+export async function withMemoryMapEntryTransaction<T>(
+  projectRoot: string,
+  topic: string,
+  operation: (commitMap: CommitMemoryMapEntry) => Promise<T>,
+): Promise<T> {
   if (!isAbsolute(projectRoot)) throw new Error(`projectRoot must be an absolute path, received "${projectRoot}"`)
   if (!isValidTopicIdentifier(topic)) throw new Error(`Invalid topic memory identifier "${topic}"`)
   const paths = resolveProjectMemoryPaths(projectRoot)
@@ -342,17 +355,31 @@ async function applyMemoryMapEntry(projectRoot: string, topic: string): Promise<
   await ensureCanonicalDirectory(dshDir)
   await ensureCanonicalDirectory(memoryDir)
 
-  await withSafeFileWriterLock(memoryDir, memoryMd, async () => {
+  return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
     await ensureBootstrapFile(memoryMd)
     const currentContent = await readFile(memoryMd, 'utf8')
     const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
-    if (updatedContent === currentContent) return
     assertBootstrapBounds(updatedContent)
-    await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'))
+    let committed = false
+    const commitMap: CommitMemoryMapEntry = async () => {
+      if (committed) return
+      if (updatedContent !== currentContent) {
+        await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'))
+      }
+      committed = true
+    }
+
+    const result = await operation(commitMap)
+    if (!committed) {
+      throw new Error(`Project memory transaction for topic "${topic}" completed without committing the Memory map`)
+    }
+    return result
   })
 }
 
 export async function ensureMemoryMapEntry(projectRoot: string, topic: string): Promise<void> {
   if (topic === 'memory') return
-  await applyMemoryMapEntry(projectRoot, topic)
+  await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap) => {
+    await commitMap()
+  })
 }
