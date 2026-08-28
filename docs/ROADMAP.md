@@ -1,49 +1,61 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after final Core and Project Memory acceptance.
+Status updated for `0.1.0-rc.3` after reopening Core and Project Memory against DSH `0.1.2-alpha.1`.
 
 This file owns **task status and order only**. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
-## Frozen foundation
+## Foundation compatibility remediation
 
-### Core — DONE / FROZEN
+The previous Core and Project Memory acceptance remains valid for the installed DSH `0.1.1-rc.2` baseline, but a source-level audit against official tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) found reproducible compatibility/integrity blockers. Both packages are therefore **REOPENED** until the blockers below are fixed and revalidated.
 
-Completed and accepted:
+### Core — REOPENED
 
-- provider registry and shared transactional registration;
+Previously accepted rc.2-baseline behavior remains:
+
+- provider registry and shared registration;
 - canonical provider ids/routes;
 - provider-neutral runtime boundary;
 - routed web search with fail-closed route handling and no fallback;
 - normalized usage domain and dynamic provider roster;
 - browser stale-async protection and data-driven provider presentation;
 - shared `VendorFailure` contract;
-- removal of direct core `dsh-subagent` / `dsh-authorization` dependencies;
-- unfamiliar fourth-provider extension proof;
-- final registry-first Cordis lifecycle;
-- real DSH host boot, `/web-search` agent mount and unload/remount acceptance.
+- no direct Core dependency on provider packages, `dsh-subagent` or `dsh-authorization`;
+- registry-first Cordis lifecycle and real DSH boot/unload-remount acceptance.
 
-Do not schedule discretionary Core cleanup for rc.3. Reopen only for a reproducible blocker.
+Current remediation:
 
-### Project Memory — DONE / FROZEN
+- [ ] Migrate Core host RPC to DSH `0.1.2-alpha.1` Connection contracts: remove the retired `dsh-host-apiproxy` type boundary and old third `rpc.handle(..., { authority })` argument.
+- [ ] Migrate Core browser entry away from retired `dsh-client-runtime` to the alpha.1 Cordis/client-plugin context pattern while preserving existing Connection/locale/slot behavior.
+- [ ] Fix registry commit semantics so a throwing change listener cannot leave a ghost provider after failed registration; add regression coverage.
+- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family only after source compatibility is proven.
+- [ ] Focused Core `test` / `check` / `build` PASS.
+- [ ] Disposable compatibility probe against official `dsh-v0.1.2-alpha.1` PASS.
+- [ ] Re-freeze Core.
 
-Completed and accepted:
+### Project Memory — REOPENED
 
-- one project-root policy for context and tools;
-- nested Git/worktree root handling and non-Git fallback;
-- no split-brain nested `.dsh/memory` tree;
-- canonical path/symlink confinement;
-- `@deepseek-ai/dsh-atomic-write` replacement writes;
-- `/memory` and `/consolidate` with `commands + llm` injection;
-- repository-shared memory policy excluding secrets/transient/operator-personal data;
-- disposable Suite install and real DSH boot acceptance.
+Previously accepted root/path/context behavior remains unless a new blocker proves otherwise.
 
-Do not schedule discretionary Project Memory cleanup for rc.3. Reopen only for a reproducible blocker.
+Current remediation:
+
+- [x] Maintenance route is selected when the exact maintenance inbox message is claimed, before prompt assembly; first request uses the requested provider/model. Gemini + disposable alpha.1 probe PASS on `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`.
+- [ ] Add inter-process serialization for read-modify-write paths where atomic replacement alone can lose concurrent updates.
+- [ ] Prevent or explicitly contain partial topic/map commits in `memory_write` / `memory_edit`; add failure-path regression coverage.
+- [ ] Add focused coverage for currently weak lifecycle/tool/init paths required by the fixes above.
+- [ ] Reconcile Project Memory DSH peer/dev dependency declarations with the supported DSH family after compatibility is proven.
+- [ ] Focused Project Memory `test` / `check` / `build` PASS.
+- [ ] Disposable compatibility probe against official `dsh-v0.1.2-alpha.1` PASS.
+- [ ] Re-freeze Project Memory.
 
 ## Current sequence
 
-Finish and freeze providers one by one.
+Foundation remediation must finish before provider cleanup resumes.
 
-### 1. Codex
+### 1. Core + Project Memory compatibility/integrity
+
+Complete the open items above and re-freeze both packages.
+
+### 2. Codex
 
 - [ ] Replace remaining provider-local failure/string-builder logic with the core failure contract where applicable.
 - [ ] Remove provider-local copies of genuinely provider-neutral helpers where a shared contract already exists.
@@ -53,7 +65,7 @@ Finish and freeze providers one by one.
 - [ ] Live proof that vendor-native memory/project-doc injection is suppressed on the primary invocation.
 - [ ] Freeze Codex.
 
-### 2. Antigravity
+### 3. Antigravity
 
 - [ ] Replace remaining provider-local failure/helper duplication with core contracts where applicable.
 - [ ] Remove hardcoded model-family catalog filtering while preserving malformed-entry rejection.
@@ -64,7 +76,7 @@ Finish and freeze providers one by one.
 - [ ] Routed native `web_search` PASS.
 - [ ] Freeze Antigravity.
 
-### 3. Claude
+### 4. Claude
 
 Claude remains usage-only for rc.3.
 
@@ -74,7 +86,7 @@ Claude remains usage-only for rc.3.
 - [ ] Confirm descriptor remains model-route/search-free.
 - [ ] Freeze Claude.
 
-### 4. Repository-wide provider invariants
+### 5. Repository-wide provider invariants
 
 - [ ] Provider packages do not bypass the shared registration path for LLM adapter registration.
 - [ ] Vendor-specific subagent registrations/tools remain absent.
@@ -84,7 +96,7 @@ Claude remains usage-only for rc.3.
 - [ ] Capability absence remains supported.
 - [ ] Synthetic fourth-provider extension test remains green.
 
-### 5. Product-level live acceptance
+### 6. Product-level live acceptance
 
 Use one deliberate quota-spending run after provider work is frozen:
 
@@ -100,7 +112,7 @@ Use one deliberate quota-spending run after provider work is frozen:
 
 Automatic failover remains deferred. Manual route switching ships first.
 
-### 6. Install/profile lifecycle
+### 7. Install/profile lifecycle
 
 - [ ] Fresh disposable rc.3 tarball install PASS.
 - [ ] Same-profile reconciliation/update PASS.
@@ -108,7 +120,7 @@ Automatic failover remains deferred. Manual route switching ships first.
 - [ ] Managed Orchestrator `preset install` / `status` / `update` / `remove` PASS.
 - [ ] Normal Suite removal preserves unrelated profile/session/project/vendor state.
 
-### 7. Release gate
+### 8. Release gate
 
 - [ ] `pnpm install --frozen-lockfile` exit 0.
 - [ ] `pnpm verify:local` exit 0.
