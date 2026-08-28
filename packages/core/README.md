@@ -53,7 +53,7 @@ Every production `@deepseek-ai/dsh-*` peer is deliberately constrained to the tw
 
 This is an explicit union rather than a broad comparator range: rc.3 does not claim compatibility with untested intermediate/future prereleases merely because their semver happens to sort between these versions.
 
-The local `devDependencies` remain pinned to `0.1.1-rc.2`, which is the reproducible installed development baseline. Official `dsh-v0.1.2-alpha.1` compatibility is validated from the upstream source/runtime contracts and should additionally be exercised in the project's disposable alpha.1 environment before re-freeze. The removed alpha.1 seams `dsh-host-apiproxy` and `dsh-client-runtime` remain rc.2-only dev fixtures and are not runtime peers.
+The local `devDependencies` remain pinned to `0.1.1-rc.2`, which is the reproducible installed development baseline. Official `dsh-v0.1.2-alpha.1` compatibility was exercised against the exact upstream tag/commit in the accepted disposable foundation validation. The removed alpha.1 seams `dsh-host-apiproxy` and `dsh-client-runtime` remain rc.2-only dev fixtures and are not runtime peers.
 
 ## Provider registry and registration
 
@@ -111,12 +111,26 @@ Production core code has no dependency on `nishi-dsh-codex`, `nishi-dsh-antigrav
 
 The only named vendor-like ids in the Model Accounts surface are DSH authorization/credential ids such as `openai-codex` and `anthropic`. They are a foreign DSH id space used by a constrained read/logout compatibility surface, not core provider-routing branches.
 
-## Acceptance status
+## Acceptance status — FROZEN
 
 Core 14 remains the historical accepted baseline for DSH `0.1.1-rc.2`. Core 15 accepted the Connection/client compatibility migration against both installed rc.2 and official upstream `dsh-v0.1.2-alpha.1`. Core 16 accepted the non-vetoing registry-observer transaction/preflight correction with full workspace regression coverage.
 
-The independent `dsh-v0.1.2-alpha.1` audit later reopened Core after finding one Model Accounts correctness defect: credential backend failures could be presented as ordinary absence, and failed legacy-grant deletion could be hidden behind a nominally successful logout. The current remediation line separates storage-unavailable state from `NOT_CONFIGURED` and lets failed durable deletion reach the sanitized RPC error boundary; targeted regression tests were added for both paths.
+The independent `dsh-v0.1.2-alpha.1` audit later reopened Core after finding the Model Accounts storage-failure correctness defect. The remediation separates storage-unavailable state from `NOT_CONFIGURED` and lets failed durable deletion reach the sanitized RPC error boundary; targeted regression tests cover both paths.
 
-The earlier source-level alpha.1 compatibility conclusions for Connection, LLM registration, session request-header routing, subprocess, browser ModuleLoader and UI slot composition remain unchanged; no broad Core migration was required.
+The final remediation validation accepted Core at implementation checkpoint:
 
-This README deliberately does **not** re-declare Core `FROZEN` yet. A fresh Core test/typecheck plus the repository verification gates must pass on the final remediation HEAD before re-freeze. No executable PASS is inferred from source review alone.
+```text
+eb95ef6425c788f63339befd0c2437f78bc8dde1
+```
+
+with raw PASS report commit:
+
+```text
+f491d681390924a171211a5c0dd0c8991f6a7faf
+```
+
+Accepted evidence includes `178/178` focused tests, Core check/build PASS, full workspace test/check/build PASS, `pnpm verify:local` PASS, and disposable official alpha.1 runtime PASS for the changed authorization seam. Credential-store failure containment, failed legacy-grant deletion, and secret-boundary regressions all passed against the accepted tree.
+
+The earlier alpha.1 compatibility conclusions for Connection, LLM registration, session request-header routing, subprocess, browser ModuleLoader and UI slot composition remain unchanged; no broad Core migration was required.
+
+Core is therefore **FROZEN** for the current rc.3 provider work. Reopen it only for a new concrete defect or compatibility failure, not for provider-local cleanup.
