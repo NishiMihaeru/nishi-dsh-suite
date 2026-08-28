@@ -244,7 +244,7 @@ export async function writeTopicMemory(
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
-  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
 
   return withSafeFileWriterLock(memoryDir, topicPath, async () => {
@@ -301,7 +301,7 @@ export async function writeTopicMemoryWithMap(
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
   const memoryDir = paths.memoryDir
-  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(memoryDir, signal)
   await ensureCanonicalDirectory(paths.localDir, signal)
 
