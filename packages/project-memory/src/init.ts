@@ -74,10 +74,7 @@ async function validateExistingProjectJson(
   const exists = await validateExistingFile(projectJsonPath, '.dsh/project.json')
   if (!exists) return false
 
-  const raw = await readSafeRegularFile(dirname(projectJsonPath), projectJsonPath, {
-    signal,
-    maxBytes: 64 * 1024,
-  })
+  const raw = await readSafeRegularFile(dirname(projectJsonPath), projectJsonPath, { signal })
   if (raw === null) return false
   let parsed: unknown
   try {
@@ -104,9 +101,13 @@ async function ensureGitignoreEntry(
   gitignorePath: string,
   signal?: AbortSignal,
 ): Promise<boolean> {
+  const rootOptions = { allowDirectorySymlink: true } as const
   return withSafeFileWriterLock(projectRoot, gitignorePath, async () => {
     signal?.throwIfAborted()
-    let raw = await readSafeRegularFile(projectRoot, gitignorePath, { signal })
+    let raw = await readSafeRegularFile(projectRoot, gitignorePath, {
+      signal,
+      allowDirectorySymlink: true,
+    })
     if (raw === null) {
       const created = await writeFileExclusiveAtomic(
         projectRoot,
@@ -114,9 +115,13 @@ async function ensureGitignoreEntry(
         '.dsh/local/\n',
         { mode: 0o644 },
         signal,
+        rootOptions,
       )
       if (created) return true
-      raw = await readSafeRegularFile(projectRoot, gitignorePath, { signal })
+      raw = await readSafeRegularFile(projectRoot, gitignorePath, {
+        signal,
+        allowDirectorySymlink: true,
+      })
       if (raw === null) throw new Error('Canonical .gitignore disappeared during initialization')
     }
 
@@ -137,9 +142,10 @@ async function ensureGitignoreEntry(
       gitignorePath,
       Buffer.from(content + appendContent, 'utf8'),
       signal,
+      rootOptions,
     )
     return true
-  }, signal)
+  }, signal, rootOptions)
 }
 
 /**
@@ -176,8 +182,9 @@ export async function initializeDshProject(
   await recoverPendingProjectMemoryTransaction(root, signal)
   signal?.throwIfAborted()
 
-  // 2. Ensure .dsh directory.
-  await ensureCanonicalDirectory(dshDir, signal)
+  // 2. Ensure .dsh directory. The workspace root itself may be a symlink path,
+  // but the newly created .dsh final component must be a real directory.
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
 
   // 3. Create DSH.md if absent through atomic no-clobber publication.
   const dshMdCreated = await writeFileExclusiveAtomic(
@@ -186,6 +193,7 @@ export async function initializeDshProject(
     INITIAL_DSH_MD_CONTENT,
     { mode: 0o644 },
     signal,
+    { allowDirectorySymlink: true },
   )
   if (!dshMdCreated) await validateExistingFile(paths.dshMd, 'DSH.md')
 
