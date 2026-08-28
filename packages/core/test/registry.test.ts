@@ -104,13 +104,16 @@ test('a synchronous observer failure cannot veto a committed registration or sta
   registry.onChange(() => { throw new Error('observer failed') })
   registry.onChange(() => { laterChanges++ })
 
-  const forget = assert.doesNotThrow(() => registry.record(entry('fixture', ['fixture-route'])))
+  let forget!: () => void
+  assert.doesNotThrow(() => {
+    forget = registry.record(entry('fixture', ['fixture-route']))
+  })
   assert.equal(typeof forget, 'function', 'record must still return the withdrawal handle')
   assert.equal(registry.byId('fixture')?.id, 'fixture')
   assert.equal(registry.byRoute('fixture-route')?.id, 'fixture')
   assert.equal(laterChanges, 1, 'a failed observer must not starve later observers')
 
-  assert.doesNotThrow(() => forget!())
+  assert.doesNotThrow(() => forget())
   assert.equal(registry.byId('fixture'), undefined)
   assert.equal(registry.byRoute('fixture-route'), undefined)
   assert.equal(laterChanges, 2, 'withdrawal notification is also non-vetoing')
