@@ -1,193 +1,215 @@
-# Final Foundation Core + Project Memory Re-freeze Validation Report
+# Foundation Remediation Validation Report: Core & Project Memory
 
-- **Result**: `PASS`
+- **Result**: `FAIL`
 - **Branch**: `feat/core-provider-plugins-rc3`
-- **Previous implementation HEAD**: `2bca8164759bccbc5e1aac9fdc3e73a93a57ed6a`
-- **Lockfile reconciliation commit SHA**: `0c7a177e748cb36b940989ee52e46da8a9c3fb46`
-- **Final tested implementation HEAD**: `0c7a177e748cb36b940989ee52e46da8a9c3fb46`
+- **Tested Implementation HEAD**: `f3ee493bbea95b3ae7cc34c2c812a4dc23d6118f`
 - **Environment**:
   - Node: `v24.19.0` (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
   - pnpm: `11.21.0`
-  - Installed DSH baseline: `0.1.1-rc.2`
-  - Upstream DSH target: tag `dsh-v0.1.2-alpha.1` / commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
-  - Operating System: Linux (CachyOS / 6.18 kernel, x86_64)
-  - Hosted CI / GitHub Actions: Not used; local machine execution only
+  - OS: Linux (CachyOS / kernel 6.18, x86_64)
+  - Hosted CI / GitHub Actions: **NOT USED** (local execution only)
   - Windows: **NOT TESTED**
+- **DSH Baselines**:
+  - Local installed baseline: `0.1.1-rc.2`
+  - Upstream compatibility target: `deepseek-ai/deepseek-harness` at tag `dsh-v0.1.2-alpha.1` / commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
 
 ---
 
 ## Executive Summary
 
-The final foundation re-freeze for **Core** (`nishi-dsh-core`) and **Project Memory** (`nishi-dsh-project-memory`) is **fully validated and ACCEPTED (PASS)**.
+Validation of the Foundation Remediation for **Core** (`nishi-dsh-core`) and **Project Memory** (`nishi-dsh-project-memory`) on implementation HEAD `f3ee493bbea95b3ae7cc34c2c812a4dc23d6118f` resulted in **FAIL**.
 
-The single blocker from the initial verification run on HEAD `2bca8164759bccbc5e1aac9fdc3e73a93a57ed6a` (`ERR_PNPM_OUTDATED_LOCKFILE` during `pnpm install --frozen-lockfile`) was resolved in commit `0c7a177e748cb36b940989ee52e46da8a9c3fb46` via `pnpm install --lockfile-only`. The lockfile modification was strictly minimal (2 lines updating `packages/core.dependencies` specifiers for `@deepseek-ai/dsh-system-prompt` and `@deepseek-ai/dsh-tools` from `0.1.1-rc.2` to `0.1.1-rc.2 || 0.1.2-alpha.1`).
+- **Core focused gates**: **PASS** (178/178 tests passed, TypeScript check clean, tsdown build clean).
+- **Project Memory focused gates**: **FAIL**
+  1. `pnpm --filter nishi-dsh-project-memory test` exited with code `1` (56/57 passed, 1 failed: `test/filesystem-race.test.ts`).
+  2. `pnpm --filter nishi-dsh-project-memory check` exited with code `2` (TypeScript compilation error `TS2322` in `src/topics.ts:325:3` and `src/topics.ts:395:3`).
+  3. `pnpm --filter nishi-dsh-project-memory build` exited with code `2` (TypeScript compilation error `TS2322` in `src/topics.ts:325:3` and `src/topics.ts:395:3`).
+- **Full workspace gates**: **FAIL** (blocked by Project Memory test, check, and build failures).
+- **Local repository verification (`pnpm verify:local`)**: **FAIL** (exited with code `2` during `pnpm build`).
+- **Disposable Upstream DSH 0.1.2-alpha.1 compatibility gate**: Core compatibility passed; Project Memory runtime probes failed due to `withExistingProjectDshScope` returning `undefined` and `filesystem-race.test.ts` race expectation mismatch.
+- **Working Tree Integrity**: **PASS** (0 bytes drift in tracked implementation, manifests, or canonical documentation).
 
-All package manifests, production source files, tests, and canonical documentation remain completely untouched. The local resolved DSH baseline remains strictly `0.1.1-rc.2`. Subsequent `pnpm install --frozen-lockfile` completed cleanly with exit code `0`.
-
-All 176 Core focused tests, all 39 Project Memory tests, all 270 workspace tests, all TypeScript typechecks, package builds, and local contract packaging gates (`pnpm verify:local`) passed with zero errors or regressions. Dual-generation runtime compatibility against official upstream `dsh-v0.1.2-alpha.1` remains intact and proven.
-
----
-
-## 1. Root Cause & Lockfile Reconciliation
-
-### 1.1 Initial Failure Diagnosis
-On implementation HEAD `2bca8164759bccbc5e1aac9fdc3e73a93a57ed6a`, running `pnpm install --frozen-lockfile` failed with:
-```text
-[ERR_PNPM_OUTDATED_LOCKFILE] Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/packages/core/package.json
-* 2 dependencies are mismatched:
-  - @deepseek-ai/dsh-system-prompt (lockfile: 0.1.1-rc.2, manifest: 0.1.1-rc.2 || 0.1.2-alpha.1)
-  - @deepseek-ai/dsh-tools (lockfile: 0.1.1-rc.2, manifest: 0.1.1-rc.2 || 0.1.2-alpha.1)
-```
-
-### 1.2 Reconciliation Diff (`0c7a177e748cb36b940989ee52e46da8a9c3fb46`)
-Executing `pnpm install --lockfile-only` produced the exact minimal semantic correction:
-```diff
-diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index 22a7524..d61b0ea 100644
---- a/pnpm-lock.yaml
-+++ b/pnpm-lock.yaml
-@@ -122,10 +122,10 @@ importers:
-   packages/core:
-     dependencies:
-       '@deepseek-ai/dsh-system-prompt':
--        specifier: 0.1.1-rc.2
-+        specifier: 0.1.1-rc.2 || 0.1.2-alpha.1
-         version: 0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-llm@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-attachment@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-brand@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))(@deepseek-ai/dsh-timeout@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1))))(@deepseek-ai/dsh-scope@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)(@deepseek-ai/dsh-invariants@0.1.1-rc.2(@deepseek-ai/cordis@4.0.1)))
-       '@deepseek-ai/dsh-tools':
--        specifier: 0.1.1-rc.2
-+        specifier: 0.1.1-rc.2 || 0.1.2-alpha.1
-         version: 0.1.1-rc.2(119bc70f73f8eddebfaa6b47561adeb3)
-       '@deepseek-ai/schemastery':
-         specifier: ^3.18.1
-```
-
-### 1.3 Immutability Checks
-- `git diff --exit-code -- packages/core/package.json packages/project-memory/package.json`: Exit code `0` (zero manifest drift).
-- Production source and test files: Completely unchanged.
+Per validation instructions, no source or configuration fixes were attempted.
 
 ---
 
-## 2. Frozen Install & Local Baseline Verification
+## 1. Initial State & Frozen Install Gate
 
-### 2.1 Frozen Install Gate
+### 1.1 Initial Environment Checks
+| Command | Exit Code | Output / Detail |
+|---|---|---|
+| `git switch feat/core-provider-plugins-rc3` | `0` | Switched / already on branch |
+| `git pull --ff-only` | `0` | Fast-forwarded to `f3ee493bbea95b3ae7cc34c2c812a4dc23d6118f` |
+| `git rev-parse HEAD` | `0` | `f3ee493bbea95b3ae7cc34c2c812a4dc23d6118f` (exact match) |
+| `git status --short` | `0` | Working tree clean |
+| `node --version` | `0` | `v24.19.0` |
+| `pnpm --version` | `0` | `11.21.0` |
+
+### 1.2 Frozen Install Gate
 - Command: `pnpm install --frozen-lockfile`
-- Result: **PASS** (Exit code `0`, `Already up to date in 428ms`).
-- Post-install manifest & lockfile diff: **0 bytes drift** (`git diff --exit-code` exit 0).
-
-### 2.2 Resolved Local DSH Baseline
-Verified actual installed versions in local `node_modules`:
-- `@deepseek-ai/dsh-client-connection`: `0.1.1-rc.2`
-- `@deepseek-ai/dsh-llm`: `0.1.1-rc.2`
-- `@deepseek-ai/dsh-tools`: `0.1.1-rc.2`
-- `@deepseek-ai/dsh-system-prompt`: `0.1.1-rc.2`
-- `@deepseek-ai/dsh-agent`: `0.1.1-rc.2`
-- `@deepseek-ai/dsh-atomic-write`: `0.1.1-rc.2`
-
-All installed runtime dependencies remain strictly on the reproducible `0.1.1-rc.2` baseline.
+- Exit code: `0`
+- Result: **PASS** (`Already up to date in 371ms`).
+- Post-install `git status --short`: clean (0 modified files).
 
 ---
 
-## 3. Package & Workspace Validation Gates
+## 2. Core Focused Gates
 
-### 3.1 Focused Core Gates
+### 2.1 Summary of Core Gates
 | Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 176 tests executed: **176 passed**, 0 failed |
-| `pnpm --filter nishi-dsh-core check` | `0` | **PASS** | TypeScript check clean |
+| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 178 tests executed: **178 passed**, 0 failed |
+| `pnpm --filter nishi-dsh-core check` | `0` | **PASS** | TypeScript typecheck clean |
 | `pnpm --filter nishi-dsh-core build` | `0` | **PASS** | `tsdown` build emitted all ESM/CJS bundles and declaration files |
 
-### 3.2 Focused Project Memory Gates
+### 2.2 Core Regressions Verification
+- **Credential storage read failure -> sanitized Model Accounts ERROR**: **PASS** (`authorization status reports a safe ERROR state when credential storage cannot be read`).
+- **Failed legacy grant deletion -> generic internal RPC failure**: **PASS** (`legacy logout reports an internal failure when deleting the grant fails`).
+- **Credential/backend secret text does not cross RPC boundary**: **PASS** (`authorization status exposes credential kind but never credential material`, `authorization rpc converts host failures to generic errors`).
+
+---
+
+## 3. Project Memory Focused Gates
+
+### 3.1 Summary of Project Memory Gates
 | Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-project-memory test` | `0` | **PASS** | 39 tests executed: **39 passed**, 0 failed |
-| `pnpm --filter nishi-dsh-project-memory check` | `0` | **PASS** | TypeScript check clean |
-| `pnpm --filter nishi-dsh-project-memory build` | `0` | **PASS** | `tsc` compilation clean |
+| `pnpm --filter nishi-dsh-project-memory test` | `1` | **FAIL** | 57 tests executed: **56 passed**, 1 failed |
+| `pnpm --filter nishi-dsh-project-memory check` | `2` | **FAIL** | TypeScript `TS2322` errors in `src/topics.ts` |
+| `pnpm --filter nishi-dsh-project-memory build` | `2` | **FAIL** | Compilation blocked by TypeScript errors |
 
-### 3.3 Full Workspace Tests
-| Package | Tests Passed | Tests Failed | Check Exit Code | Build Exit Code |
-|---|---|---|---|---|
-| `packages/core` | 176 | 0 | 0 | 0 |
-| `packages/project-memory` | 39 | 0 | 0 | 0 |
-| `packages/codex` | 31 | 0 | 0 | 0 |
-| `packages/antigravity` | 7 | 0 | 0 | 0 |
-| `packages/claude` | 5 | 0 | 0 | 0 |
-| `packages/suite` | 12 | 0 | 0 | 0 |
-| **Workspace Total** | **270** | **0** | **0** | **0** |
+### 3.2 Detailed Failure Analysis
 
-### 3.4 Quota-Free Local Contract Gate (`verify:local`)
+#### A. Unit Test Failure: `test/filesystem-race.test.ts`
+- **Failing test**: `concurrent safe removals converge without surfacing ENOENT races`
+- **Failure Output**:
+  ```text
+  ✖ concurrent safe removals converge without surfacing ENOENT races (33.644108ms)
+    AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+    32 !== 1
+
+        at TestContext.<anonymous> (packages/project-memory/test/filesystem-race.test.ts:22:12)
+  ```
+- **Root Cause**: `Promise.all(Array.from({ length: 32 }, () => removeSafeRegularFile(projectRoot, target)))` launched 32 concurrent removal operations. Each call executes `assertRegularTargetIfPresent` and `rm(targetPath)` independently. Under concurrent execution, `results.filter(Boolean).length` resolved to `32` rather than `1`.
+
+#### B. Typecheck / Build Failure: `src/topics.ts`
+- **Failure Output**:
+  ```text
+  src/topics.ts:325:3 - error TS2322: Type 'WriteTopicMemoryResult | undefined' is not assignable to type 'WriteTopicMemoryResult'.
+    Type 'undefined' is not assignable to type 'WriteTopicMemoryResult'.
+
+  325   return result
+        ~~~~~~
+
+  src/topics.ts:395:3 - error TS2322: Type 'EditTopicMemoryResult | undefined' is not assignable to type 'EditTopicMemoryResult'.
+    Type 'undefined' is not assignable to type 'EditTopicMemoryResult'.
+
+  395   return result
+        ~~~~~~
+
+  Found 2 errors in the same file, starting at: src/topics.ts:325
+  ```
+- **Root Cause**: `writeTopicMemoryWithMap` (line 325) and `editTopicMemoryWithMap` (line 395) wrap execution in `withExistingProjectDshScope(...)`, which has return type `Promise<T | undefined>`. Since the function signatures require `Promise<WriteTopicMemoryResult>` and `Promise<EditTopicMemoryResult>`, TypeScript rejects the potential `undefined` return.
+
+### 3.3 Regressions Status in Project Memory
+- **Static symlink / canonical path safety**: PASS (`bootstrap write refuses a pre-existing symlink target`, `topic write refuses a pre-existing symlink target`, `K/L/N/O symlink security`).
+- **Symlinked explicit workspace root**: PASS (`direct bootstrap creation keeps a symlinked explicit project root usable`, `direct topic write keeps a symlinked explicit project root usable`, `initialization keeps a symlinked explicit project root usable`).
+- **Replacement locked parent directory during RMW**: PASS (`writer scope never redirects a locked RMW into a replacement parent directory`).
+- **Replacement intermediate `.dsh` with external symlink without writing to external sentinel**: PASS (`child directory scope never follows a swapped canonical parent symlink`).
+- **AbortSignal cancellation while waiting for writer lock**: PASS (`writer lock cancellation rejects before a contended lock is released and never runs the mutation`).
+- **Mandatory settlement after cancellation following a durable participant write**: PASS (`mandatory settlement on the same scope can restore a durable participant after caller cancellation`).
+- **Compound MEMORY.md + topic serialization**: PASS (`separate processes serialize compound writes through MEMORY.md and preserve every topic/map pair`).
+- **Pending transaction rollback**: PASS (`pending recovery restores exact pre-transaction state after process death between participant commits`).
+- **Committed transaction preserve-and-clean recovery**: PASS (`committed recovery preserves both new participants and only cleans dead locks and journal`).
+- **Abandoned pending transaction with still-live PID after MEMORY.md lock barrier**: PASS (`a pending journal owned by this live process is recoverable once the Memory map lock is free`, `a new Memory-map transaction settles abandoned pending state after acquiring the map lock`).
+- **Recovery owner transfer to another live process -> fail closed**: PASS (`recovery fails closed if a dead-owner journal is transferred to a live owner before claim`).
+- **No stale lock leakage**: PASS (all recovery and stress tests verify clean lock and journal removal).
+
+---
+
+## 4. Full Workspace & Repository Local Verification Gates
+
+### 4.1 Full Workspace Gates
+| Gate Command | Exit Code | Result | Details |
+|---|---|---|---|
+| `pnpm test` | `1` | **FAIL** | Failed on `packages/project-memory` (`filesystem-race.test.ts`) |
+| `pnpm check` | `2` | **FAIL** | Failed on `packages/project-memory` (`src/topics.ts` TS2322) |
+| `pnpm build` | `2` | **FAIL** | Failed on `packages/project-memory` (`src/topics.ts` TS2322) |
+
+### 4.2 Local Repository Verification (`pnpm verify:local`)
 - Command: `pnpm verify:local`
-- Result: **PASS** (Exit code `0`)
-  - Release-family verification: PASS
-  - Package contracts verification: PASS
-  - Orchestrator lifecycle validation: PASS
-  - Workspace build & check: PASS
-  - Workspace test suite (270/270): PASS
-  - Local packaging into `.artifacts/packs/`: PASS (6 tarballs generated)
+- Exit Code: `2` (**FAIL**)
+  - `verify:release-family`: **PASS** (`release-family-ok 6 packages @ 0.1.0-rc.3`)
+  - `verify:package-contracts`: **PASS** (`package-contracts-ok 6 publishable packages`)
+  - `test:orchestrator`: **PASS** (`orchestrator validated: 28 unique rows`)
+  - `build`: **FAIL** (`tsc -p tsconfig.json` exited with code 2 on `packages/project-memory`)
+  - `check`: Blocked by build failure
+  - `test`: Blocked by build failure
+  - `pack:local`: Blocked by build failure
 
 ---
 
-## 4. Packed Tarball Metadata Verification
+## 5. DSH 0.1.2-alpha.1 Compatibility Gate
 
-From `.artifacts/packs/nishi-dsh-core-0.1.0-rc.3.tgz` and `.artifacts/packs/nishi-dsh-project-memory-0.1.0-rc.3.tgz`:
+### 5.1 Upstream Verification Environment
+- Cloned upstream repository: `deepseek-ai/deepseek-harness` to disposable directory `/tmp/dsh-upstream-alpha1`.
+- Verified tag: `dsh-v0.1.2-alpha.1`
+- Verified commit: `cd5ef8148158c3a752a658978873241fdf8e2bbc`
+- Verified all upstream packages compiled via `pnpm build` (`build:lib:host` and `build:lib:client`).
 
-### 4.1 Core Tarball Metadata
-- `dependencies`:
-  - `@deepseek-ai/schemastery`: `^3.18.1`
-- `peerDependencies`:
-  - `@deepseek-ai/cordis`: `^4.0.1`
-  - `@deepseek-ai/dsh-client-connection`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-client-locale`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-client-ui-primitives`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-client-ui-settings`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-client-ui-sidebar`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-client-ui-slots`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-credentials`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-llm`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-subprocess`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-system-prompt`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-timeout`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-tools`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `react`: `^18.2.0`
-- Retired packages (`dsh-client-runtime`, `dsh-host-apiproxy`, `dsh-subagent`, `dsh-authorization`): **ABSENT from dependencies and peerDependencies**.
-
-### 4.2 Project Memory Tarball Metadata
-- `dependencies`: Empty / undefined.
-- `peerDependencies`:
-  - `@deepseek-ai/cordis`: `^4.0.1`
-  - `@deepseek-ai/dsh-agent`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-atomic-write`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-llm`: `0.1.1-rc.2 || 0.1.2-alpha.1`
-  - `@deepseek-ai/dsh-tools`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+### 5.2 Alpha.1 Seam Checks Summary
+| Seam / Contract | Target | Result | Details |
+|---|---|---|---|
+| Native 2-argument `rpc.handle(channel, handler)` | Core | **PASS** | Registered `/authorization` and `/usage-limits` without legacy `trusted-host` options |
+| `/authorization` status endpoint | Core | **PASS** | Projects safe DTOs against alpha.1 `credentialKey('llm-pi-ai', ...)` |
+| Credential store read failure containment | Core | **PASS** | Surfaces safe `ERROR` status (`Authorization state is unavailable.`) |
+| Failed legacy grant delete rejection | Core | **PASS** | Returns generic internal error without nominal logout success |
+| Secret text boundary protection | Core | **PASS** | No bearer tokens or storage paths cross Connection RPC boundary |
+| Package imports & runtime boot | Project Memory | **PASS** | Cordis `Context` plugin mount operates cleanly on alpha.1 |
+| Lock contention AbortSignal cancellation | Project Memory | **PASS** | Aborting while waiting on lock throws without executing mutation |
+| Mandatory settlement after cancellation | Project Memory | **PASS** | `forSettlement()` scope successfully restores durable participant |
+| Descriptor-chain Linux safety | Project Memory | **PASS** | Locked parent directory swap rejected |
+| Intermediate `.dsh` symlink replacement | Project Memory | **PASS** | Swapped `.dsh` symlink fails closed without writing to external sentinel |
+| Pending / Committed WAL recovery | Project Memory | **PASS** | Dead-owner pending journal restored; committed journal preserved |
+| Recovery owner transfer fail-closed | Project Memory | **PASS** | Dead->live PID mutation during recovery claims fails closed |
+| Lock / WAL leakage | Project Memory | **PASS** | 0 lingering `.lock` or journal files after settlements |
+| `memory_write` / `memory_edit` against alpha.1 | Project Memory | **FAIL** | `editTopicMemoryWithMap` returns `undefined` due to scope return typing |
 
 ---
 
-## 5. Alpha.1 Runtime Evidence Summary
+## 6. Working Tree Integrity Check
 
-The previous comprehensive audit against official upstream checkout `deepseek-ai/deepseek-harness` (tag `dsh-v0.1.2-alpha.1`, commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`) established:
-1. All 14 production peer packages exist on exact `0.1.2-alpha.1`.
-2. Retired seams (`@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy`) are absent in alpha.1 and have zero production import requirement in Core.
-3. Native alpha.1 two-argument Connection RPC (`rpc.handle(channel, handler)`) successfully handled `/usage-limits` and `/authorization`.
-4. Provider registration, observer safety, and withdrawal work cleanly.
-5. Project Memory tools (`memory_write`, `memory_read`, `memory_edit`) operate accurately with file lock serialization (`withFileLock`) and zero lock leakage.
-6. Compound preflight rollback prevents file creation on malformed memory maps.
-7. Maintenance route selection timing (`agent/inbox/claimed` before `system-prompt/assemble`) is maintained.
-
-Zero production source or test changes were made since this runtime evidence was collected, confirming full dual-generation integrity.
-
----
-
-## 6. Provider Packages & Suite Compatibility Scope Notice
-
-- **Explicit Foundation Scope**: Only `nishi-dsh-core` and `nishi-dsh-project-memory` declare dual generation compatibility (`0.1.1-rc.2 || 0.1.2-alpha.1`).
-- **Provider Packages Status**: `nishi-dsh-codex`, `nishi-dsh-antigravity`, and `nishi-dsh-claude` remain pinned to exact `0.1.1-rc.2` and are scheduled for subsequent provider-specific passes.
-- **Suite Status**: `nishi-dsh-suite` dependencies remain pinned to rc.2 baseline. Whole-family alpha.1 release compatibility is not yet claimed.
+Post-verification integrity check executed on main repository checkout:
+```bash
+git status --short
+git diff --exit-code -- \
+  packages/core \
+  packages/project-memory \
+  package.json \
+  pnpm-lock.yaml \
+  docs/README.md \
+  docs/HANDOFF.md \
+  docs/ROADMAP.md \
+  docs/ARCHITECTURE.md \
+  docs/verification/README.md
+```
+- **Exit Code**: `0`
+- **Result**: **PASS** (Zero implementation or documentation drift).
 
 ---
 
-## 7. Final Status & Conclusion
+## 7. First Failing Gate & Final Verdict
+
+- **First Failing Gate**: Gate 3 (`pnpm --filter nishi-dsh-project-memory test` / `check` / `build`).
+- **Primary Failure Modes**:
+  1. `packages/project-memory/test/filesystem-race.test.ts:22`: `AssertionError: 32 !== 1` during concurrent removal stress.
+  2. `packages/project-memory/src/topics.ts:325, 395`: TypeScript compilation error `TS2322` (`Type '... | undefined' is not assignable to type '...'`).
 
 ```text
-Foundation result: PASS
-Core: RE-FREEZE ACCEPTED
-Project Memory: RE-FREEZE ACCEPTED
+================================================================================
+Foundation Remediation Validation: FAIL
+Core: PASS (Eligible for freeze)
+Project Memory: FAIL (Compilation TS2322 and test assertion failures)
+================================================================================
 ```
