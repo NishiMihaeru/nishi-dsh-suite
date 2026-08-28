@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 import {
   ensureMemoryMapEntry,
+  readDshProjectContext,
+  readProjectMemoryBootstrap,
   resolveProjectMemoryPaths,
   writeProjectMemoryBootstrap,
   writeTopicMemory,
@@ -76,6 +78,42 @@ test('a new Memory-map transaction settles abandoned pending state after acquiri
     const memory = await readFile(paths.memoryMd, 'utf8')
     assert.doesNotMatch(memory, /`architecture`/)
     assert.match(memory, /- `workflow` → `\.dsh\/memory\/workflow\.md`/)
+    await assert.rejects(() => access(pendingProjectMemoryTransactionPath(projectRoot)), (error: any) => {
+      assert.equal(error?.code, 'ENOENT')
+      return true
+    })
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('public bootstrap read recovers abandoned pending state before exposing MEMORY.md', async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-bootstrap-recovery-'))
+  try {
+    await installAbandonedPending(projectRoot, process.pid)
+
+    const result = await readProjectMemoryBootstrap(projectRoot)
+
+    assert.equal(result.exists, true)
+    assert.equal(result.content, BASE_MEMORY)
+    await assert.rejects(() => access(pendingProjectMemoryTransactionPath(projectRoot)), (error: any) => {
+      assert.equal(error?.code, 'ENOENT')
+      return true
+    })
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('public DSH context read recovers abandoned pending state before injecting MEMORY.md', async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-context-recovery-'))
+  try {
+    await installAbandonedPending(projectRoot, process.pid)
+
+    const result = await readDshProjectContext({ projectRoot })
+
+    assert.equal(result.memoryBootstrap.exists, true)
+    assert.equal(result.memoryBootstrap.content, BASE_MEMORY)
     await assert.rejects(() => access(pendingProjectMemoryTransactionPath(projectRoot)), (error: any) => {
       assert.equal(error?.code, 'ENOENT')
       return true
