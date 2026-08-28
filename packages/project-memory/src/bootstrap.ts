@@ -3,6 +3,7 @@ import type { SafeDirectoryScope } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 import {
   withEnsuredProjectMemoryScope,
+  withEnsuredProjectStorageScopes,
   withExistingProjectMemoryScope,
 } from './storage.js'
 import { isValidTopicIdentifier } from './topic-id.js'
@@ -304,7 +305,11 @@ export function insertTopicIntoMemoryMapContent(content: string, topic: string):
 export async function withMemoryMapEntryTransaction<T>(
   projectRoot: string,
   topic: string,
-  operation: (commitMap: CommitMemoryMapEntry, memoryScope: SafeDirectoryScope) => Promise<T>,
+  operation: (
+    commitMap: CommitMemoryMapEntry,
+    memoryScope: SafeDirectoryScope,
+    localScope: SafeDirectoryScope,
+  ) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
   signal?.throwIfAborted()
@@ -313,10 +318,10 @@ export async function withMemoryMapEntryTransaction<T>(
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
 
-  return withEnsuredProjectMemoryScope(projectRoot, (memoryScope) => {
-    return memoryScope.withWriterLock(paths.memoryMd, async (scope) => {
+  return withEnsuredProjectStorageScopes(projectRoot, ({ memory, local }) => {
+    return memory.withWriterLock(paths.memoryMd, async (scope) => {
       signal?.throwIfAborted()
-      await settleCommittedProjectMemoryTransactionUnderMapLock(projectRoot, scope, signal)
+      await settleCommittedProjectMemoryTransactionUnderMapLock(projectRoot, scope, local, signal)
       const currentContent = await readBootstrapOrInitial(scope, paths.memoryMd)
       const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
       assertBootstrapBounds(updatedContent)
@@ -330,7 +335,7 @@ export async function withMemoryMapEntryTransaction<T>(
         committed = true
       }
 
-      const result = await operation(commitMap, scope)
+      const result = await operation(commitMap, scope, local)
       if (!committed) {
         throw new Error(`Project memory transaction for topic "${topic}" completed without committing the Memory map`)
       }
