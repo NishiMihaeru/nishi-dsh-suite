@@ -98,6 +98,43 @@ test('a listener sees every registration change until it unsubscribes', async ()
   assert.equal(changes, 2, 'the roster stops observing once it unsubscribes')
 })
 
+test('a synchronous observer failure cannot veto a committed registration or starve later observers', async () => {
+  const registry = await service()
+  let laterChanges = 0
+  registry.onChange(() => { throw new Error('observer failed') })
+  registry.onChange(() => { laterChanges++ })
+
+  const forget = assert.doesNotThrow(() => registry.record(entry('fixture', ['fixture-route'])))
+  assert.equal(typeof forget, 'function', 'record must still return the withdrawal handle')
+  assert.equal(registry.byId('fixture')?.id, 'fixture')
+  assert.equal(registry.byRoute('fixture-route')?.id, 'fixture')
+  assert.equal(laterChanges, 1, 'a failed observer must not starve later observers')
+
+  assert.doesNotThrow(() => forget!())
+  assert.equal(registry.byId('fixture'), undefined)
+  assert.equal(registry.byRoute('fixture-route'), undefined)
+  assert.equal(laterChanges, 2, 'withdrawal notification is also non-vetoing')
+})
+
+test('an async observer rejection is contained after the registry commit', async () => {
+  const registry = await service()
+  let laterChanges = 0
+  registry.onChange(async () => { throw new Error('async observer failed') })
+  registry.onChange(() => { laterChanges++ })
+
+  const forget = registry.record(entry('fixture', ['fixture-route']))
+  await Promise.resolve()
+  await Promise.resolve()
+
+  assert.equal(registry.byId('fixture')?.id, 'fixture')
+  assert.equal(laterChanges, 1)
+  forget()
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(registry.byId('fixture'), undefined)
+  assert.equal(laterChanges, 2)
+})
+
 test('an empty id is refused', async () => {
   const registry = await service()
   assert.throws(() => registry.record(entry('', [])), /must be a non-empty string/)
