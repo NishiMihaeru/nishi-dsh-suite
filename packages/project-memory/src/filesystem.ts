@@ -445,7 +445,12 @@ export async function removeSafeRegularFile(
     const existing = await assertRegularTargetIfPresent(anchoredTarget, targetFilePath)
     if (existing === undefined) return false
     throwIfAborted(signal)
-    await rm(anchoredTarget)
-    return true
+    try {
+      await rm(anchoredTarget)
+      return true
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return false
+      throw error
+    }
   }, signal, options)
 }
