@@ -2,7 +2,7 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION REVALIDATION OPEN**
+Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION FINAL REVALIDATION OPEN**
 
 Current local acceptance baseline:
 
@@ -17,7 +17,13 @@ Additional compatibility source target:
 - official DSH tag `dsh-v0.1.2-alpha.1`
 - commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
 
-The rc.2-baseline foundation evidence remains valid, but Core and Project Memory are reopened until the alpha.1 compatibility/integrity blockers in `ROADMAP.md` are fixed and revalidated. This file does not imply that rc.3 already declares alpha.1 as its published dependency baseline.
+Core and Project Memory source/runtime blockers found by the alpha.1 audit are corrected and individually accepted. Their production DSH peers now declare the exact tested union:
+
+```text
+0.1.1-rc.2 || 0.1.2-alpha.1
+```
+
+Local dev dependencies remain pinned to rc.2; alpha.1 is validated from the official source/tag in disposable environments. Foundation publication/release status remains open until one final joint dual-generation validation passes.
 
 This file is the only current release runbook/status document. Historical rc.1/rc.2 release notes are available in git history if needed.
 
@@ -33,6 +39,8 @@ Exactly six packages move together at `0.1.0-rc.3`:
 6. `nishi-dsh-suite`
 
 `0.1.0-rc.1` remains the published npm family. rc.2 was deliberately left unpublished.
+
+The Core/Project Memory peer-family reconciliation does not by itself broaden provider-package DSH ranges. Codex, Antigravity and Claude still follow their own cleanup/freeze blocks before the six-package family can be release-ready.
 
 ## Main rc.3 change
 
@@ -51,13 +59,12 @@ Claude is usage-only and has no Nishi model route/search backend.
 
 The old `ctx.projectMemory` delegated service boundary is gone. Current memory surface is ordinary DSH `memory_read`, `memory_write`, `memory_edit` plus `/memory` and `/consolidate` maintenance commands.
 
-## Foundation evidence and reopened compatibility work
+## Foundation evidence
 
-Previously accepted rc.2-baseline foundation evidence includes:
+Accepted rc.2-baseline foundation evidence includes:
 
-- `pnpm verify:local` PASS at accepted checkpoints;
-- six rc.3 tarballs;
-- disposable Suite install/reinstall closure;
+- local workspace test/check/build and accepted `verify:local` checkpoints;
+- six rc.3 tarballs and disposable Suite install/reinstall closure at historical checkpoints;
 - installed Core subpath imports;
 - real DSH host boot and HTTP readiness;
 - real agent-plane `nishi-dsh-core/web-search` mount;
@@ -67,20 +74,27 @@ Previously accepted rc.2-baseline foundation evidence includes:
 - atomic-write dependency resolution in installed Suite profile;
 - Project Memory Cordis command injection and real DSH boot.
 
-The later audit against official DSH `0.1.2-alpha.1` reopened the foundation. Project Memory maintenance route timing has already been fixed and validated against both the installed rc.2 baseline and disposable alpha.1 runtime contracts. Core Connection/client migration, Core registration transaction correction, and remaining Project Memory integrity work are still open.
+Accepted reopened-audit evidence additionally includes:
 
-The foundation must be re-frozen before final provider/product live acceptance.
+- Core 15 Connection/client migration against rc.2 + alpha.1;
+- Core 16 registry observer/registration transaction integrity;
+- PM03 maintenance first-request model-selection timing;
+- PM04 cross-process same-file RMW locking;
+- PM05 compound topic + Memory-map transaction preflight/rollback integrity;
+- disposable alpha.1 source/runtime probes for all changed seams.
+
+The only remaining foundation gate is the final combined validation of the completed Core + Project Memory against both declared DSH generations.
 
 ## Open release work
 
 Before rc.3 can be release-ready:
 
-- complete/revalidate all reopened Core + Project Memory work in `ROADMAP.md`;
+- pass the final Core + Project Memory supported-family re-freeze;
 - freeze Codex, Antigravity and Claude;
 - run cross-provider product acceptance;
 - run final target-profile install/update/remove lifecycle;
 - run managed Orchestrator preset lifecycle;
-- recheck the exact DSH compatibility/dependency range that rc.3 will publish.
+- recheck final package dependency ranges across the whole six-package family after provider freezes.
 
 Product live acceptance must still cover:
 
@@ -140,7 +154,7 @@ Current Market gates:
 
 - [x] repository PR #1 merged historically;
 - [x] repository has sufficient commit history;
-- [ ] reopened foundation compatibility/integrity remediation complete;
+- [ ] final foundation supported-family re-freeze PASS;
 - [ ] repository topic `dsh-plugin` added;
 - [ ] rc.3 family published consistently to npm;
 - [ ] final deterministic/local/live release gates PASS;
