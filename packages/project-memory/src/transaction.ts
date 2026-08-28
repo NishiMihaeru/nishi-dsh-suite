@@ -365,15 +365,17 @@ export async function recoverPendingProjectMemoryTransaction(
 
     return local.withWriterLock(journalPath, async (journalScope) => {
       const current = await readPendingTransactionFromScope(projectRoot, journalScope)
-      if (current === null) return false
+      if (current === null) {
+        throw new Error('Project memory recovery journal disappeared before recovery claim')
+      }
       if (current.topic !== initial.topic || current.phase !== initial.phase) {
         throw new Error('Project memory recovery journal changed while recovery was starting')
       }
-      if (current.ownerPid !== initial.ownerPid && pidIsAlive(current.ownerPid)) {
-        return false
-      }
       if (pidIsAlive(current.ownerPid)) {
-        return false
+        if (current.ownerPid !== initial.ownerPid) {
+          throw new Error('Project memory recovery journal owner changed to a live process before claim')
+        }
+        throw new Error('Project memory recovery journal owner became live before claim')
       }
 
       const claimed: PendingProjectMemoryTransaction = { ...current, ownerPid: process.pid }
@@ -381,7 +383,9 @@ export async function recoverPendingProjectMemoryTransaction(
 
       return memory.withWriterLock(paths.memoryMd, async (memoryScope) => {
         const latest = await readPendingTransactionFromScope(projectRoot, journalScope)
-        if (latest === null) return false
+        if (latest === null) {
+          throw new Error('Project memory recovery journal disappeared after recovery claim')
+        }
         if (
           latest.ownerPid !== process.pid
           || latest.topic !== claimed.topic
