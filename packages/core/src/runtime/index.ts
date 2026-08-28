@@ -2,8 +2,8 @@
  * Shared vendor CLI runtime for Nishi DSH Suite subscription-provider
  * packages: executable resolution, bounded stream decoding, process
  * disposal, settled-stderr reads, ephemeral agent workspaces, and one error
- * shape. See `docs/superpowers/specs/provider-bridge-design.md` ("The kit")
- * for the design this package implements.
+ * shape. See `docs/ARCHITECTURE.md` for the current contract this module
+ * implements.
  *
  * @module nishi-dsh-core/runtime
  */
