@@ -4,11 +4,14 @@ import {
   readProjectMemoryBootstrap,
   writeProjectMemoryBootstrap,
   editProjectMemoryBootstrap,
-  ensureMemoryMapEntry,
 } from './bootstrap.js'
 import { registerMemoryCommands } from './commands.js'
 import { findProjectRoot, registerProjectContextRuntime } from './runtime.js'
-import { readTopicMemory, writeTopicMemory, editTopicMemory } from './topics.js'
+import {
+  readTopicMemory,
+  writeTopicMemoryWithMap,
+  editTopicMemoryWithMap,
+} from './topics.js'
 
 interface SessionHeaderHolder {
   session?: {
@@ -142,8 +145,7 @@ const memoryWriteTool = defineTool({
           bytes_written: bytesWritten,
         }
       }
-      const res = await writeTopicMemory(projectRoot, args.topic, args.content)
-      await ensureMemoryMapEntry(projectRoot, args.topic)
+      const res = await writeTopicMemoryWithMap(projectRoot, args.topic, args.content)
       const bytesWritten = Buffer.byteLength(args.content, 'utf8')
       return {
         topic: res.topic,
@@ -202,8 +204,7 @@ const memoryEditTool = defineTool({
           bytes_written: res.bytesWritten,
         }
       }
-      const res = await editTopicMemory(projectRoot, args.topic, args.old_text, args.new_text)
-      await ensureMemoryMapEntry(projectRoot, args.topic)
+      const res = await editTopicMemoryWithMap(projectRoot, args.topic, args.old_text, args.new_text)
       return {
         topic: res.topic,
         bytes_written: res.bytesWritten,
