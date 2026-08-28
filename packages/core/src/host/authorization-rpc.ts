@@ -50,6 +50,7 @@ type ConnectionRpcError = Extract<ConnectionRpcResult, { ok: false }>['error']
 
 const GENERIC_BAD_REQUEST_MESSAGE = 'Invalid authorization request.'
 const GENERIC_INTERNAL_ERROR_MESSAGE = 'Authorization operation failed.'
+const GENERIC_STATE_UNAVAILABLE_MESSAGE = 'Authorization state is unavailable.'
 const MAX_PROVIDER_ID_LENGTH = 64
 
 export const READ_PROVIDER_IDS = new Set(['openai-codex', 'anthropic', 'openai'])
@@ -107,6 +108,7 @@ export class AuthorizationHostController {
 
     let configured = false
     let credentialKind: 'api-key' | 'grant' | undefined
+    let storageUnavailable = false
     if (this.ctx.credentials) {
       try {
         const desc = await this.ctx.credentials.describeRecord(key)
@@ -115,6 +117,7 @@ export class AuthorizationHostController {
       } catch {
         configured = false
         credentialKind = undefined
+        storageUnavailable = true
       }
     }
 
@@ -126,7 +129,12 @@ export class AuthorizationHostController {
       inFlight: false,
       configured,
       credentialKind,
-      status: configured && credentialKind === 'grant' ? 'CONNECTED' : 'NOT_CONFIGURED',
+      status: storageUnavailable
+        ? 'ERROR'
+        : configured && credentialKind === 'grant'
+          ? 'CONNECTED'
+          : 'NOT_CONFIGURED',
+      ...(storageUnavailable ? { lastError: GENERIC_STATE_UNAVAILABLE_MESSAGE } : {}),
     }
   }
 
@@ -150,12 +158,8 @@ export class AuthorizationHostController {
     if (!LEGACY_LOGOUT_PROVIDER_IDS.has(providerId)) throw new Error(`Unsupported provider "${providerId}" for legacy grant removal.`)
     const key = credentialKey('llm-pi-ai', providerId)
     if (this.ctx.credentials) {
-      try {
-        const desc = await this.ctx.credentials.describeRecord(key)
-        if (desc?.kind === 'grant') await this.ctx.credentials.deleteRecord(key)
-      } catch {
-        // Fail closed: never delete an unknown credential record.
-      }
+      const desc = await this.ctx.credentials.describeRecord(key)
+      if (desc?.kind === 'grant') await this.ctx.credentials.deleteRecord(key)
     }
     return this.describeProviderPublic(providerId)
   }
