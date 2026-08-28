@@ -27,6 +27,7 @@ export interface RefreshProviderOptions {
 
 interface InFlightRefresh {
   registration: UsageProviderRegistration;
+  invalidationTokenAtStart: symbol | undefined;
   promise: Promise<ProviderUsageSnapshot>;
 }
 
@@ -158,14 +159,17 @@ export class UsageLimitsService {
       if (options.force !== undefined && typeof options.force !== 'boolean') throw new UsageContractError('options.force must be a boolean');
     }
     const force = options?.force === true;
+    const invalidationTokenAtStart = this.invalidationTokens.get(providerId);
     const existingInFlight = this.inFlight.get(providerId);
-    if (existingInFlight?.registration === reg) {
+    if (
+      existingInFlight?.registration === reg
+      && existingInFlight.invalidationTokenAtStart === invalidationTokenAtStart
+    ) {
       return parseProviderUsageSnapshot(await existingInFlight.promise);
     }
 
     const now = this.sampleClock();
     const cached = this.cache.get(providerId);
-    const invalidationTokenAtStart = this.invalidationTokens.get(providerId);
     const isInvalidated = invalidationTokenAtStart !== undefined;
 
     if (cached !== undefined && !force && !isInvalidated) {
@@ -197,12 +201,21 @@ export class UsageLimitsService {
         throw new UsageContractError(`Provider "${providerId}" registration changed during refresh`);
       }
 
-      this.cache.set(providerId, finalSnapshot);
-      if (this.invalidationTokens.get(providerId) === invalidationTokenAtStart) this.invalidationTokens.delete(providerId);
+      // An invalidation is a generation boundary for vendor observations. If
+      // one arrived after this collection started, the result may still be
+      // returned to its original caller but must not repopulate the cache.
+      if (this.invalidationTokens.get(providerId) === invalidationTokenAtStart) {
+        this.cache.set(providerId, finalSnapshot);
+        this.invalidationTokens.delete(providerId);
+      }
       return finalSnapshot;
     })();
 
-    this.inFlight.set(providerId, { registration: reg, promise: refreshPromise });
+    this.inFlight.set(providerId, {
+      registration: reg,
+      invalidationTokenAtStart,
+      promise: refreshPromise,
+    });
     try {
       return parseProviderUsageSnapshot(await refreshPromise);
     } finally {
@@ -215,12 +228,14 @@ export class UsageLimitsService {
 
   getCachedSnapshot(providerId: string): ProviderUsageSnapshot | undefined {
     this.getRegistration(providerId);
+    if (this.invalidationTokens.has(providerId)) return undefined;
     const cached = this.cache.get(providerId);
     return cached ? parseProviderUsageSnapshot(cached) : undefined;
   }
 
   invalidate(providerId: string): void {
     this.getRegistration(providerId);
+    this.cache.delete(providerId);
     this.invalidationTokens.set(providerId, Symbol());
   }
 
@@ -231,6 +246,7 @@ export class UsageLimitsService {
   getCachedSnapshots(): ProviderUsageSnapshot[] {
     const result: ProviderUsageSnapshot[] = [];
     for (const id of this.registrationOrder) {
+      if (this.invalidationTokens.has(id)) continue;
       const cached = this.cache.get(id);
       if (cached) result.push(parseProviderUsageSnapshot(cached));
     }
