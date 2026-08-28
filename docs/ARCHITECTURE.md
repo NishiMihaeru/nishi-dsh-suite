@@ -144,11 +144,13 @@ Replacement writes create a complete sibling temp inode and rename it through th
 
 First creation of canonical user-visible files is also complete-before-visible. A sibling temp inode is written in full first, then a hard-link no-clobber publication makes the canonical name visible. A concurrent external winner is preserved rather than overwritten. This applies to first publication of `DSH.md`, `.dsh/project.json`, `MEMORY.md`, and fresh `.gitignore` state.
 
+These are process-interruption and atomic-namespace guarantees. The storage layer does not `fsync` file data or parent directories, so sudden power-loss/storage-durability guarantees are out of scope.
+
 ### Writer locking and cancellation
 
 Every Project Memory RMW target uses the DSH-compatible `<target>.lock` namespace. The lock covers read/render/commit and whole-file writers honor the same target lock.
 
-Lock acquisition is `AbortSignal`-aware. DSH tool execution and `agent/pre-step` signals are forwarded through root discovery, recovery, initialization, reads, lock waits and commit boundaries. An aborted waiter cannot later acquire the lock and commit a mutation merely because the current holder eventually released it.
+Lock acquisition is `AbortSignal`-aware. DSH tool execution and `agent/pre-step` signals are forwarded through root discovery, recovery, initialization, reads, lock waits and commit boundaries. An aborted waiter cannot later acquire the lock and commit a mutation merely because the current holder eventually released it. Model-facing tool wrappers also rethrow the caller's cancellation reason instead of converting cancellation into an ordinary sanitized Project Memory failure.
 
 Writer domains:
 
@@ -187,13 +189,13 @@ Protocol:
 8. release participant locks;
 9. remove committed journal best-effort.
 
-The phase replace in step 7 is the logical durable commit point. It does not acquire a separate journal lock because any competing Project Memory operation that observes this live PID must wait on the already-held `MEMORY.md.lock`; avoiding a post-marker journal-lock cleanup means a successfully written `committed` marker cannot fall back into rollback because metadata-lock cleanup failed.
+The phase replace in step 7 is the logical commit point. It does not acquire a separate journal lock because any competing Project Memory operation that observes this live PID must wait on the already-held `MEMORY.md.lock`; avoiding a post-marker journal-lock cleanup means a successfully written `committed` marker cannot fall back into rollback because metadata-lock cleanup failed.
 
 Recovery semantics:
 
 - dead `pending` -> claim recovery, restore both exact pre-images under normal Memory/topic locks, remove journal;
 - dead `committed` -> preserve both new participants, clean dead protocol locks and journal only;
-- live owner -> wait through the normal `MEMORY.md.lock` rather than guessing from file age;
+- live recorded owner -> first wait until this process can acquire `MEMORY.md.lock`; if the journal then disappeared, nothing remains to recover; if it is `committed`, preserve participants and clean metadata; if it is still `pending`, the original compound critical section has ended and the abandoned state is rolled back under the normal Memory/topic lock order even though the process itself is still alive;
 - committed journal left after an otherwise successful write -> next Memory-map critical section may remove it idempotently.
 
 A missing `MEMORY.md` is modeled in-memory during map preflight and is not created as a side effect of a failed topic operation.
@@ -233,7 +235,7 @@ Antigravity suppression remains partly configuration and partly prompt guidance;
 9. Project Memory root selection and filesystem confinement are provider-independent.
 10. Explicit symlinked workspace roots are allowed; package-owned `.dsh` canonical final components are not symlinks/junctions.
 11. On the POSIX path, Project Memory I/O uses opened directory/file identities rather than separate validation/use pathname lookups.
-12. All model-facing memory work forwards the caller cancellation signal through lock/commit boundaries.
+12. All model-facing memory work forwards the caller cancellation signal through lock/commit boundaries and preserves the cancellation reason at the tool boundary.
 13. Every writer that can race an RMW cycle honors the same per-target lock namespace.
 14. Named-topic model-facing writes hold `MEMORY.md` then topic lock in that order.
 15. A `pending` journal is rollback state; a `committed` journal is preserve-and-clean state.
