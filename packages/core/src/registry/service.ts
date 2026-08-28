@@ -134,6 +134,16 @@ export class NishiProvidersService extends Service {
     }
   }
 
+  #warnObserverFailure(error: unknown): void {
+    try {
+      this.ctx.logger.warn('nishiProviders: an onChange observer failed')
+      this.ctx.logger.warn(error)
+    } catch {
+      // Diagnostics are best-effort and must never regain veto power over an
+      // already committed registry change.
+    }
+  }
+
   /** Notify every observer independently; registry changes are non-vetoing. */
   #announce(): void {
     for (const listener of [...this.#listeners]) {
@@ -142,12 +152,15 @@ export class NishiProvidersService extends Service {
         if (returned != null && typeof returned.then === 'function') {
           // An async observer rejection is equally non-vetoing and must not
           // become an unhandled rejection after the registry commit.
-          void Promise.resolve(returned).catch(() => {})
+          void Promise.resolve(returned).then(undefined, (error: unknown) => {
+            this.#warnObserverFailure(error)
+          })
         }
-      } catch {
+      } catch (error) {
         // The registry is already committed. Observer failures are contained
         // so later observers still run and the caller always receives its
         // withdrawal handle.
+        this.#warnObserverFailure(error)
       }
     }
   }
