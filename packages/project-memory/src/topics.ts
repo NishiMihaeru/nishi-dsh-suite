@@ -1,6 +1,11 @@
 import { lstat, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { ensureCanonicalDirectory, validateCanonicalDirectory, writeSafeFileAtomically } from './filesystem.js'
+import {
+  ensureCanonicalDirectory,
+  validateCanonicalDirectory,
+  withSafeFileWriterLock,
+  writeSafeFileAtomically,
+} from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 
 export const TOPIC_IDENTIFIER_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/
@@ -162,7 +167,8 @@ export async function readTopicMemory(
 }
 
 /**
- * Writes a topic memory file whole-file atomically.
+ * Writes a topic memory file whole-file atomically while honoring the same
+ * cross-process writer lock used by exact edits of that topic.
  * Creates canonical .dsh and .dsh/memory directories securely if absent.
  * Rejects content > 256 KiB before mutation.
  * Rejects pre-existing symlinks or non-regular entries.
@@ -192,30 +198,31 @@ export async function writeTopicMemory(
   await ensureCanonicalDirectory(dshDir)
   await ensureCanonicalDirectory(memoryDir)
 
-  let created = false
-  try {
-    const stats = await lstat(topicPath)
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      throw new Error(
-        `Topic memory at "${topicPath}" must be a regular file, not a symbolic link or non-regular entry`,
-      )
+  return withSafeFileWriterLock(memoryDir, topicPath, async () => {
+    let created = false
+    try {
+      const stats = await lstat(topicPath)
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw new Error(
+          `Topic memory at "${topicPath}" must be a regular file, not a symbolic link or non-regular entry`,
+        )
+      }
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        created = true
+      } else {
+        throw err
+      }
     }
-    created = false
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') {
-      created = true
-    } else {
-      throw err
+
+    await writeSafeFileAtomically(memoryDir, topicPath, contentBuffer)
+
+    return {
+      created,
+      path: topicPath,
+      topic,
     }
-  }
-
-  await writeSafeFileAtomically(memoryDir, topicPath, contentBuffer)
-
-  return {
-    created,
-    path: topicPath,
-    topic,
-  }
+  })
 }
 
 /**
@@ -224,7 +231,8 @@ export async function writeTopicMemory(
  * 0 matches => fails with not found error.
  * >1 matches => fails with ambiguous error.
  * Resulting file must be <= 256 KiB.
- * Writes result atomically without mutating external targets or MEMORY.md.
+ * The read-render-atomic-replace cycle runs under the topic's cross-process
+ * writer lock so independent concurrent edits cannot resurrect stale content.
  */
 export async function editTopicMemory(
   projectRoot: string,
@@ -255,65 +263,67 @@ export async function editTopicMemory(
     throw new Error(`Cannot edit topic memory: directory "${memoryDir}" does not exist`)
   }
 
-  let stats
-  try {
-    stats = await lstat(topicPath)
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') {
-      throw new Error(`Topic memory file "${topicPath}" does not exist; cannot edit missing topic`)
+  return withSafeFileWriterLock(memoryDir, topicPath, async () => {
+    let stats
+    try {
+      stats = await lstat(topicPath)
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        throw new Error(`Topic memory file "${topicPath}" does not exist; cannot edit missing topic`)
+      }
+      throw err
     }
-    throw err
-  }
 
-  if (stats.isSymbolicLink() || !stats.isFile()) {
-    throw new Error(
-      `Topic memory at "${topicPath}" must be a regular file, not a symbolic link or non-regular entry`,
-    )
-  }
-
-  if (stats.size > MAX_TOPIC_BYTES) {
-    throw new Error(
-      `Topic memory file "${topicPath}" exceeds maximum size limit of ${MAX_TOPIC_BYTES} bytes (${stats.size} bytes)`,
-    )
-  }
-
-  const currentContent = await readFile(topicPath, 'utf8')
-  const firstIndex = currentContent.indexOf(oldText)
-  if (firstIndex === -1) {
-    throw new Error(`Exact match for oldText not found in topic memory "${topic}" (${topicPath})`)
-  }
-
-  // Advance by +1 after each match to catch overlapping occurrences
-  const secondIndex = currentContent.indexOf(oldText, firstIndex + 1)
-  if (secondIndex !== -1) {
-    let count = 2
-    let pos = secondIndex + 1
-    while (pos < currentContent.length) {
-      const next = currentContent.indexOf(oldText, pos)
-      if (next === -1) break
-      count++
-      pos = next + 1
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw new Error(
+        `Topic memory at "${topicPath}" must be a regular file, not a symbolic link or non-regular entry`,
+      )
     }
-    throw new Error(
-      `Multiple occurrences (${count}) of oldText found in topic memory "${topic}"; exact single match required`,
-    )
-  }
 
-  const updatedContent =
-    currentContent.slice(0, firstIndex) + newText + currentContent.slice(firstIndex + oldText.length)
+    if (stats.size > MAX_TOPIC_BYTES) {
+      throw new Error(
+        `Topic memory file "${topicPath}" exceeds maximum size limit of ${MAX_TOPIC_BYTES} bytes (${stats.size} bytes)`,
+      )
+    }
 
-  const updatedBuffer = Buffer.from(updatedContent, 'utf8')
-  if (updatedBuffer.length > MAX_TOPIC_BYTES) {
-    throw new Error(
-      `Topic content after edit exceeds maximum size limit of ${MAX_TOPIC_BYTES} bytes (${updatedBuffer.length} bytes)`,
-    )
-  }
+    const currentContent = await readFile(topicPath, 'utf8')
+    const firstIndex = currentContent.indexOf(oldText)
+    if (firstIndex === -1) {
+      throw new Error(`Exact match for oldText not found in topic memory "${topic}" (${topicPath})`)
+    }
 
-  await writeSafeFileAtomically(memoryDir, topicPath, updatedBuffer)
+    // Advance by +1 after each match to catch overlapping occurrences.
+    const secondIndex = currentContent.indexOf(oldText, firstIndex + 1)
+    if (secondIndex !== -1) {
+      let count = 2
+      let pos = secondIndex + 1
+      while (pos < currentContent.length) {
+        const next = currentContent.indexOf(oldText, pos)
+        if (next === -1) break
+        count++
+        pos = next + 1
+      }
+      throw new Error(
+        `Multiple occurrences (${count}) of oldText found in topic memory "${topic}"; exact single match required`,
+      )
+    }
 
-  return {
-    topic,
-    path: topicPath,
-    bytesWritten: updatedBuffer.length,
-  }
+    const updatedContent =
+      currentContent.slice(0, firstIndex) + newText + currentContent.slice(firstIndex + oldText.length)
+
+    const updatedBuffer = Buffer.from(updatedContent, 'utf8')
+    if (updatedBuffer.length > MAX_TOPIC_BYTES) {
+      throw new Error(
+        `Topic content after edit exceeds maximum size limit of ${MAX_TOPIC_BYTES} bytes (${updatedBuffer.length} bytes)`,
+      )
+    }
+
+    await writeSafeFileAtomically(memoryDir, topicPath, updatedBuffer)
+
+    return {
+      topic,
+      path: topicPath,
+      bytesWritten: updatedBuffer.length,
+    }
+  })
 }
