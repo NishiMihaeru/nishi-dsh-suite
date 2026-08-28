@@ -70,7 +70,7 @@ There is currently no `memory_delete` tool; consolidation is rewrite/edit based,
 
 Canonical `.dsh`, `.dsh/memory`, and `.dsh/local` final path components must be real directories, not symlinks/junctions. Existing canonical file targets must be regular files. The explicit project root or DSH home may be a symlink path, but that allowance does not extend to package-owned canonical components.
 
-On POSIX, Project Memory does not reopen package-owned descendants from a complete replaceable pathname. The storage layer opens the explicit project root first, then opens `.dsh` as a direct real child of that root, then opens `memory` and `local` as direct real children of the already-opened `.dsh`. Each level verifies device/inode identity and uses `/proc/self/fd/<fd>` or `/dev/fd/<fd>` when available. As a result, replacing an intermediate `.dsh` pathname with a symlink/junction cannot redirect a later `.dsh/memory` or `.dsh/local` operation outside the directory generation that was actually opened.
+On POSIX, Project Memory does not reopen package-owned descendants from a complete replaceable pathname. The storage layer opens the explicit project root first, then opens `.dsh` as a direct real child of that root, then opens `memory` and `local` as direct real children of the already-opened `.dsh`. Each level verifies device/inode identity and uses `/proc/self/fd/<fd>` or `/dev/fd/<fd>` when available. As a result, replacing an intermediate `.dsh` pathname with a symlink cannot redirect a later `.dsh/memory` or `.dsh/local` operation outside the directory generation that was actually opened.
 
 File reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible final entry, then read bytes from that handle. Replacement writes, temp-file creation, hard-link publication and rename all occur relative to the same opened parent-directory identity.
 
@@ -117,14 +117,28 @@ The production DSH peers are restricted to the two generations with direct sourc
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The explicit union deliberately avoids claiming untested intermediate or future prereleases. Local `devDependencies` remain pinned to the reproducible installed `0.1.1-rc.2` baseline; official `dsh-v0.1.2-alpha.1` compatibility is established from the upstream source/runtime contracts and should additionally be exercised in the project's disposable alpha.1 verification environment before re-freeze.
+The explicit union deliberately avoids claiming untested intermediate or future prereleases. Local `devDependencies` remain pinned to the reproducible installed `0.1.1-rc.2` baseline. Official `dsh-v0.1.2-alpha.1` compatibility was exercised in the accepted disposable validation environment at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
 
-## Acceptance status
+## Acceptance status — FROZEN
 
 The historical PM01-PM05 acceptance records remain useful history, but the independent `dsh-v0.1.2-alpha.1` audit reopened Project Memory after finding filesystem TOCTOU, first-publication crash safety, cooperative cancellation, and cross-file crash-consistency defects.
 
-The current remediation line addresses those findings with the full POSIX descriptor chain `projectRoot -> .dsh -> memory/local`, stable lock/RMW scopes, complete-before-visible first publication, end-to-end `AbortSignal` propagation, mandatory settlement after a durable partial commit, and the `pending`/`committed` recovery journal described above. Regression coverage now includes static symlinks, symlinked explicit roots, replacement of the locked parent directory, replacement of intermediate `.dsh` with an external symlink, cancellation while waiting for locks, settlement after cancellation, multi-process serialization, pending/committed crash recovery, abandoned live-PID recovery, recovery ownership transfer, and idempotent concurrent cleanup.
+The remediation addresses those findings with the full POSIX descriptor chain `projectRoot -> .dsh -> memory/local`, stable lock/RMW scopes, complete-before-visible first publication, end-to-end `AbortSignal` propagation, mandatory settlement after a durable partial commit, and the `pending`/`committed` recovery journal described above. Regression coverage includes static symlinks, symlinked explicit roots, replacement of the locked parent directory, replacement of intermediate `.dsh` with an external symlink, cancellation while waiting for locks, settlement after cancellation, multi-process serialization, pending/committed crash recovery, abandoned live-PID recovery, recovery ownership transfer, and idempotent concurrent cleanup.
 
-This README deliberately does **not** re-declare Project Memory `FROZEN` yet. A fresh local package test/typecheck/build plus the repository verification gates must pass on the final remediation HEAD before the foundation is re-frozen. No such executable verification is inferred from source review alone.
+The final remediation validation accepted Project Memory at implementation checkpoint:
+
+```text
+eb95ef6425c788f63339befd0c2437f78bc8dde1
+```
+
+with raw PASS report commit:
+
+```text
+f491d681390924a171211a5c0dd0c8991f6a7faf
+```
+
+Accepted evidence includes `57/57` focused tests, Project Memory check/build PASS, full workspace test/check/build PASS, `pnpm verify:local` PASS, and disposable official alpha.1 runtime PASS. The alpha.1 run executed real `memory_read`, `memory_write`, and `memory_edit`; verified lock-contention cancellation, mandatory settlement, descriptor-chain parent replacement, intermediate `.dsh` symlink replacement, pending/committed WAL recovery, fail-closed ownership transfer, and zero lingering lock/WAL protocol files in the exercised paths.
+
+Project Memory is therefore **FROZEN** for the current rc.3 provider work. Reopen it only for a new concrete defect or compatibility failure.
 
 Windows remains **NOT TESTED** for rc.3.
