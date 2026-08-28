@@ -7,6 +7,7 @@ import {
   type UsageLimitsHostDependencies,
   DEFAULT_USAGE_REFRESH_POLICY,
 } from './host/composition.js'
+import { registerConnectionRpcChannel } from './host/connection-compat.js'
 import {
   USAGE_LIMITS_CHANNEL,
   USAGE_LIMITS_GET_ROSTER_ENDPOINT,
@@ -208,17 +209,17 @@ function hostPlugin(config?: UsageLimitsHostConfig) {
     inject: ['nishiProviders', 'connection', 'credentials'] as const,
     apply(hostCtx: Context): void {
       const hostService = new UsageLimitsHostService(hostCtx, config)
-      hostCtx.connection.rpc.handle(
+      registerConnectionRpcChannel(
+        hostCtx.connection.rpc,
         USAGE_LIMITS_CHANNEL,
         createUsageLimitsRpcHandler(hostService),
-        { authority: 'trusted-host' },
       )
 
       const authController = new AuthorizationHostController(hostCtx)
-      hostCtx.connection.rpc.handle(
+      registerConnectionRpcChannel(
+        hostCtx.connection.rpc,
         AUTHORIZATION_RPC_CHANNEL,
         createAuthorizationRpcHandler(authController),
-        { authority: 'trusted-host' },
       )
     },
   }
