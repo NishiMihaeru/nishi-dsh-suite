@@ -27,7 +27,7 @@ Current remediation:
 - [x] Core host RPC compatibility across DSH `0.1.1-rc.2` and `0.1.2-alpha.1`; retired `dsh-host-apiproxy` production boundary removed; rc.2/alpha.1 mount-unmount-remount + security probes PASS on `59512d51e55f8121eccdb934e01523e4436b289c`.
 - [x] Core browser entry migrated away from retired production `dsh-client-runtime`; Cordis/client service context works against rc.2 and disposable alpha.1.
 - [x] Registry observer/transaction correction PASS on `b925e2a328168e7c978126fc6474b7af11d7a63d`: change notifications are non-vetoing, expected usage policy/collector/default-policy failures are preflighted before registry mutation, post-record rollback remains intact.
-- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family only after Project Memory source/runtime remediation is proven.
+- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family after Project Memory remediation passes.
 - [ ] Re-freeze Core together with Project Memory after final supported-family validation.
 
 ### Project Memory — REOPENED
@@ -37,13 +37,11 @@ Previously accepted root/path/context behavior remains unless a new blocker prov
 Current remediation:
 
 - [x] Maintenance route is selected when the exact maintenance inbox message is claimed, before prompt assembly; first request uses the requested provider/model. Gemini + disposable alpha.1 probe PASS on `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`.
-- [ ] Inter-process per-file writer serialization is implemented and awaiting focused validation: `MEMORY.md`, topic files and initializer `.gitignore` RMW use the DSH `withFileLock()` target namespace; whole-file writers of the same target honor the same lock; cross-process regression workers added.
-- [ ] Prevent or explicitly contain partial topic/map commits in `memory_write` / `memory_edit`; add failure-path regression coverage.
-- [ ] Add focused coverage for remaining weak lifecycle/tool/init paths required by the compound-mutation fix.
-- [ ] Reconcile Project Memory DSH peer/dev dependency declarations with the supported DSH family after compatibility is proven.
-- [ ] Focused Project Memory `test` / `check` / `build` PASS for the RMW block.
-- [ ] Disposable compatibility probe against official `dsh-v0.1.2-alpha.1` PASS.
-- [ ] Re-freeze Project Memory.
+- [x] Inter-process per-file RMW serialization PASS on `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`: 29/29 package tests, full workspace gates, child-process stress, foreign-lock preservation, symlink safety and disposable alpha.1 lock probe PASS.
+- [ ] Compound named-topic + Memory-map transaction implemented and awaiting focused validation: fixed lock order `MEMORY.md -> topic.md`, map preflight before topic mutation, late map-failure rollback under both locks, and model-facing `memory_write` / `memory_edit` routed through the compound path.
+- [ ] Reconcile Project Memory DSH peer/dev dependency declarations with the supported DSH family after the compound transaction passes.
+- [ ] Final focused/full workspace + disposable alpha.1 foundation validation.
+- [ ] Re-freeze Project Memory with Core.
 
 ## Current sequence
 
