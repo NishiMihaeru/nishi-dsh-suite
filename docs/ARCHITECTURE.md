@@ -1,6 +1,6 @@
 # Architecture
 
-Status: canonical `0.1.0-rc.3` architecture. Core and Project Memory source/runtime remediation against DSH `0.1.2-alpha.1` is complete and the foundation is awaiting final dual-generation re-freeze validation.
+Status: canonical `0.1.0-rc.3` architecture. Core and Project Memory are re-frozen after the final dual-generation validation against DSH `0.1.1-rc.2` and `0.1.2-alpha.1`. Provider-specific cleanup/compatibility is now active, starting with Codex.
 
 ## Product contract
 
@@ -271,4 +271,4 @@ Antigravity suppression remains partly configuration and partly prompt-level gui
 
 ## Current implementation state
 
-Core 15/16 and Project Memory PM03/PM04/PM05 close every source/runtime blocker found by the reopened audit against official DSH `dsh-v0.1.2-alpha.1`. Core and Project Memory now declare the two validated DSH peer generations explicitly and are awaiting one final joint rc.2 + alpha.1 foundation validation. Provider cleanup resumes after that re-freeze passes.
+Core 15/16 and Project Memory PM03/PM04/PM05 close every source/runtime blocker found by the audit against official DSH `dsh-v0.1.2-alpha.1`. The final joint foundation gate passed on implementation HEAD `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b`: Core `176/176`, Project Memory `39/39`, workspace `270/270`, frozen install and `pnpm verify:local` all PASS, with actual rc.2 + alpha.1 runtime evidence. Core and Project Memory are frozen. Provider-specific work is active in the order Codex -> Antigravity -> Claude; their DSH compatibility declarations must be validated independently rather than inherited from the foundation.
