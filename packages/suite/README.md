@@ -109,6 +109,6 @@ Still required before claiming rc.3 product-level completion:
 - live Usage & Limits dynamic-roster/browser cases;
 - network/release gates and an explicitly approved publish decision.
 
-See `docs/HANDOFF.md`, `docs/ROADMAP.md`, and `docs/release/2026-08-28-rc3-prerelease.md` for current status.
+See `docs/HANDOFF.md`, `docs/ROADMAP.md`, and `docs/RELEASE.md` for current status.
 
 Windows remains **NOT TESTED** for rc.3.
