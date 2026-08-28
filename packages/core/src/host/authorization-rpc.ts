@@ -7,7 +7,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
-import type { RpcResult, RpcError } from '@deepseek-ai/dsh-host-apiproxy'
 
 export const AUTHORIZATION_RPC_CHANNEL = '/authorization'
 export const AUTH_GET_FLOWS_ENDPOINT = 'list-flows'
@@ -46,6 +45,9 @@ export interface CancelLoginRpcRequest { providerId: string }
 export interface LogoutRpcRequest { providerId: string }
 export interface RefreshRpcRequest { providerId?: string }
 
+type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
+type ConnectionRpcError = Extract<ConnectionRpcResult, { ok: false }>['error']
+
 const GENERIC_BAD_REQUEST_MESSAGE = 'Invalid authorization request.'
 const GENERIC_INTERNAL_ERROR_MESSAGE = 'Authorization operation failed.'
 const MAX_PROVIDER_ID_LENGTH = 64
@@ -67,16 +69,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   const proto = Object.getPrototypeOf(value)
   return proto === Object.prototype || proto === null
 }
-function createBadRequestResult(): RpcResult<never> {
-  const error: RpcError = {
+function createBadRequestResult(): ConnectionRpcResult {
+  const error: ConnectionRpcError = {
     code: 'bad-request',
     message: GENERIC_BAD_REQUEST_MESSAGE,
     details: { issues: [{ message: GENERIC_BAD_REQUEST_MESSAGE } as any] },
   }
   return { ok: false, error }
 }
-function createInternalErrorResult(): RpcResult<never> {
-  const error: RpcError = { code: 'internal', message: GENERIC_INTERNAL_ERROR_MESSAGE, details: {} }
+function createInternalErrorResult(): ConnectionRpcResult {
+  const error: ConnectionRpcError = { code: 'internal', message: GENERIC_INTERNAL_ERROR_MESSAGE, details: {} }
   return { ok: false, error }
 }
 function validProviderId(value: unknown, allowed: Set<string>): value is string {
@@ -160,7 +162,7 @@ export class AuthorizationHostController {
 }
 
 export function createAuthorizationRpcHandler(controller: AuthorizationHostController): ConnectionRpcHandler {
-  return async (endpoint: string, payload: unknown, _signal: AbortSignal): Promise<RpcResult<unknown>> => {
+  return async (endpoint: string, payload: unknown, _signal: AbortSignal): Promise<ConnectionRpcResult> => {
     try {
       switch (endpoint) {
         case AUTH_GET_FLOWS_ENDPOINT:
