@@ -48,7 +48,7 @@ test('delayed cleanup for a committed journal cannot delete the next transaction
 
     // This is A's delayed best-effort cleanup. The fourth argument is the
     // generation A believes it is clearing; old implementations ignored it.
-    await (clearPendingProjectMemoryTransaction as any)(projectRoot, undefined, undefined, committed)
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, undefined, committed)
 
     const raw = JSON.parse(await readFile(pendingProjectMemoryTransactionPath(projectRoot), 'utf8'))
     assert.equal(raw.topic, 'workflow')
@@ -70,13 +70,47 @@ test('writer-lock release never removes a replacement lock it does not own', asy
   })
 })
 
+test('stale-lock cleanup cannot remove a replacement owner generation', async () => {
+  await withTempProject(async (projectRoot) => {
+    const targetPath = join(projectRoot, 'MEMORY.md')
+    const lockPath = `${targetPath}.lock`
+    await mkdir(lockPath)
+    await writeFile(join(lockPath, 'owner-a.json'), JSON.stringify({
+      version: 1,
+      pid: 2_000_000_000,
+      processIdentity: 'dead-a',
+      token: 'generation-a',
+    }) + '\n', { mode: 0o600 })
+
+    await withSafeDirectoryScope(projectRoot, async (scope) => {
+      const observedA = await scope.readWriterLockOwner(targetPath)
+      assert.ok(observedA !== null)
+
+      await rm(lockPath, { recursive: true, force: true })
+      await mkdir(lockPath)
+      await writeFile(join(lockPath, 'owner-b.json'), JSON.stringify({
+        version: 1,
+        pid: process.pid,
+        processIdentity: 'live-b',
+        token: 'generation-b',
+      }) + '\n', { mode: 0o600 })
+
+      const removed = await scope.removeWriterLockIfOwnedBy(targetPath, observedA)
+      assert.equal(removed, false)
+    })
+
+    const replacement = JSON.parse(await readFile(join(lockPath, 'owner-b.json'), 'utf8'))
+    assert.equal(replacement.token, 'generation-b')
+  })
+})
+
 test('safe regular-file reads can cap ingestion to a prefix without materializing the whole file', async () => {
   await withTempProject(async (projectRoot) => {
     const targetPath = join(projectRoot, 'large-memory.md')
     await writeFile(targetPath, Buffer.alloc(128 * 1024, 0x61))
 
     await withSafeDirectoryScope(projectRoot, async (scope) => {
-      const prefix = await (scope.readRegularFile as any)(targetPath, { prefixBytes: 64 })
+      const prefix = await scope.readRegularFile(targetPath, { prefixBytes: 64 })
       assert.ok(prefix !== null)
       assert.equal(prefix.length, 64)
       assert.equal(prefix.toString('utf8'), 'a'.repeat(64))
@@ -102,7 +136,11 @@ test('committed recovery journal keeps owner-only permissions', async (t) => {
   })
 })
 
-test('recovery does not confuse a reused live PID with the dead transaction owner', async () => {
+test('recovery does not confuse a reused live PID with the dead transaction owner', async (t) => {
+  if (process.platform !== 'linux' && process.platform !== 'darwin') {
+    t.skip('process birth identity is implemented for Linux and macOS; Windows remains NOT TESTED')
+    return
+  }
   await withTempProject(async (projectRoot) => {
     const paths = resolveProjectMemoryPaths(projectRoot)
     const topicPath = join(paths.memoryDir, 'architecture.md')
