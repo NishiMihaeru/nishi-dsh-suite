@@ -89,6 +89,14 @@ function parsePendingTransaction(buffer: Buffer): PendingProjectMemoryTransactio
   return record as unknown as PendingProjectMemoryTransaction
 }
 
+function serializePendingTransaction(record: PendingProjectMemoryTransaction): Buffer {
+  const content = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8')
+  if (content.length > MAX_PENDING_TRANSACTION_BYTES) {
+    throw new Error('Project memory recovery journal exceeds its maximum size')
+  }
+  return content
+}
+
 export function pendingProjectMemoryTransactionPath(projectRoot: string): string {
   return join(resolveProjectMemoryPaths(projectRoot).localDir, PENDING_TRANSACTION_FILENAME)
 }
@@ -100,8 +108,7 @@ async function readPendingTransaction(
   signal?.throwIfAborted()
   const paths = resolveProjectMemoryPaths(projectRoot)
   if (!(await validateCanonicalDirectory(paths.localDir, signal))) return null
-  const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
-  const buffer = await readSafeRegularFile(paths.localDir, journalPath, {
+  const buffer = await readSafeRegularFile(paths.localDir, pendingProjectMemoryTransactionPath(projectRoot), {
     signal,
     maxBytes: MAX_PENDING_TRANSACTION_BYTES,
   })
@@ -130,15 +137,10 @@ export async function createPendingProjectMemoryTransaction(
     topicBefore: snapshotFromBuffer(input.topicBefore),
     memoryBefore: snapshotFromBuffer(input.memoryBefore),
   }
-  const content = `${JSON.stringify(record)}\n`
-  if (Buffer.byteLength(content, 'utf8') > MAX_PENDING_TRANSACTION_BYTES) {
-    throw new Error('Project memory recovery journal exceeds its maximum size')
-  }
-
   const created = await writeFileExclusiveAtomic(
     paths.localDir,
     pendingProjectMemoryTransactionPath(projectRoot),
-    content,
+    serializePendingTransaction(record),
     { mode: 0o600 },
     signal,
   )
@@ -190,30 +192,72 @@ function pidIsAlive(pid: number): boolean {
   }
 }
 
-async function removeDeadOwnedLock(
-  dirPath: string,
-  targetFilePath: string,
-  ownerPid: number,
-): Promise<void> {
+async function lockOwnerPid(dirPath: string, targetFilePath: string): Promise<number | null> {
   const lockPath = `${targetFilePath}.lock`
   const lock = await readSafeRegularFile(dirPath, lockPath, { maxBytes: 64 })
-  if (lock === null) return
+  if (lock === null) return null
   const parsed = Number(lock.toString('utf8').trim())
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`Project memory recovery found an invalid writer lock at "${lockPath}"`)
   }
-  if (parsed !== ownerPid) {
-    throw new Error(`Project memory recovery found a writer lock owned by another process at "${lockPath}"`)
+  return parsed
+}
+
+async function removeDeadLockIfPresent(dirPath: string, targetFilePath: string): Promise<void> {
+  const ownerPid = await lockOwnerPid(dirPath, targetFilePath)
+  if (ownerPid === null) return
+  if (pidIsAlive(ownerPid)) {
+    throw new Error(`Project memory recovery found a writer lock owned by a live process at "${targetFilePath}.lock"`)
   }
-  await removeSafeRegularFile(dirPath, lockPath)
+  await removeSafeRegularFile(dirPath, `${targetFilePath}.lock`)
+}
+
+async function claimRecoveryJournal(
+  projectRoot: string,
+  expected: PendingProjectMemoryTransaction,
+  signal?: AbortSignal,
+): Promise<PendingProjectMemoryTransaction | null> {
+  const paths = resolveProjectMemoryPaths(projectRoot)
+  const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
+  return withSafeFileWriterLock(paths.localDir, journalPath, async () => {
+    const current = await readPendingTransaction(projectRoot, signal)
+    if (current === null) return null
+    if (current.topic !== expected.topic) {
+      throw new Error('Project memory recovery journal changed while recovery was starting')
+    }
+    if (current.ownerPid !== expected.ownerPid) {
+      if (pidIsAlive(current.ownerPid)) return current
+      throw new Error('Project memory recovery journal owner changed unexpectedly')
+    }
+    if (pidIsAlive(current.ownerPid)) return current
+
+    const claimed: PendingProjectMemoryTransaction = { ...current, ownerPid: process.pid }
+    await writeSafeFileAtomically(paths.localDir, journalPath, serializePendingTransaction(claimed), signal)
+    return claimed
+  }, signal)
+}
+
+async function waitForLiveTransactionToFinish(
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const paths = resolveProjectMemoryPaths(projectRoot)
+  if (!(await validateCanonicalDirectory(paths.memoryDir, signal))) return false
+  await withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async () => {}, signal)
+  const remaining = await readPendingTransaction(projectRoot, signal)
+  if (remaining === null) return false
+  if (pidIsAlive(remaining.ownerPid)) {
+    throw new Error('Project memory transaction remained live after its writer lock was released')
+  }
+  return recoverPendingProjectMemoryTransaction(projectRoot, signal)
 }
 
 /**
  * Restore a compound topic/map transaction whose process died before journal
- * removal. The journal is the commit marker: while it exists, both participant
- * files are restored to their exact pre-transaction bytes. Locks are removed
- * only when they belong to the dead journal owner; a live owner is never
- * interrupted by recovery.
+ * removal. Journal removal is the commit point: while the journal exists, both
+ * participant files are restored to their exact pre-transaction bytes. A live
+ * transaction is awaited through the normal MEMORY.md writer lock rather than
+ * mistaken for a crash.
  */
 export async function recoverPendingProjectMemoryTransaction(
   projectRoot: string,
@@ -223,7 +267,7 @@ export async function recoverPendingProjectMemoryTransaction(
   const initial = await readPendingTransaction(projectRoot, signal)
   if (initial === null) return false
   if (pidIsAlive(initial.ownerPid)) {
-    throw new Error('Project memory transaction recovery refused to interrupt a live transaction owner')
+    return waitForLiveTransactionToFinish(projectRoot, signal)
   }
 
   const paths = resolveProjectMemoryPaths(projectRoot)
@@ -232,18 +276,26 @@ export async function recoverPendingProjectMemoryTransaction(
   await ensureCanonicalDirectory(paths.memoryDir, signal)
   await ensureCanonicalDirectory(paths.localDir, signal)
   const topicPath = join(paths.memoryDir, `${initial.topic}.md`)
+  const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
 
-  // A dead process can leave DSH-compatible lock files behind. Remove only the
-  // locks whose owner PID matches the journal owner; any other lock means a
-  // different process has already taken responsibility and recovery fails closed.
-  await removeDeadOwnedLock(paths.memoryDir, paths.memoryMd, initial.ownerPid)
-  await removeDeadOwnedLock(paths.memoryDir, topicPath, initial.ownerPid)
+  // A process death can strand any of the three protocol locks. PID liveness,
+  // not file age, is the authority for recovery; a live owner is never removed.
+  await removeDeadLockIfPresent(paths.localDir, journalPath)
+  await removeDeadLockIfPresent(paths.memoryDir, paths.memoryMd)
+  await removeDeadLockIfPresent(paths.memoryDir, topicPath)
+
+  const claimed = await claimRecoveryJournal(projectRoot, initial, signal)
+  if (claimed === null) return false
+  if (claimed.ownerPid !== process.pid) {
+    if (pidIsAlive(claimed.ownerPid)) return waitForLiveTransactionToFinish(projectRoot, signal)
+    throw new Error('Project memory recovery could not claim the pending transaction')
+  }
 
   return withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async () => {
     const current = await readPendingTransaction(projectRoot, signal)
     if (current === null) return false
-    if (current.ownerPid !== initial.ownerPid || current.topic !== initial.topic) {
-      throw new Error('Project memory recovery journal changed while recovery was starting')
+    if (current.ownerPid !== process.pid || current.topic !== claimed.topic) {
+      throw new Error('Project memory recovery journal changed after recovery claimed it')
     }
 
     return withSafeFileWriterLock(paths.memoryDir, topicPath, async () => {
