@@ -103,6 +103,7 @@ PM01 and PM02 remain accepted for the DSH `0.1.1-rc.2` baseline. Project Memory 
 | PM02 | package/workspace + atomic-write + Cordis commands/llm + disposable real DSH boot PASS |
 | PM03 | maintenance route selection before prompt assembly; first maintenance request uses selected provider/model PASS |
 | PM04 | inter-process writer locking prevents same-file RMW lost updates across MEMORY.md, topic files and .gitignore PASS |
+| PM05 | named-topic + MEMORY-map compound transaction preflight/rollback/concurrency integrity PASS |
 
 Accepted PM01/PM02 behavior includes no nested split-brain `.dsh/memory` tree, canonical path/symlink refusal, atomic replacement writes, `commands + llm` injection for maintenance commands, and repository-shared memory policy excluding secret/transient/operator-personal data.
 
@@ -154,7 +155,32 @@ Accepted result:
 - no nested cross-target locks are used in PM04, and the default two-second wait is appropriate for the bounded local filesystem work performed under each lock;
 - disposable actual alpha.1 lock probe PASS.
 
-PM04 closes same-file cross-process RMW lost-update integrity. Compound named-topic + MEMORY-map transaction semantics remain the next Project Memory blocker.
+### PM05 compound named-topic transaction integrity
+
+Accepted implementation HEAD: `dbe1b7a3894bc05c1c4863148060bff59166bc17`.
+Gemini raw validation report commit: `8e8c1980a34d6c9b0cbd020f0d0166e7c4c00e01`.
+
+Accepted result:
+
+- Project Memory tests PASS: 39/39;
+- full workspace test/check/build PASS with 277 tests total;
+- frozen lockfile PASS with no package/lockfile drift;
+- named-topic model-facing writes/edits use a fixed cross-file lock order `MEMORY.md -> <topic>.md`;
+- Memory-map structure/bounds are preflighted before topic mutation, so deterministic map failures are side-effect free;
+- an absent bootstrap is modeled in memory during preflight and is not materialized by a failed topic operation;
+- successful compound write/edit leaves topic bytes and one canonical Memory-map entry consistent;
+- concurrent compound writers and independent exact edits retain all intended changes without deadlock or lost updates;
+- late Memory-map commit failure removes a newly-created topic or restores an existing topic byte-for-byte while the topic lock is still held;
+- rollback failure surfaces an `AggregateError` containing original + rollback failures with the original failure as cause;
+- a second cooperating writer cannot acquire the topic lock during mutation/rollback;
+- low-level single-file topic helpers remain map-neutral, while actual registered `memory_write` / `memory_edit` tools use compound operations;
+- model-facing storage errors remain sanitized;
+- topic identity refactor preserved the identifier contract and removed the bootstrap/topics module cycle;
+- legacy root bootstrap exports remain available while internal transaction coordination symbols remain non-public;
+- symlink/canonical-path and rollback safety remain fail-closed;
+- rc.2 and disposable alpha.1 compatibility PASS; the transaction relies only on the already accepted shared `withFileLock()` seam.
+
+PM05 closes the final source/runtime integrity blocker found in the Project Memory audit. Remaining foundation work is supported DSH dependency/version reconciliation followed by the joint Core + Project Memory re-freeze.
 
 ## Documentation consolidation
 
@@ -194,14 +220,13 @@ Published `0.1.0-rc.1` historically passed Linux/CachyOS local and registry-only
 
 Ordered open validation is now:
 
-1. Project Memory compound topic/map mutation failure semantics and focused tool/init test gaps.
-2. Supported DSH peer/dev range reconciliation + Core/Project Memory re-freeze.
-3. Codex provider cleanup + focused/local/live acceptance.
-4. Antigravity provider cleanup/catalog + focused/local/live acceptance.
-5. Claude usage-only cleanup/smoke.
-6. Repository-wide provider invariants.
-7. Cross-provider/product live acceptance.
-8. Final profile/install/release gates.
+1. Supported DSH peer/dev range reconciliation + Core/Project Memory joint re-freeze.
+2. Codex provider cleanup + focused/local/live acceptance.
+3. Antigravity provider cleanup/catalog + focused/local/live acceptance.
+4. Claude usage-only cleanup/smoke.
+5. Repository-wide provider invariants.
+6. Cross-provider/product live acceptance.
+7. Final profile/install/release gates.
 
 See `docs/ROADMAP.md` for task status and `docs/HANDOFF.md` for the immediate next run.
 
