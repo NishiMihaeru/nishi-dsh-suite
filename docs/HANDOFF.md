@@ -46,7 +46,7 @@ For DSH compatibility questions, actual upstream source/runtime contracts at tha
 
 Use `docs/verification/README.md` only to confirm already accepted evidence. `docs/verification/gemini/LATEST.md` is the rolling raw Gemini report, not the durable project state.
 
-## Foundation status — GITHUB REMEDIATION COMPLETE, LOCAL VERIFICATION REQUIRED
+## Foundation status — GITHUB REMEDIATION COMPLETE, LOCAL RE-VERIFICATION REQUIRED
 
 The historical foundation freeze at implementation HEAD:
 
@@ -56,7 +56,29 @@ The historical foundation freeze at implementation HEAD:
 
 and its old PASS report remain historical evidence only. An independent audit from branch HEAD `42203ca50ea2555cfcc675d9c73e52bb86a48324`, strictly against official DSH `0.1.2-alpha.1`, found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects.
 
-The GitHub remediation implementation is now complete for source review. Core and Project Memory are still **NOT FROZEN** because the final changed tree has not yet passed fresh local executable gates.
+The GitHub remediation implementation is complete for source review. Core and Project Memory are still **NOT FROZEN** because the final changed tree must pass a fresh local executable rerun after the first remediation validation exposed two Project Memory defects.
+
+### First remediation validation
+
+Gemini tested implementation HEAD:
+
+```text
+f3ee493bbea95b3ae7cc34c2c812a4dc23d6118f
+```
+
+The raw report was committed as `b87f6e22824e5c1bce9c902905e5bf31a2c7889a` and recorded overall **FAIL**:
+
+- Core: `178/178` tests PASS, check PASS, build PASS, alpha.1 authorization seam PASS;
+- Project Memory: `56/57` tests PASS, one concurrent-removal assertion FAIL;
+- Project Memory check/build: TS2322 because compound rollback callbacks could fall through to `undefined` at the type level;
+- alpha.1 Project Memory runtime probes otherwise passed the descriptor-chain, cancellation, settlement and WAL recovery seams, but compound `memory_write` / `memory_edit` could not be accepted while that return typing was broken.
+
+Both concrete defects were then corrected without broad refactoring:
+
+- `e5d6dbe3b36d805c7f708afb45552581455dd9c1` — compound catch paths now `return rollbackJournaledTransaction(...)`, preserving the `Promise<never>` contract instead of admitting `undefined`;
+- `649d29f2e93e690d0ae31c65c183d2396062cfd7` — concurrent removal regression now asserts the actual idempotent convergence contract (`at least one removal reports success` + final path absent) instead of requiring exactly one boolean winner.
+
+A fresh local rerun on the current HEAD is required. Do not reuse the FAIL report as evidence for the corrective commits.
 
 ### Core remediation
 
@@ -89,19 +111,19 @@ Core and Project Memory production DSH peers remain intentionally restricted to:
 
 Their local DSH dev graph remains pinned to `0.1.1-rc.2`.
 
-## Immediate task — local foundation verification and re-freeze decision
+## Immediate task — repeat local foundation verification and re-freeze decision
 
 Do **not** resume Codex cleanup and do not repair code during the validation run unless a failing seam is first reported back for review.
 
-Required local gates on the exact checked-out final remediation HEAD:
+Required local gates on the exact checked-out current HEAD:
 
 1. record `git rev-parse HEAD` and ensure the working tree is clean;
 2. `pnpm install --frozen-lockfile`;
-3. Core focused `test`, `check`, `build`;
-4. Project Memory focused `test`, `check`, `build`;
+3. Project Memory focused `test`, `check`, `build` first, including the two previously failing seams;
+4. Core focused `test`, `check`, `build` (fresh evidence on the new HEAD, even though the first run passed);
 5. full workspace `test`, `check`, `build`;
 6. `pnpm verify:local`;
-7. disposable official `0.1.2-alpha.1` compatibility verification for the changed Core authorization seam and Project Memory tool/filesystem/cancellation contracts as applicable;
+7. disposable official `0.1.2-alpha.1` compatibility verification for the changed Core authorization seam and Project Memory tool/filesystem/cancellation contracts, with explicit `memory_write` / `memory_edit` success after the return-type fix;
 8. overwrite `docs/verification/gemini/LATEST.md` with exact commands, exit codes, failures/skips and final verdict;
 9. commit/push only that verification report, even on FAIL.
 
