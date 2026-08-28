@@ -57,3 +57,30 @@ test('writer scope never redirects a locked RMW into a replacement parent direct
     await rm(projectRoot, { recursive: true, force: true })
   }
 })
+
+test('mandatory settlement on the same scope can restore a durable participant after caller cancellation', async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-settlement-'))
+  const target = join(projectRoot, 'participant.md')
+  const controller = new AbortController()
+  const reason = new Error('cancel after participant commit')
+  try {
+    await writeFile(target, 'before\n', 'utf8')
+
+    await withSafeFileWriterLock(projectRoot, target, async (scope) => {
+      await scope.writeFileAtomically(target, Buffer.from('partially-committed\n', 'utf8'))
+      controller.abort(reason)
+
+      await assert.rejects(
+        () => scope.writeFileAtomically(target, Buffer.from('must-not-write\n', 'utf8')),
+        (error: any) => error === reason,
+      )
+
+      const settlement = scope.forSettlement()
+      await settlement.writeFileAtomically(target, Buffer.from('before\n', 'utf8'))
+    }, controller.signal)
+
+    assert.equal(await readFile(target, 'utf8'), 'before\n')
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
