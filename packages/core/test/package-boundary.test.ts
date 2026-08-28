@@ -6,6 +6,8 @@ import * as ts from 'typescript'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
 const AUTHORIZATION_PACKAGE = '@deepseek-ai/dsh-authorization'
+const SUPPORTED_DSH_PEER_RANGE = '0.1.1-rc.2 || 0.1.2-alpha.1'
+const LOCAL_DSH_DEV_BASELINE = '0.1.1-rc.2'
 const RETIRED_DSH_PACKAGES = [
   '@deepseek-ai/dsh-host-apiproxy',
   '@deepseek-ai/dsh-client-runtime',
@@ -123,8 +125,25 @@ test('retired alpha.1 DSH package seams are not runtime requirements', async () 
 
   // rc.2-only dev fixtures may still name these packages while the workspace
   // proves backward compatibility; consumers never receive devDependencies.
-  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-client-runtime'], '0.1.1-rc.2')
-  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-host-apiproxy'], '0.1.1-rc.2')
+  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-client-runtime'], LOCAL_DSH_DEV_BASELINE)
+  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-host-apiproxy'], LOCAL_DSH_DEV_BASELINE)
+})
+
+test('Core publishes only the two validated DSH generations while keeping the local dev graph on rc.2', async () => {
+  const manifest = await coreManifest()
+  const dshPeers = Object.entries(manifest.peerDependencies ?? {})
+    .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
+  assert.ok(dshPeers.length > 0)
+  for (const [name, range] of dshPeers) {
+    assert.equal(range, SUPPORTED_DSH_PEER_RANGE, `${name} must declare only the validated DSH generations`)
+  }
+
+  const dshDevDependencies = Object.entries(manifest.devDependencies ?? {})
+    .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
+  assert.ok(dshDevDependencies.length > 0)
+  for (const [name, range] of dshDevDependencies) {
+    assert.equal(range, LOCAL_DSH_DEV_BASELINE, `${name} must stay pinned to the reproducible local rc.2 baseline`)
+  }
 })
 
 test('Core production source imports neither retired Connection package seam', async () => {
