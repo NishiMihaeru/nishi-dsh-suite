@@ -1,8 +1,7 @@
 /**
  * Cordis Connection RPC handler for the Model Accounts status surface.
  * Subscription OAuth is intentionally not initiated by DSH. This bridge only
- * reports legacy DSH grants so users can remove them safely; token material is
- * never projected to the browser.
+ * reports legacy DSH grants; token material is never projected to the browser.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
@@ -56,8 +55,14 @@ const MAX_PROVIDER_ID_LENGTH = 64
 export const READ_PROVIDER_IDS = new Set(['openai-codex', 'anthropic', 'openai'])
 /** No provider is allowed to start subscription OAuth through DSH. */
 export const MUTATING_PROVIDER_IDS = new Set<string>()
-/** Legacy grants remain removable without exposing or reusing their token material. */
-export const LEGACY_LOGOUT_PROVIDER_IDS = new Set(['openai-codex', 'anthropic'])
+/**
+ * The alpha.1 credential seam has no atomic compare-and-delete operation.
+ * Deleting a grant after a separate kind check can therefore erase a newer
+ * API-key record written by another process. Legacy grants remain observable
+ * but destructive removal is disabled until the credential contract can make
+ * that mutation atomic.
+ */
+export const LEGACY_LOGOUT_PROVIDER_IDS = new Set<string>()
 
 const PROVIDER_LABELS: Record<string, string> = {
   'openai-codex': 'ChatGPT / Codex',
@@ -155,12 +160,11 @@ export class AuthorizationHostController {
   }
 
   async logout(providerId: string): Promise<SafeAuthorizationFlowDto> {
-    if (!LEGACY_LOGOUT_PROVIDER_IDS.has(providerId)) throw new Error(`Unsupported provider "${providerId}" for legacy grant removal.`)
-    const key = credentialKey('llm-pi-ai', providerId)
-    if (this.ctx.credentials) {
-      const desc = await this.ctx.credentials.describeRecord(key)
-      if (desc?.kind === 'grant') await this.ctx.credentials.deleteRecord(key)
+    if (!LEGACY_LOGOUT_PROVIDER_IDS.has(providerId)) {
+      throw new Error(`Unsupported provider "${providerId}" for legacy grant removal.`)
     }
+    // Intentionally unreachable while the alpha.1 credential seam lacks a
+    // serialized conditional delete. Never reintroduce describe-then-delete.
     return this.describeProviderPublic(providerId)
   }
 }
