@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import {
   apply,
   resolveProjectMemoryPaths,
@@ -35,15 +36,27 @@ function captureTools(): Map<string, any> {
   return tools
 }
 
-function execution(projectRoot: string): any {
+function execution(projectRoot: string, signal = new AbortController().signal): any {
   return {
-    signal: new AbortController().signal,
+    signal,
     agent: {
       session: {
         header: { cwd: projectRoot },
       },
     },
   }
+}
+
+async function holdWriterLock(filename: string): Promise<{ release: () => void; done: Promise<void> }> {
+  let release!: () => void
+  let acquired!: () => void
+  const acquiredPromise = new Promise<void>((resolve) => { acquired = resolve })
+  const done = withFileLock(filename, async () => {
+    acquired()
+    await new Promise<void>((resolve) => { release = resolve })
+  })
+  await acquiredPromise
+  return { release, done }
 }
 
 test('model-facing memory_write and memory_edit keep a named topic and Memory map consistent', async () => {
@@ -106,5 +119,39 @@ test('model-facing memory_write reports sanitized failure without creating a top
       assert.equal(error?.code, 'ENOENT')
       return true
     })
+  })
+})
+
+test('cancelled model-facing memory_write never commits after waiting on the Memory map lock', async () => {
+  await withTempProject(async (projectRoot) => {
+    const paths = resolveProjectMemoryPaths(projectRoot)
+    await writeProjectMemoryBootstrap(projectRoot, '# Project Memory\n\n## Memory map\nNo topic memories yet.\n')
+    const tools = captureTools()
+    const writeTool = tools.get('memory_write')
+    assert.ok(writeTool)
+
+    const held = await holdWriterLock(paths.memoryMd)
+    const controller = new AbortController()
+    const pending = writeTool.execute(
+      { topic: 'architecture', content: 'must-never-commit\n' },
+      execution(projectRoot, controller.signal),
+    )
+
+    controller.abort(new Error('cancel memory write'))
+    const releaseTimer = setTimeout(() => held.release(), 200)
+    try {
+      await assert.rejects(pending, /Project memory write failed/)
+    } finally {
+      clearTimeout(releaseTimer)
+      held.release()
+      await held.done
+    }
+
+    await assert.rejects(() => access(join(paths.memoryDir, 'architecture.md')), (error: any) => {
+      assert.equal(error?.code, 'ENOENT')
+      return true
+    })
+    const memory = await readFile(paths.memoryMd, 'utf8')
+    assert.doesNotMatch(memory, /`architecture`/)
   })
 })
