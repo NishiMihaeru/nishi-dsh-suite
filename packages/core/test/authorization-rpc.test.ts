@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   AUTH_BEGIN_LOGIN_ENDPOINT,
   AUTH_GET_STATUS_ENDPOINT,
+  AUTH_LOGOUT_ENDPOINT,
   AuthorizationHostController,
   createAuthorizationRpcHandler,
 } from '../src/host/authorization-rpc.js'
@@ -23,6 +24,26 @@ test('authorization status exposes credential kind but never credential material
   assert.equal(flow.configured, true)
   assert.equal(flow.credentialKind, 'grant')
   assert.equal(flow.status, 'CONNECTED')
+  assert.ok(!JSON.stringify(flow).includes(secret))
+})
+
+test('authorization status reports a safe ERROR state when credential storage cannot be read', async () => {
+  const secret = 'credential-store-path-or-token-that-must-not-cross-rpc'
+  const controller = new AuthorizationHostController({
+    credentials: {
+      describeRecord: async () => {
+        throw new Error(secret)
+      },
+    },
+  } as any)
+
+  const flow = await controller.describeProviderPublic('openai-codex')
+
+  assert.equal(flow.providerId, 'openai-codex')
+  assert.equal(flow.configured, false)
+  assert.equal(flow.credentialKind, undefined)
+  assert.equal(flow.status, 'ERROR')
+  assert.equal(flow.lastError, 'Authorization state is unavailable.')
   assert.ok(!JSON.stringify(flow).includes(secret))
 })
 
@@ -62,6 +83,34 @@ test('authorization rpc converts host failures to generic errors', async () => {
     signal,
   )
 
+  assert.equal(result.ok, false)
+  if (result.ok) return
+  assert.equal(result.error.code, 'internal')
+  assert.equal(result.error.message, 'Authorization operation failed.')
+  assert.ok(!JSON.stringify(result).includes(secret))
+})
+
+test('legacy logout reports an internal failure when deleting the grant fails', async () => {
+  const secret = 'credential-store-delete-secret'
+  let deleteCalls = 0
+  const controller = new AuthorizationHostController({
+    credentials: {
+      describeRecord: async () => ({ configured: true, kind: 'grant' }),
+      deleteRecord: async () => {
+        deleteCalls += 1
+        throw new Error(secret)
+      },
+    },
+  } as any)
+  const handler = createAuthorizationRpcHandler(controller)
+
+  const result = await handler(
+    AUTH_LOGOUT_ENDPOINT,
+    { providerId: 'openai-codex' },
+    signal,
+  )
+
+  assert.equal(deleteCalls, 1)
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.equal(result.error.code, 'internal')
