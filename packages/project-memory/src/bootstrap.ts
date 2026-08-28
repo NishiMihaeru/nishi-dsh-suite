@@ -14,6 +14,7 @@ import {
 
 export const MAX_BOOTSTRAP_LINES = 200
 export const MAX_BOOTSTRAP_BYTES = 25 * 1024
+const MAX_BOOTSTRAP_READ_PREFIX_BYTES = MAX_BOOTSTRAP_BYTES + 4
 
 export const INITIAL_MEMORY_MD_CONTENT = `# Project Memory
 
@@ -106,7 +107,9 @@ async function ensureBootstrapFile(
   signal?: AbortSignal,
 ): Promise<boolean> {
   signal?.throwIfAborted()
-  const existing = await scope.readRegularFile(memoryMd)
+  // Existence is all this path needs. Do not materialize arbitrary preexisting
+  // content just to decide whether initialization should create the file.
+  const existing = await scope.readRegularFile(memoryMd, { prefixBytes: 0 })
   if (existing !== null) return false
   return scope.writeFileExclusiveAtomic(memoryMd, INITIAL_MEMORY_MD_CONTENT, { mode: 0o644 })
 }
@@ -115,7 +118,9 @@ async function readBootstrapOrInitial(
   scope: SafeDirectoryScope,
   memoryMd: string,
 ): Promise<string> {
-  const existing = await scope.readRegularFile(memoryMd)
+  // Callers mutate this full value, so reject malformed oversized persisted
+  // state before reading it instead of silently operating on a prefix.
+  const existing = await scope.readRegularFile(memoryMd, { maxBytes: MAX_BOOTSTRAP_BYTES })
   return existing === null ? INITIAL_MEMORY_MD_CONTENT : existing.toString('utf8')
 }
 
@@ -145,7 +150,12 @@ export async function readProjectMemoryBootstrap(
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
   const result = await withExistingProjectMemoryScope(projectRoot, async (memoryScope) => {
-    const rawBuffer = await memoryScope.readRegularFile(paths.memoryMd)
+    // Four extra bytes are enough to let UTF-8 truncation distinguish a code
+    // point crossing the byte boundary without ever reading the rest of a huge
+    // malformed file.
+    const rawBuffer = await memoryScope.readRegularFile(paths.memoryMd, {
+      prefixBytes: MAX_BOOTSTRAP_READ_PREFIX_BYTES,
+    })
     if (rawBuffer === null) return { exists: false, content: null, path: paths.memoryMd }
     return {
       exists: true,
@@ -171,7 +181,7 @@ export async function writeProjectMemoryBootstrap(
   return withEnsuredProjectMemoryScope(projectRoot, (memoryScope) => {
     return memoryScope.withWriterLock(paths.memoryMd, async (scope) => {
       signal?.throwIfAborted()
-      const current = await scope.readRegularFile(paths.memoryMd)
+      const current = await scope.readRegularFile(paths.memoryMd, { prefixBytes: 0 })
       const created = current === null
       signal?.throwIfAborted()
       await scope.writeFileAtomically(paths.memoryMd, Buffer.from(content, 'utf8'))
@@ -196,7 +206,7 @@ export async function editProjectMemoryBootstrap(
   const result = await withExistingProjectMemoryScope(projectRoot, (memoryScope) => {
     return memoryScope.withWriterLock(paths.memoryMd, async (scope) => {
       signal?.throwIfAborted()
-      const currentBuffer = await scope.readRegularFile(paths.memoryMd)
+      const currentBuffer = await scope.readRegularFile(paths.memoryMd, { maxBytes: MAX_BOOTSTRAP_BYTES })
       if (currentBuffer === null) {
         throw new Error(`Project memory bootstrap file "${paths.memoryMd}" does not exist; cannot edit missing file`)
       }
