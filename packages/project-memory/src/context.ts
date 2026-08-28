@@ -57,12 +57,14 @@ async function readInstructionFile(
   const parent = dirname(filePath)
 
   try {
-    if (!(await validateCanonicalDirectory(parent, signal))) {
-      return { exists: false, content: null, rawLength: 0 }
-    }
     const buffer = await readSafeRegularFile(parent, filePath, {
       signal,
       maxBytes: MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES,
+      // projectRoot and dshHome are explicit workspace roots and may be
+      // represented by symlink paths. The directory is still opened and bound
+      // to one inode before the child file is opened; only canonical `.dsh`
+      // components require a no-symlink final directory path.
+      allowDirectorySymlink: true,
     })
     if (buffer === null) return { exists: false, content: null, rawLength: 0 }
     signal?.throwIfAborted()
