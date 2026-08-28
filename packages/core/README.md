@@ -18,15 +18,30 @@ A new provider must not require an edit to this package or to browser logic. Shi
 
 ## Host lifecycle
 
-The final Cordis lifecycle is deliberately split in two:
+The Cordis lifecycle is deliberately split in two:
 
 1. outer `nishi-core` has `inject: []` and mounts `NishiProvidersService` first;
 2. it then mounts the internal `nishi-core-host` child with `inject: ['nishiProviders', 'connection', 'credentials']`;
 3. the child constructs Usage Limits host state and registers Usage Limits / Model Accounts RPC handlers.
 
-This avoids the self-dependency that would result from asking the outer core to inject the `nishiProviders` service that it is responsible for publishing. The lifecycle was verified against a real DSH profile boot and unload/remount cycle.
+This avoids the self-dependency that would result from asking the outer core to inject the `nishiProviders` service that it is responsible for publishing.
 
-The Model Accounts host reads DSH credentials directly. The core no longer imports or injects `@deepseek-ai/dsh-authorization`.
+The Model Accounts host reads DSH credentials directly. The core does not import or inject `@deepseek-ai/dsh-authorization`.
+
+### DSH Connection compatibility seam
+
+Core RPC handlers depend only on `@deepseek-ai/dsh-client-connection`'s carrier-neutral `ConnectionRpcHandler` contract. Production source no longer imports `@deepseek-ai/dsh-host-apiproxy`.
+
+The host registration seam covers the DSH Connection API transition:
+
+- DSH `0.1.1-rc.2`: `rpc.handle(channel, handler, { authority: 'trusted-host' })`;
+- DSH `0.1.2-alpha.1`: `rpc.handle(channel, handler)`, with Connection itself owning Host/Origin fencing plus browser authentication.
+
+`registerConnectionRpcChannel()` isolates that transition. It preserves the rc.2 trusted-host argument when the installed handle exposes the legacy three-argument contract, and uses the authenticated two-argument form for alpha.1. Connection remains the lifecycle owner of the returned effect-scoped registration.
+
+The browser entry is typed directly as Cordis `Context`, following the alpha.1 first-party client-plugin pattern. `@deepseek-ai/dsh-client-runtime` is no longer a production peer or explicit client injection. The package may keep rc.2-only retired packages in `devDependencies` while backward-compatibility tests still run on the installed rc.2 toolchain; dev dependencies do not form the published runtime boundary.
+
+The remaining DSH peer version declarations are intentionally not broadened yet. Final supported-version ranges are reconciled only after source/runtime compatibility probes pass.
 
 ## Provider registry and registration
 
@@ -40,9 +55,11 @@ Providers declare `inject: ['nishiProviders', ...]` and call the shared `registe
 - records the provider in `NishiProvidersService`;
 - registers model routes through `ctx.llm.registerAdapter` when a model capability exists;
 - runs provider-specific `install`;
-- rolls back registry/adapter state transactionally if registration fails.
+- is intended to roll back core-owned registry/adapter state transactionally if registration fails.
 
 The registry supports late registration and withdrawal. Usage composition follows registry changes instead of snapshotting a static provider list.
+
+A separate audit finding remains open: a synchronous registry change-listener failure can currently escape after registry mutation but before the withdrawal capability reaches `registerProvider()`. That transaction correction is deliberately not mixed into the Connection/client migration and is tracked in `docs/ROADMAP.md`.
 
 ## Shared vendor CLI runtime (`./runtime`)
 
@@ -83,14 +100,14 @@ The only named vendor-like ids in the Model Accounts surface are DSH authorizati
 
 ## Acceptance status
 
-Core stabilization completed through Core 14 Final Acceptance:
+Core 14 acceptance remains the historical accepted baseline for DSH `0.1.1-rc.2`:
 
 - full core/package/workspace gates PASS;
-- six rc.3 tarballs install into a disposable DSH profile;
-- all exported core subpaths resolve from the installed package;
+- six rc.3 tarballs installed into a disposable DSH profile;
+- exported core subpaths resolved from the installed package;
 - real DSH host boot and HTTP readiness PASS;
 - agent-plane `nishi-dsh-core/web-search` mount PASS;
 - registry-first child lifecycle PASS;
-- unload/remount produces no duplicate registry, usage service or RPC handlers.
+- unload/remount produced no duplicate registry, usage service or RPC handlers.
 
-The core is treated as **DONE / FROZEN** for the remainder of rc.3 unless a new reproducible blocker requires reopening it.
+Core is currently **REOPENED** after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). The Connection/client compatibility migration described above is awaiting focused rc.2 + disposable alpha.1 validation; the registry transaction correction follows as a separate block. See `docs/ROADMAP.md`.
