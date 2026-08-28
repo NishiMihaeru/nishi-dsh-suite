@@ -1,6 +1,8 @@
+import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import type { SafeDirectoryScope } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
+import { currentProcessIdentity, processOwnerIsAlive } from './process-identity.js'
 import {
   withEnsuredProjectLocalScope,
   withEnsuredProjectMemoryScope,
@@ -12,6 +14,8 @@ import { isValidTopicIdentifier } from './topic-id.js'
 export const PENDING_TRANSACTION_VERSION = 1
 const PENDING_TRANSACTION_FILENAME = 'project-memory-transaction.json'
 const MAX_PENDING_TRANSACTION_BYTES = 1024 * 1024
+const MAX_OWNER_IDENTITY_LENGTH = 512
+const MAX_TRANSACTION_ID_LENGTH = 256
 
 export type ProjectMemoryTransactionPhase = 'pending' | 'committed'
 
@@ -24,6 +28,10 @@ export interface PendingProjectMemoryTransaction {
   readonly version: typeof PENDING_TRANSACTION_VERSION
   readonly phase: ProjectMemoryTransactionPhase
   readonly ownerPid: number
+  /** Optional for compatibility with journals written before generation-safe ownership. */
+  readonly ownerIdentity?: string
+  /** Optional for compatibility; every journal created by this build carries one. */
+  readonly transactionId?: string
   readonly topic: string
   readonly topicBefore: TransactionFileSnapshot
   readonly memoryBefore: TransactionFileSnapshot
@@ -60,6 +68,11 @@ function isSnapshot(value: unknown): value is TransactionFileSnapshot {
     && Object.keys(record).every(key => key === 'exists' || key === 'contentBase64')
 }
 
+function optionalBoundedString(value: unknown, maxLength: number): value is string | undefined {
+  return value === undefined
+    || (typeof value === 'string' && value.length > 0 && value.length <= maxLength)
+}
+
 function parsePendingTransaction(buffer: Buffer): PendingProjectMemoryTransaction {
   let parsed: unknown
   try {
@@ -77,6 +90,8 @@ function parsePendingTransaction(buffer: Buffer): PendingProjectMemoryTransactio
     || typeof record.ownerPid !== 'number'
     || !Number.isSafeInteger(record.ownerPid)
     || record.ownerPid <= 0
+    || !optionalBoundedString(record.ownerIdentity, MAX_OWNER_IDENTITY_LENGTH)
+    || !optionalBoundedString(record.transactionId, MAX_TRANSACTION_ID_LENGTH)
     || typeof record.topic !== 'string'
     || !isValidTopicIdentifier(record.topic)
     || !isSnapshot(record.topicBefore)
@@ -84,7 +99,16 @@ function parsePendingTransaction(buffer: Buffer): PendingProjectMemoryTransactio
   ) {
     throw new Error('Project memory recovery journal is invalid')
   }
-  const allowed = new Set(['version', 'phase', 'ownerPid', 'topic', 'topicBefore', 'memoryBefore'])
+  const allowed = new Set([
+    'version',
+    'phase',
+    'ownerPid',
+    'ownerIdentity',
+    'transactionId',
+    'topic',
+    'topicBefore',
+    'memoryBefore',
+  ])
   if (Object.keys(record).some(key => !allowed.has(key))) {
     throw new Error('Project memory recovery journal contains unknown fields')
   }
@@ -97,6 +121,20 @@ function serializePendingTransaction(record: PendingProjectMemoryTransaction): B
     throw new Error('Project memory recovery journal exceeds its maximum size')
   }
   return content
+}
+
+function sameTransactionGeneration(
+  left: PendingProjectMemoryTransaction,
+  right: PendingProjectMemoryTransaction,
+): boolean {
+  if (left.transactionId !== undefined || right.transactionId !== undefined) {
+    return left.transactionId !== undefined
+      && right.transactionId !== undefined
+      && left.transactionId === right.transactionId
+  }
+  // Legacy journals had no generation id. This branch exists only to settle
+  // pre-upgrade state; current writers always use transactionId.
+  return left.ownerPid === right.ownerPid && left.topic === right.topic
 }
 
 export function pendingProjectMemoryTransactionPath(projectRoot: string): string {
@@ -139,10 +177,13 @@ export async function createPendingProjectMemoryTransaction(
     throw new Error(`Invalid topic memory identifier "${input.topic}"`)
   }
 
+  const ownerIdentity = await currentProcessIdentity()
   const record: PendingProjectMemoryTransaction = {
     version: PENDING_TRANSACTION_VERSION,
     phase: 'pending',
     ownerPid: process.pid,
+    ...(ownerIdentity === undefined ? {} : { ownerIdentity }),
+    transactionId: randomBytes(16).toString('hex'),
     topic: input.topic,
     topicBefore: snapshotFromBuffer(input.topicBefore),
     memoryBefore: snapshotFromBuffer(input.memoryBefore),
@@ -178,14 +219,17 @@ export async function markProjectMemoryTransactionCommitted(
     if (
       current === null
       || current.phase !== 'pending'
-      || current.ownerPid !== expected.ownerPid
-      || current.topic !== expected.topic
+      || !sameTransactionGeneration(current, expected)
     ) {
       throw new Error('Project memory recovery journal changed before transaction commit')
     }
     signal?.throwIfAborted()
     const committed: PendingProjectMemoryTransaction = { ...current, phase: 'committed' }
-    await scope.writeFileAtomically(journalPath, serializePendingTransaction(committed))
+    await scope.writeFileAtomically(
+      journalPath,
+      serializePendingTransaction(committed),
+      { mode: 0o600 },
+    )
     return committed
   }
 
@@ -199,17 +243,26 @@ export async function clearPendingProjectMemoryTransaction(
   projectRoot: string,
   signal?: AbortSignal,
   journalScope?: SafeDirectoryScope,
+  expected?: PendingProjectMemoryTransaction,
 ): Promise<void> {
   const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
+  const clear = async (scope: SafeDirectoryScope): Promise<void> => {
+    if (expected !== undefined) {
+      const current = await readPendingTransactionFromScope(projectRoot, scope)
+      if (
+        current === null
+        || current.phase !== expected.phase
+        || !sameTransactionGeneration(current, expected)
+      ) return
+    }
+    await scope.removeRegularFile(journalPath)
+  }
+
   if (journalScope !== undefined) {
-    await journalScope.removeRegularFile(journalPath)
+    await clear(journalScope)
     return
   }
-  await withExistingProjectLocalScope(
-    projectRoot,
-    async (localScope) => { await localScope.removeRegularFile(journalPath) },
-    signal,
-  )
+  await withExistingProjectLocalScope(projectRoot, clear, signal)
 }
 
 export async function restorePendingProjectMemoryTransactionLocked(
@@ -249,7 +302,7 @@ export async function settleCommittedProjectMemoryTransactionUnderMapLock(
   const current = await readPendingTransactionFromScope(projectRoot, journalScope)
   if (current === null) return false
   if (current.phase === 'committed') {
-    await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
+    await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope, current)
     return true
   }
 
@@ -260,43 +313,18 @@ export async function settleCommittedProjectMemoryTransactionUnderMapLock(
     const settlementMemory = memoryScope.forSettlement()
     const settlementJournal = journalScope.forSettlement()
     await restorePendingProjectMemoryTransactionLocked(projectRoot, current, settlementMemory)
-    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournal)
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournal, current)
     return true
   })
-}
-
-function pidIsAlive(pid: number): boolean {
-  if (pid === process.pid) return true
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error: any) {
-    if (error?.code === 'ESRCH') return false
-    return true
-  }
-}
-
-async function lockOwnerPid(
-  scope: SafeDirectoryScope,
-  targetFilePath: string,
-): Promise<number | null> {
-  const lockPath = `${targetFilePath}.lock`
-  const lock = await scope.readRegularFile(lockPath, { maxBytes: 64 })
-  if (lock === null) return null
-  const parsed = Number(lock.toString('utf8').trim())
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`Project memory recovery found an invalid writer lock at "${lockPath}"`)
-  }
-  return parsed
 }
 
 async function removeDeadLockIfPresent(
   scope: SafeDirectoryScope,
   targetFilePath: string,
 ): Promise<void> {
-  const ownerPid = await lockOwnerPid(scope, targetFilePath)
-  if (ownerPid === null || pidIsAlive(ownerPid)) return
-  await scope.removeRegularFile(`${targetFilePath}.lock`)
+  const owner = await scope.readWriterLockOwner(targetFilePath)
+  if (owner === null || await processOwnerIsAlive(owner.pid, owner.processIdentity)) return
+  await scope.removeWriterLockIfOwnedBy(targetFilePath, owner)
 }
 
 async function settlePendingUnderMemoryBarrier(
@@ -307,7 +335,12 @@ async function settlePendingUnderMemoryBarrier(
 ): Promise<boolean> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   if (record.phase === 'committed') {
-    await clearPendingProjectMemoryTransaction(projectRoot, undefined, journalScope.forSettlement())
+    await clearPendingProjectMemoryTransaction(
+      projectRoot,
+      undefined,
+      journalScope.forSettlement(),
+      record,
+    )
     return true
   }
 
@@ -316,7 +349,7 @@ async function settlePendingUnderMemoryBarrier(
     const settlementMemory = memoryScope.forSettlement()
     const settlementJournal = journalScope.forSettlement()
     await restorePendingProjectMemoryTransactionLocked(projectRoot, record, settlementMemory)
-    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournal)
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournal, record)
     return true
   })
 }
@@ -350,7 +383,7 @@ export async function recoverPendingProjectMemoryTransaction(
   signal?.throwIfAborted()
   const initial = await readPendingTransaction(projectRoot, signal)
   if (initial === null) return false
-  if (pidIsAlive(initial.ownerPid)) {
+  if (await processOwnerIsAlive(initial.ownerPid, initial.ownerIdentity)) {
     return waitForLiveTransactionToFinish(projectRoot, signal)
   }
 
@@ -368,18 +401,27 @@ export async function recoverPendingProjectMemoryTransaction(
       if (current === null) {
         throw new Error('Project memory recovery journal disappeared before recovery claim')
       }
-      if (current.topic !== initial.topic || current.phase !== initial.phase) {
+      if (!sameTransactionGeneration(current, initial) || current.phase !== initial.phase) {
         throw new Error('Project memory recovery journal changed while recovery was starting')
       }
-      if (pidIsAlive(current.ownerPid)) {
-        if (current.ownerPid !== initial.ownerPid) {
+      if (await processOwnerIsAlive(current.ownerPid, current.ownerIdentity)) {
+        if (current.ownerPid !== initial.ownerPid || current.ownerIdentity !== initial.ownerIdentity) {
           throw new Error('Project memory recovery journal owner changed to a live process before claim')
         }
         throw new Error('Project memory recovery journal owner became live before claim')
       }
 
-      const claimed: PendingProjectMemoryTransaction = { ...current, ownerPid: process.pid }
-      await journalScope.writeFileAtomically(journalPath, serializePendingTransaction(claimed))
+      const ownerIdentity = await currentProcessIdentity()
+      const claimed: PendingProjectMemoryTransaction = {
+        ...current,
+        ownerPid: process.pid,
+        ...(ownerIdentity === undefined ? { ownerIdentity: undefined } : { ownerIdentity }),
+      }
+      await journalScope.writeFileAtomically(
+        journalPath,
+        serializePendingTransaction(claimed),
+        { mode: 0o600 },
+      )
 
       return memory.withWriterLock(paths.memoryMd, async (memoryScope) => {
         const latest = await readPendingTransactionFromScope(projectRoot, journalScope)
@@ -388,7 +430,7 @@ export async function recoverPendingProjectMemoryTransaction(
         }
         if (
           latest.ownerPid !== process.pid
-          || latest.topic !== claimed.topic
+          || !sameTransactionGeneration(latest, claimed)
           || latest.phase !== claimed.phase
         ) {
           throw new Error('Project memory recovery journal changed after recovery claimed it')
