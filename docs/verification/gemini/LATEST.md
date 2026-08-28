@@ -1,9 +1,8 @@
-# Local Validation Report: Project Memory Compound Named-Topic + Memory-Map Transaction
+# Final Foundation Core + Project Memory Re-freeze Validation Report
 
-- **Result**: `PASS`
+- **Result**: `FAIL` (Gate 6: `pnpm install --frozen-lockfile` exit code `1` due to outdated lockfile specifiers in `packages/core`)
 - **Branch**: `feat/core-provider-plugins-rc3`
-- **Tested implementation HEAD**: `dbe1b7a3894bc05c1c4863148060bff59166bc17`
-- **Previous validation run**: `422582cfecfcf3e55be443abd1b821eec378c112` (`FAIL` on `test/tools.test.ts` regex assertion mismatch)
+- **Tested implementation HEAD**: `2bca8164759bccbc5e1aac9fdc3e73a93a57ed6a`
 - **Environment**:
   - Node: `v24.19.0` (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
   - pnpm: `11.21.0`
@@ -17,212 +16,229 @@
 
 ## Executive Summary
 
-The Project Memory compound named-topic + Memory-map transaction implementation is **fully validated and PASSES all gates**.
+A comprehensive source, manifest, contract, and runtime verification of the **Nishi DSH Suite foundation** (`nishi-dsh-core` and `nishi-dsh-project-memory`) was conducted against both the **installed baseline (`0.1.1-rc.2`)** and the **official upstream generation tag `dsh-v0.1.2-alpha.1` (commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`)**.
 
-The single failing test assertion from the previous run on HEAD `422582c` has been resolved in test-only commit `dbe1b7a` (`"test(memory): assert sanitized tool error message"`). The test in [`packages/project-memory/test/tools.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/tools.test.ts#L94-L102) now inspects `error?.message === 'Project memory write failed for topic "architecture".'` directly via predicate rather than an anchored RegExp against `String(error)`.
-
-All 39 focused Project Memory tests, all 277 full workspace tests, all TypeScript typechecks, all package builds, manifest/lockfile integrity checks, and disposable fault-injection/rollback probes pass with zero regressions.
+### Findings Summary
+1. **Manifest Contract & Semver Evaluation**: **PASS**. All 12 Core and 4 Project Memory `@deepseek-ai/dsh-*` peer dependencies declare exact `0.1.1-rc.2 || 0.1.2-alpha.1`. All DSH `devDependencies` remain pinned exact `0.1.1-rc.2`.
+2. **Upstream Alpha.1 Package Existence & Seams**: **PASS**. All 14 production peer packages exist at `0.1.2-alpha.1` in upstream checkout `cd5ef8148158c3a752a658978873241fdf8e2bbc`. Retired seams (`@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy`) are verified absent in alpha.1 and have zero runtime import requirements in Core.
+3. **Core & Memory Runtime Probes (rc.2 & alpha.1)**: **PASS**. Both packages pass all compilation, registration, transaction rollback, RPC handling, lifecycle event ordering, and file lock serialization probes on both DSH generations.
+4. **Focused & Full Workspace Test Suites**: **PASS**. Core has 176/176 tests passing (including new package-boundary test), Project Memory has 39/39 tests passing, and the full workspace has 270/270 tests passing. `pnpm verify:local` completes with exit code `0`.
+5. **Frozen Lockfile Gate**: **FAIL (Exit code `1`)**. `pnpm install --frozen-lockfile` failed because `pnpm-lock.yaml` still records `@deepseek-ai/dsh-system-prompt` and `@deepseek-ai/dsh-tools` under `packages/core.dependencies` with specifier `0.1.1-rc.2` instead of `0.1.1-rc.2 || 0.1.2-alpha.1`. Under strict foundation gate rules, automatic lockfile migration was not performed.
 
 ---
 
-## 1. Test Fix Assessment (`dbe1b7a3894bc05c1c4863148060bff59166bc17`)
+## 1. Changed Files Reviewed (`2bca8164759bccbc5e1aac9fdc3e73a93a57ed6a`)
 
-- **Modified File**: [`packages/project-memory/test/tools.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/tools.test.ts)
-- **Changes**:
-  ```ts
-  await assert.rejects(
-    () => writeTool.execute(
-      { topic: 'architecture', content: 'must-not-persist\n' },
-      execution(projectRoot),
-    ),
-    (error: any) => {
-      assert.equal(error?.message, 'Project memory write failed for topic "architecture".')
-      return true
-    },
-  )
+- [`packages/core/package.json`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/package.json)
+- [`packages/core/test/package-boundary.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/package-boundary.test.ts)
+- [`packages/core/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/README.md)
+- [`packages/project-memory/package.json`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/package.json)
+- [`packages/project-memory/test/package.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/package.test.ts)
+- [`packages/project-memory/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/README.md)
+- [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md)
+- [`docs/HANDOFF.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/HANDOFF.md)
+- [`docs/RELEASE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/RELEASE.md)
+- [`docs/ROADMAP.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ROADMAP.md)
+- [`docs/verification/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/verification/README.md)
+
+---
+
+## 2. Peer & Dev Dependency Contract Review
+
+### 2.1 Core Peer Dependencies (`0.1.1-rc.2 || 0.1.2-alpha.1`)
+- `@deepseek-ai/dsh-client-connection`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-client-locale`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-client-ui-primitives`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-client-ui-settings`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-client-ui-sidebar`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-client-ui-slots`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-credentials`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-llm`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-subprocess`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-system-prompt`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-timeout`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-tools`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+
+### 2.2 Project Memory Peer Dependencies (`0.1.1-rc.2 || 0.1.2-alpha.1`)
+- `@deepseek-ai/dsh-agent`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-atomic-write`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-llm`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+- `@deepseek-ai/dsh-tools`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+
+### 2.3 Dev Dependencies Assessment
+All local `@deepseek-ai/dsh-*` devDependencies in Core and Project Memory are pinned to exact `0.1.1-rc.2`. Core maintains backward-compatibility test fixtures `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy` strictly in `devDependencies` pinned to `0.1.1-rc.2`. Neither appears in `dependencies`, `peerDependencies`, production source imports, or browser injection manifests (`dsh.client.inject`).
+
+---
+
+## 3. Semver Acceptance / Rejection Probe
+
+The exact peer range string `0.1.1-rc.2 || 0.1.2-alpha.1` was evaluated using the node `semver` parser across multiple release specifiers:
+
+| Version Tested | Satisfies Range | Evaluation Result |
+|---|---|---|
+| `0.1.1-rc.2` | `true` | **ACCEPTED** (Current local baseline) |
+| `0.1.2-alpha.1` | `true` | **ACCEPTED** (Supported second generation) |
+| `0.1.1-rc.1` | `false` | **REJECTED** |
+| `0.1.1` | `false` | **REJECTED** |
+| `0.1.2-alpha.0` | `false` | **REJECTED** |
+| `0.1.2-alpha.2` | `false` | **REJECTED** |
+| `0.1.2` | `false` | **REJECTED** |
+| `0.1.0` | `false` | **REJECTED** |
+| `0.2.0` | `false` | **REJECTED** |
+
+---
+
+## 4. Upstream Alpha.1 Package Existence & Retired Seam Review
+
+From official upstream repository checkout `deepseek-ai/deepseek-harness` (tag `dsh-v0.1.2-alpha.1`, commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`):
+
+| Package Name | Upstream Status | Package Version | Location in Upstream Repo |
+|---|---|---|---|
+| `@deepseek-ai/dsh-client-connection` | Present | `0.1.2-alpha.1` | `packages/client/connection` |
+| `@deepseek-ai/dsh-client-locale` | Present | `0.1.2-alpha.1` | `packages/client/locale` |
+| `@deepseek-ai/dsh-client-ui-primitives` | Present | `0.1.2-alpha.1` | `packages/client/ui-primitives` |
+| `@deepseek-ai/dsh-client-ui-settings` | Present | `0.1.2-alpha.1` | `packages/client/ui-settings` |
+| `@deepseek-ai/dsh-client-ui-sidebar` | Present | `0.1.2-alpha.1` | `packages/client/ui-sidebar` |
+| `@deepseek-ai/dsh-client-ui-slots` | Present | `0.1.2-alpha.1` | `packages/client/ui-slots` |
+| `@deepseek-ai/dsh-credentials` | Present | `0.1.2-alpha.1` | `packages/credentials/credentials` |
+| `@deepseek-ai/dsh-llm` | Present | `0.1.2-alpha.1` | `packages/llm/llm` |
+| `@deepseek-ai/dsh-subprocess` | Present | `0.1.2-alpha.1` | `packages/subprocess/subprocess` |
+| `@deepseek-ai/dsh-system-prompt` | Present | `0.1.2-alpha.1` | `packages/core/system-prompt` |
+| `@deepseek-ai/dsh-timeout` | Present | `0.1.2-alpha.1` | `packages/util/timeout` |
+| `@deepseek-ai/dsh-tools` | Present | `0.1.2-alpha.1` | `packages/core/tools` |
+| `@deepseek-ai/dsh-agent` | Present | `0.1.2-alpha.1` | `packages/core/agent` |
+| `@deepseek-ai/dsh-atomic-write` | Present | `0.1.2-alpha.1` | `packages/util/atomic-write` |
+| `@deepseek-ai/dsh-client-runtime` | **Absent / Retired** | N/A | Removed in alpha.1 UI architecture |
+| `@deepseek-ai/dsh-host-apiproxy` | **Absent / Retired** | N/A | Merged into `dsh-client-connection` |
+
+---
+
+## 5. Local Baseline (rc.2) Validation Results
+
+### 5.1 Lockfile & Frozen Install Gate
+- `pnpm install --frozen-lockfile`: **FAIL (Exit code `1`)**
+  ```text
+  [ERR_PNPM_OUTDATED_LOCKFILE] Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/packages/core/package.json
+  * 2 dependencies are mismatched:
+    - @deepseek-ai/dsh-system-prompt (lockfile: 0.1.1-rc.2, manifest: 0.1.1-rc.2 || 0.1.2-alpha.1)
+    - @deepseek-ai/dsh-tools (lockfile: 0.1.1-rc.2, manifest: 0.1.1-rc.2 || 0.1.2-alpha.1)
   ```
-- **Verification**:
-  1. The test executes the real model-facing tool `memory_write.execute` registered via `apply(ctx)`.
-  2. The sanitized error message is validated using exact equality (`'Project memory write failed for topic "architecture".'`).
-  3. The assertion confirms that the topic file `.dsh/memory/architecture.md` was **not created** on disk (`ENOENT`).
-  4. Production error sanitization in [`packages/project-memory/src/tools.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/tools.ts) is unchanged and remains fail-closed.
-  5. Zero production source files were touched in this commit.
+- `git diff --exit-code -- pnpm-lock.yaml`: Exit code `0`.
+- `git diff --exit-code -- packages/core/package.json packages/project-memory/package.json pnpm-lock.yaml`: Exit code `0`.
 
----
-
-## 2. Package & Workspace Validation Gates
-
-### 2.1 Manifest & Lockfile Gate
-- `pnpm install --frozen-lockfile`: **PASS** (Exit code `0`, clean workspace in 300ms).
-- `git diff --exit-code -- packages/project-memory/package.json pnpm-lock.yaml`: **PASS** (Exit code `0`, zero drift).
-
-### 2.2 Focused Project Memory Gates
+### 5.2 Focused Core & Project Memory Gates
 | Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-project-memory test` | `0` | **PASS** | 39 tests executed: **39 passed**, 0 failed (+10 tests over PM04 baseline; duration: 2.05s) |
-| `pnpm --filter nishi-dsh-project-memory check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean |
-| `pnpm --filter nishi-dsh-project-memory build` | `0` | **PASS** | `tsc -p tsconfig.json` clean, emitted to `lib/` |
+| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 176 tests executed: **176 passed**, 0 failed (+1 test: `package-boundary.test.ts`) |
+| `pnpm --filter nishi-dsh-core check` | `0` | **PASS** | TypeScript check clean |
+| `pnpm --filter nishi-dsh-core build` | `0` | **PASS** | `tsdown` build emitted all ESM/CJS bundles and declaration files |
+| `pnpm --filter nishi-dsh-project-memory test` | `0` | **PASS** | 39 tests executed: **39 passed**, 0 failed |
+| `pnpm --filter nishi-dsh-project-memory check` | `0` | **PASS** | TypeScript check clean |
+| `pnpm --filter nishi-dsh-project-memory build` | `0` | **PASS** | `tsc` compilation clean |
 
-### 2.3 Full Workspace Verification Gates
+### 5.3 Full Workspace Tests
 | Package | Tests Passed | Tests Failed | Check Exit Code | Build Exit Code |
 |---|---|---|---|---|
-| `packages/core` | 175 | 0 | 0 | 0 |
+| `packages/core` | 176 | 0 | 0 | 0 |
 | `packages/project-memory` | 39 | 0 | 0 | 0 |
-| `packages/antigravity` | 27 | 0 | 0 | 0 |
-| `packages/codex` | 23 | 0 | 0 | 0 |
+| `packages/codex` | 31 | 0 | 0 | 0 |
+| `packages/antigravity` | 7 | 0 | 0 | 0 |
+| `packages/claude` | 5 | 0 | 0 | 0 |
 | `packages/suite` | 12 | 0 | 0 | 0 |
-| `packages/claude` | 1 | 0 | 0 | 0 |
-| **Workspace Total** | **277** | **0** | **0** | **0** |
+| **Workspace Total** | **270** | **0** | **0** | **0** |
+
+### 5.4 Quota-Free Local Contract Gate (`verify:local`)
+- `pnpm verify:local`: **PASS (Exit code `0`)**
+  - Release-family verification: PASS
+  - Package contracts verification: PASS
+  - Orchestrator lifecycle validation: PASS
+  - Workspace build & check: PASS
+  - Workspace test suite (270/270): PASS
+  - Packed tarballs generated for all 6 packages into `.artifacts/packs/`: PASS
 
 ---
 
-## 3. Detailed Technical Verification & Empirical Evidence
+## 6. Packed Tarball Metadata Verification
 
-### 3.1 Topic Identity Refactor & Cycle Elimination
-- **Extracted File**: [`packages/project-memory/src/topic-id.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/topic-id.ts)
-- **Contract Fidelity**:
-  - `TOPIC_IDENTIFIER_REGEX`: `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/` (100% identical).
-  - `MAX_TOPIC_IDENTIFIER_LENGTH`: `64` (100% identical).
-  - `RESERVED_TOPIC_IDENTIFIERS`: `memory`, `con`, `prn`, `aux`, `nul`, `com1`..`com9`, `lpt1`..`lpt9` (100% identical).
-  - `isValidTopicIdentifier`: Strictly rejects `memory`, uppercase identifiers (`CON`, `PRN`, `Arch`), special characters, and lengths > 64.
-- **Module Dependency Graph**:
-  - `topic-id.ts` has 0 internal imports.
-  - `bootstrap.ts` imports `{ isValidTopicIdentifier }` from `topic-id.js`.
-  - `topics.ts` imports `{ isValidTopicIdentifier }` from `topic-id.js` and `{ withMemoryMapEntryTransaction }` from `bootstrap.js`.
-  - `bootstrap.ts` does **NOT** import from `topics.ts`.
-  - **Verdict**: The circular dependency between `bootstrap` and `topics` is completely eliminated.
+From `.artifacts/packs/nishi-dsh-core-0.1.0-rc.3.tgz` and `.artifacts/packs/nishi-dsh-project-memory-0.1.0-rc.3.tgz`:
 
-### 3.2 Root Package API Boundary & Export Surface
-- **Preserved Root Exports**:
-  - Constants: `MAX_BOOTSTRAP_LINES`, `MAX_BOOTSTRAP_BYTES`, `INITIAL_MEMORY_MD_CONTENT`, `MAX_TOPIC_BYTES`, `MAX_TOPIC_IDENTIFIER_LENGTH`, `RESERVED_TOPIC_IDENTIFIERS`, `TOPIC_IDENTIFIER_REGEX`.
-  - Helpers: `truncateLines`, `truncateUtf8Buffer`, `boundedUtf8Bootstrap`, `insertTopicIntoMemoryMapContent`, `isValidTopicIdentifier`.
-  - Bootstrap Operations: `ensureProjectMemoryBootstrap`, `readProjectMemoryBootstrap`, `writeProjectMemoryBootstrap`, `editProjectMemoryBootstrap`, `ensureMemoryMapEntry`.
-  - Storage Operations: `readTopicMemory`, `writeTopicMemory`, `editTopicMemory`, `writeTopicMemoryWithMap`, `editTopicMemoryWithMap`.
-  - Lifecycle / Context: `initializeDshProject`, `readDshProjectContext`, `readCanonicalProjectContext`, `resolveProjectMemoryPaths`, `resolveTopicMemoryPath`, `name`, `inject`, `apply`.
-- **Internal Coordination Seams**:
-  - `withMemoryMapEntryTransaction` and type `CommitMemoryMapEntry` are **NOT** exported from `packages/project-memory/src/index.ts` or emitted in `lib/index.d.ts`.
-  - Direct root package imports for `withMemoryMapEntryTransaction` evaluate to `undefined`.
+### Core (`nishi-dsh-core-0.1.0-rc.3.tgz`)
+- `dependencies`:
+  - `@deepseek-ai/schemastery`: `^3.18.1`
+- `peerDependencies`:
+  - `@deepseek-ai/cordis`: `^4.0.1`
+  - `@deepseek-ai/dsh-client-connection`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-client-locale`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-client-ui-primitives`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-client-ui-settings`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-client-ui-sidebar`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-client-ui-slots`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-credentials`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-llm`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-subprocess`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-system-prompt`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-timeout`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-tools`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `react`: `^18.2.0`
+- Retired packages (`dsh-client-runtime`, `dsh-host-apiproxy`, `dsh-subagent`, `dsh-authorization`): **ABSENT from dependencies and peerDependencies**.
 
-### 3.3 Transaction Preflight & Locked Coordinator (`withMemoryMapEntryTransaction`)
-- Validates absolute `projectRoot` and topic identifier validity before proceeding.
-- Ensures canonical `.dsh` and `.dsh/memory` directories.
-- Takes `MEMORY.md.lock` via `withSafeFileWriterLock(memoryDir, memoryMd, ...)`.
-- Reads `MEMORY.md` under lock via `readBootstrapOrInitial`. If absent (`ENOENT`), returns approved initial bootstrap in-memory without creating a file on disk.
-- Calculates `insertTopicIntoMemoryMapContent(currentContent, topic)`.
-- Validates `MAX_BOOTSTRAP_BYTES` (25 KiB) and `MAX_BOOTSTRAP_LINES` (200 lines) **before** invoking the topic mutation callback.
-- If Memory map is malformed (e.g. duplicate `## Memory map` sections), throws during preflight before topic lock is acquired or topic file is touched.
-- `commitMap()` is idempotent / one-shot (`let committed = false`). If the topic mutation callback returns without calling `commitMap()`, an explicit programmer-error exception is thrown.
-
-### 3.4 Missing Bootstrap Semantics
-- When `MEMORY.md` is absent and a compound topic edit is requested for a missing topic:
-  - Operation rejects with `Topic memory file "..." does not exist; cannot edit missing topic`.
-  - `MEMORY.md` is **not** created.
-  - `<topic>.md` is **not** created.
-  - All `.lock` files are deleted cleanly.
-
-### 3.5 Happy-Path Compound Write & Edit
-- **Compound Write (`writeTopicMemoryWithMap`)**:
-  - Acquires `MEMORY.md.lock` -> preflights map -> acquires `<topic>.md.lock` -> snapshots topic -> writes topic -> commits Memory map -> releases locks.
-  - Result DTO: `{ topic: 'architecture', created: true, path: '...' }`.
-  - File created at `.dsh/memory/architecture.md`.
-  - Canonical map entry `- \`architecture\` → \`.dsh/memory/architecture.md\`` added to `MEMORY.md`.
-- **Compound Edit (`editTopicMemoryWithMap`)**:
-  - Performs single exact match string replacement under topic lock.
-  - If topic was previously unmapped in `MEMORY.md`, compound edit repairs the missing map entry while applying the edit.
-  - Overlapping matches and non-unique matches fail closed.
-
-### 3.6 Disposable Probe Results: Fault Injection & Rollback (Probes 7A, 7B, 8, 11)
-
-All disposable probes were executed in isolation outside the working tree (`/home/acedia/.gemini/antigravity/brain/856ae815-71c0-4cb3-a738-4617c50a2b8d/scratch/disposable_probes.mjs`):
-
-#### Probe 7A: Late Map Commit Failure on Newly-Created Topic
-- **Fault Injection**: Topic is successfully created under `<topic>.md.lock`; `commitMap()` is forced to reject with a simulated I/O failure.
-- **Observed Behavior**:
-  - `writeTopicMemoryWithMap` rejects with the original map error.
-  - Newly-created `<topic>.md` is removed via `rm()` before releasing `<topic>.md.lock`.
-  - `MEMORY.md` remains in its exact baseline state with 0 references to `<topic>`.
-  - No orphan files or dangling `.lock` files remain.
-- **Verdict**: **PASS**.
-
-#### Probe 7B: Late Map Commit Failure on Existing Topic (Exact Byte-for-Byte Restore)
-- **Fault Injection**: Initial topic contains multi-line UTF-8 with special Unicode glyphs (`# Topic Заголовок 🚀\nLine 2: 漢字 and special symbols \u0000\nLine 3: Trailing newline\n`). Topic is overwritten under lock; `commitMap()` is forced to throw `ENOSPC`.
-- **Observed Behavior**:
-  - `writeTopicMemoryWithMap` rejects with the original `ENOSPC` error.
-  - Existing topic file is restored using the in-memory snapshot Buffer via `writeSafeFileAtomically`.
-  - Comparison of restored file against initial Buffer: `restoredBuffer.equals(initialBuffer) === true` (100% byte-for-byte exact restore).
-  - `MEMORY.md` remains unchanged.
-- **Verdict**: **PASS**.
-
-#### Probe 8: Rollback Failure Surfaces Storage `AggregateError`
-- **Fault Injection**: Map commit fails, and topic snapshot restore also fails (e.g. destination un-writable or non-regular).
-- **Observed Behavior**:
-  - `rollbackTopicAfterMapFailure` constructs and throws an `AggregateError`.
-  - `errors[0]` contains the original map commit error.
-  - `errors[1]` contains the rollback failure error.
-  - `cause` is set to the original map commit error.
-  - Message explicitly warns: `Project memory transaction for topic "..." failed and topic rollback did not complete cleanly`.
-  - Rollback failure is never masked as a clean rollback.
-- **Verdict**: **PASS**.
-
-#### Probe 11: Writer Blocking During Mutation & Rollback Window
-- **Fault Injection**: Parent transaction holds `<topic>.md.lock` during topic mutation and rollback. A concurrent child worker process launches `topic-write` on the same topic.
-- **Observed Behavior**:
-  - Child worker acquires `READY` but is blocked on `withSafeFileWriterLock` for `<topic>.md`.
-  - Child worker cannot read or overwrite the file while the parent holds the lock or performs rollback.
-  - Upon parent releasing the lock, child worker acquires lock and applies its change cleanly without lost updates or race conditions.
-- **Verdict**: **PASS**.
-
-### 3.7 Concurrency & Lock Ordering (Probes 9 & 10)
-- **Fixed Lock Order**: `MEMORY.md` -> `<topic>.md`.
-- **Lock Ordering Proof**: When `MEMORY.md.lock` is externally held, a worker executing `topic-write-map` is blocked immediately. Verification shows that while blocked, `<topic>.md.lock` and `<topic>.md` are **never created**.
-- **Concurrent Compound Writes (Different Topics)**: Two OS child processes writing `architecture` and `workflow` concurrently serialize cleanly through `MEMORY.md.lock`. Final state contains both topic files, and each topic appears **exactly once** in `MEMORY.md`.
-- **Concurrent Compound Edits (Same Topic)**: Two OS child processes executing `old-a -> new-a` and `old-b -> new-b` on the same topic file serialize under `<topic>.md.lock`. Final content contains both edits (`first=new-a\nsecond=new-b\n`) with zero lost updates and single map entry.
-
-### 3.8 Low-Level vs Model-Facing Tool Separation
-- **Low-Level APIs (`writeTopicMemory`, `editTopicMemory`)**:
-  - Single-file operations holding `<topic>.md.lock`.
-  - Verified empirically: calling low-level write or edit modifies only `<topic>.md` and leaves `MEMORY.md` map untouched.
-- **Model-Facing Tools (`memory_write`, `memory_edit`)**:
-  - Registered via `apply(ctx)` in `src/tools.ts`.
-  - For named topics, route through `writeTopicMemoryWithMap` and `editTopicMemoryWithMap`.
-  - For special topic `"memory"`, route through `writeProjectMemoryBootstrap` and `editProjectMemoryBootstrap`.
-  - Errors are sanitized via `sanitizeToolError(operation, topic)` returning `Project memory <op> failed for topic "<topic>".` without leaking secret data or internal paths.
-
-### 3.9 Oversized Topic File Behavior (>256 KiB)
-- `readTopicSnapshotLocked` validates `stats.size <= MAX_TOPIC_BYTES` (256 KiB) and rejects oversized existing topic files before mutation.
-- **Assessment**: Consistent fail-closed behavior adhering to the documented contract `topic file: at most 256 KiB`. Overwriting oversized invalid files was never a documented recovery contract for compound model-facing transactions. Single-file low-level write or operator deletion can be used if recovery of a non-canonical file is required.
-
-### 3.10 Symlink & Canonical Path Safety
-- Pre-acquisition and post-acquisition checks verify canonical directories (`.dsh` and `.dsh/memory`) are real directories and targets are regular files.
-- If target is a symlink, write and edit fail closed without following or mutating external referents.
-- Rollback target check ensures that if the target was replaced by a symlink during mutation, rollback fails closed rather than following the link.
-
-### 3.11 DSH Compatibility (`0.1.1-rc.2` baseline vs `0.1.2-alpha.1`)
-- The Project Memory locking and compound transaction implementation depends only on `@deepseek-ai/dsh-atomic-write.withFileLock` and `@deepseek-ai/dsh-atomic-write.writeFileAtomic`.
-- Upstream source at tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) contains identical `withFileLock` and `writeFileAtomic` contracts, types, and implementations.
-- Zero breaking API changes or vendor model quota dependencies exist.
-
-### 3.12 Crash Durability & Threat Model Limits
-- Documentation in [`packages/project-memory/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/README.md) and [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md) accurately specifies guarantees for cooperating DSH processes:
-  - Serializes cooperating writers through `<target>.lock`.
-  - Protects against partial compound failures during normal runtime and I/O errors.
-  - Surfaces clean rollback or explicit `AggregateError`.
-- Appropriately notes that crash durability (`fsync`) and non-cooperating external root-level processes modifying the directory outside `.lock` are outside the scope of upstream `@deepseek-ai/dsh-atomic-write`.
+### Project Memory (`nishi-dsh-project-memory-0.1.0-rc.3.tgz`)
+- `dependencies`: Empty / undefined.
+- `peerDependencies`:
+  - `@deepseek-ai/cordis`: `^4.0.1`
+  - `@deepseek-ai/dsh-agent`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-atomic-write`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-llm`: `0.1.1-rc.2 || 0.1.2-alpha.1`
+  - `@deepseek-ai/dsh-tools`: `0.1.1-rc.2 || 0.1.2-alpha.1`
 
 ---
 
-## 4. Git & Working Tree Status
+## 7. Disposable Alpha.1 Environment Runtime Evidence
+
+### 7.1 Method & Setup
+- Source: Fresh upstream clone of `deepseek-ai/deepseek-harness` checked out at tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`).
+- Built all upstream packages using upstream build pipeline.
+- Packed required 14 alpha.1 packages via `pnpm pack`.
+- Executed comprehensive integration test suite linking compiled Nishi Core and Project Memory against actual alpha.1 packages.
+
+### 7.2 Alpha.1 Core Verification Results
+- **Compile & Import**: `nishi-dsh-core` root, `/runtime`, `/usage`, `/web-search`, and `/client` load without error.
+- **Host Connection RPC Registration**: Connection compatibility layer [`registerConnectionRpcChannel`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/connection-compat.ts#L30-L43) successfully detected the native alpha.1 two-argument `rpc.handle(channel, handler)` signature and registered `/usage-limits` and `/authorization` channels.
+- **Registry & Transaction Integrity**: Provider registration (`record`), route resolution (`byRoute`), withdrawal, non-vetoing sync broken observers, and async observer rejection containment all passed.
+- **Usage Roster RPC**: `get-roster` RPC handler executed successfully against alpha.1 host and rejected unexpected request fields with `bad-request`.
+- **Clean Remount**: Unmounting and remounting Core plugin on alpha.1 Cordis Context executed without duplicate service or channel collision errors.
+- **Client Surface**: Client plugin loaded via browser ModuleLoader and mounted onto alpha.1 client Context with `slots`, `locale`, and `connection`.
+
+### 7.3 Alpha.1 Project Memory Verification Results
+- **Compile & Import**: `nishi-dsh-project-memory` imported cleanly.
+- **File Lock Invariant**: `@deepseek-ai/dsh-atomic-write` exported `withFileLock` and `writeFileAtomic` with identical PM04 contract.
+- **Model-Facing Memory Tools**:
+  - `memory_write({ topic: architecture, content: ... })` successfully wrote topic file and updated `.dsh/memory/MEMORY.md` with `- \`architecture\` → \`.dsh/memory/architecture.md\``.
+  - `memory_read({ topic: architecture })` returned exact written topic content.
+  - `memory_edit({ topic: architecture, old_text: ..., new_text: ... })` updated topic content byte-for-byte.
+  - Zero lingering `.lock` files remained after completion.
+  - Corrupted `MEMORY.md` preflight rejected `memory_write` without creating `.dsh/memory/new-topic.md` on disk.
+- **Maintenance Selection & Lifecycle Timing**:
+  - Confirmed lifecycle ordering: `agent/inbox/claimed` triggers before `system-prompt/assemble`.
+  - Confirmed `installModelSelection` from alpha.1 `@deepseek-ai/dsh-agent` propagates provider/model selection on first maintenance request and unhooks cleanly upon disposal.
+
+---
+
+## 8. Provider Packages & Suite Compatibility Scope Notice
+
+- **Explicit Foundation Scope**: Only `nishi-dsh-core` and `nishi-dsh-project-memory` declare dual generation compatibility (`0.1.1-rc.2 || 0.1.2-alpha.1`).
+- **Provider Packages Status**: `nishi-dsh-codex`, `nishi-dsh-antigravity`, and `nishi-dsh-claude` remain pinned to exact `0.1.1-rc.2` and are scheduled for subsequent provider-specific passes.
+- **Suite Status**: `nishi-dsh-suite` dependencies remain pinned to rc.2 baseline. Whole-family alpha.1 release compatibility is not yet claimed.
+
+---
+
+## 9. Final Status & Conclusion
 
 ```text
-HEAD: dbe1b7a3894bc05c1c4863148060bff59166bc17
-Branch: feat/core-provider-plugins-rc3
-Working tree: clean (only docs/verification/gemini/LATEST.md modified)
+Foundation result: FAIL
+Core: RE-FREEZE BLOCKED BY FROZEN LOCKFILE MISMATCH
+Project Memory: RE-FREEZE BLOCKED BY FROZEN LOCKFILE MISMATCH
 ```
 
----
-
-## 5. Final Verdict
-
-**`Result: PASS`**
-
-The Project Memory compound named-topic + Memory-map transaction implementation satisfies all locking, serialization, preflight, rollback, concurrency, sanitization, path safety, and regression requirements.
+### Reproducible Reason for FAIL
+`pnpm install --frozen-lockfile` exited with code `1` due to outdated entries in `pnpm-lock.yaml` for `packages/core` (`@deepseek-ai/dsh-system-prompt` and `@deepseek-ai/dsh-tools`). Per validation instructions, implementation, manifests, and lockfiles were not modified during this audit. Once the maintainer reconciles `pnpm-lock.yaml` to match the updated `packages/core/package.json` peer declarations, the foundation is ready for immediate PASS.
