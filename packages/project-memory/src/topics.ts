@@ -1,13 +1,11 @@
 import { join } from 'node:path'
-import {
-  ensureCanonicalDirectory,
-  validateCanonicalDirectory,
-  withSafeDirectoryScope,
-  withSafeFileWriterLock,
-  type SafeDirectoryScope,
-} from './filesystem.js'
+import type { SafeDirectoryScope } from './filesystem.js'
 import { withMemoryMapEntryTransaction } from './bootstrap.js'
 import { resolveProjectMemoryPaths } from './paths.js'
+import {
+  withEnsuredProjectMemoryScope,
+  withExistingProjectMemoryScope,
+} from './storage.js'
 import { isValidTopicIdentifier } from './topic-id.js'
 import {
   clearPendingProjectMemoryTransaction,
@@ -174,10 +172,6 @@ async function rollbackJournaledTransaction(
   journalScope: SafeDirectoryScope,
 ): Promise<never> {
   try {
-    // Once a participant has been durably replaced, rollback is protocol
-    // settlement rather than new user work. It must finish even when the
-    // caller's AbortSignal is already aborted, while staying on the exact same
-    // opened directory identities and still-held writer locks.
     const settlementMemoryScope = memoryScope.forSettlement()
     const settlementJournalScope = journalScope.forSettlement()
     await restorePendingProjectMemoryTransactionLocked(projectRoot, journal, settlementMemoryScope)
@@ -209,23 +203,15 @@ export async function readTopicMemory(
   signal?.throwIfAborted()
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const topicPath = resolveTopicMemoryPath(projectRoot, topic)
-  const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-
-  const dshExists = await validateCanonicalDirectory(dshDir, signal)
-  if (!dshExists) return { exists: false, content: null, path: topicPath, topic }
-  const memoryDirExists = await validateCanonicalDirectory(memoryDir, signal)
-  if (!memoryDirExists) return { exists: false, content: null, path: topicPath, topic }
-
-  const snapshot = await withSafeDirectoryScope(
-    memoryDir,
-    (scope) => readTopicSnapshotLocked(scope, topicPath, topic, signal),
+  const result = await withExistingProjectMemoryScope(
+    projectRoot,
+    (memoryScope) => readTopicSnapshotLocked(memoryScope, topicPath, topic, signal),
     signal,
   )
+  if (result === undefined) return { exists: false, content: null, path: topicPath, topic }
   return {
-    exists: snapshot.exists,
-    content: snapshot.content?.toString('utf8') ?? null,
+    exists: result.exists,
+    content: result.content?.toString('utf8') ?? null,
     path: topicPath,
     topic,
   }
@@ -241,15 +227,12 @@ export async function writeTopicMemory(
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const topicPath = resolveTopicMemoryPath(projectRoot, topic)
   const contentBuffer = topicContentBuffer(content)
-  const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
-  await ensureCanonicalDirectory(memoryDir, signal)
 
-  return withSafeFileWriterLock(memoryDir, topicPath, async (scope) => {
-    const snapshot = await readTopicSnapshotLocked(scope, topicPath, topic, signal)
-    return writeTopicMemoryLocked(scope, topicPath, topic, contentBuffer, snapshot, signal)
+  return withEnsuredProjectMemoryScope(projectRoot, (memoryScope) => {
+    return memoryScope.withWriterLock(topicPath, async (scope) => {
+      const snapshot = await readTopicSnapshotLocked(scope, topicPath, topic, signal)
+      return writeTopicMemoryLocked(scope, topicPath, topic, contentBuffer, snapshot, signal)
+    })
   }, signal)
 }
 
@@ -265,20 +248,17 @@ export async function editTopicMemory(
   const topicPath = resolveTopicMemoryPath(projectRoot, topic)
   if (typeof oldText !== 'string' || oldText.length === 0) throw new Error('oldText must be a non-empty string')
   if (typeof newText !== 'string') throw new Error('newText must be a string')
-  const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  if (!(await validateCanonicalDirectory(dshDir, signal))) {
-    throw new Error(`Cannot edit topic memory: directory "${dshDir}" does not exist`)
-  }
-  if (!(await validateCanonicalDirectory(memoryDir, signal))) {
-    throw new Error(`Cannot edit topic memory: directory "${memoryDir}" does not exist`)
-  }
 
-  return withSafeFileWriterLock(memoryDir, topicPath, async (scope) => {
-    const snapshot = await readTopicSnapshotLocked(scope, topicPath, topic, signal)
-    return editTopicMemoryLocked(scope, topicPath, topic, oldText, newText, snapshot, signal)
+  const result = await withExistingProjectMemoryScope(projectRoot, (memoryScope) => {
+    return memoryScope.withWriterLock(topicPath, async (scope) => {
+      const snapshot = await readTopicSnapshotLocked(scope, topicPath, topic, signal)
+      return editTopicMemoryLocked(scope, topicPath, topic, oldText, newText, snapshot, signal)
+    })
   }, signal)
+  if (result === undefined) {
+    throw new Error(`Cannot edit topic memory: directory "${resolveProjectMemoryPaths(projectRoot).memoryDir}" does not exist`)
+  }
+  return result
 }
 
 export async function writeTopicMemoryWithMap(
@@ -292,15 +272,12 @@ export async function writeTopicMemoryWithMap(
   const topicPath = resolveTopicMemoryPath(projectRoot, topic)
   const contentBuffer = topicContentBuffer(content)
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
-  await ensureCanonicalDirectory(memoryDir, signal)
-  await ensureCanonicalDirectory(paths.localDir, signal)
 
   let committedJournal: PendingProjectMemoryTransaction | undefined
-  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap, memoryScope) => {
-    return withSafeDirectoryScope(paths.localDir, async (journalScope) => {
+  const result = await withMemoryMapEntryTransaction(
+    projectRoot,
+    topic,
+    async (commitMap, memoryScope, journalScope) => {
       return memoryScope.withWriterLock(topicPath, async () => {
         signal?.throwIfAborted()
         const topicSnapshot = await readTopicSnapshotLocked(memoryScope, topicPath, topic, signal)
@@ -340,8 +317,9 @@ export async function writeTopicMemoryWithMap(
           )
         }
       })
-    }, signal)
-  }, signal)
+    },
+    signal,
+  )
 
   if (committedJournal !== undefined) await clearCommittedJournalBestEffort(projectRoot)
   return result
@@ -360,19 +338,12 @@ export async function editTopicMemoryWithMap(
   if (typeof oldText !== 'string' || oldText.length === 0) throw new Error('oldText must be a non-empty string')
   if (typeof newText !== 'string') throw new Error('newText must be a string')
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  if (!(await validateCanonicalDirectory(dshDir, signal))) {
-    throw new Error(`Cannot edit topic memory: directory "${dshDir}" does not exist`)
-  }
-  if (!(await validateCanonicalDirectory(memoryDir, signal))) {
-    throw new Error(`Cannot edit topic memory: directory "${memoryDir}" does not exist`)
-  }
-  await ensureCanonicalDirectory(paths.localDir, signal)
 
   let committedJournal: PendingProjectMemoryTransaction | undefined
-  const result = await withMemoryMapEntryTransaction(projectRoot, topic, async (commitMap, memoryScope) => {
-    return withSafeDirectoryScope(paths.localDir, async (journalScope) => {
+  const result = await withMemoryMapEntryTransaction(
+    projectRoot,
+    topic,
+    async (commitMap, memoryScope, journalScope) => {
       return memoryScope.withWriterLock(topicPath, async () => {
         signal?.throwIfAborted()
         const topicSnapshot = await readTopicSnapshotLocked(memoryScope, topicPath, topic, signal)
@@ -416,8 +387,9 @@ export async function editTopicMemoryWithMap(
           )
         }
       })
-    }, signal)
-  }, signal)
+    },
+    signal,
+  )
 
   if (committedJournal !== undefined) await clearCommittedJournalBestEffort(projectRoot)
   return result
