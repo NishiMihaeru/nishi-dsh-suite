@@ -102,11 +102,11 @@ test('core source does not import the unused DSH authorization package', async (
   }
 })
 
-test('Core no longer depends on DSH package seams retired by alpha.1', async () => {
+test('retired alpha.1 DSH package seams are not runtime requirements', async () => {
   const manifest = await coreManifest()
 
   for (const retiredPackage of RETIRED_DSH_PACKAGES) {
-    for (const field of ['dependencies', 'peerDependencies', 'devDependencies'] as const) {
+    for (const field of ['dependencies', 'peerDependencies'] as const) {
       assert.equal(
         manifest[field]?.[retiredPackage],
         undefined,
@@ -120,9 +120,14 @@ test('Core no longer depends on DSH package seams retired by alpha.1', async () 
     false,
     'the browser manifest must not request the removed dsh-client-runtime plugin',
   )
+
+  // rc.2-only dev fixtures may still name these packages while the workspace
+  // proves backward compatibility; consumers never receive devDependencies.
+  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-client-runtime'], '0.1.1-rc.2')
+  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-host-apiproxy'], '0.1.1-rc.2')
 })
 
-test('Core source imports neither retired Connection package seam', async () => {
+test('Core production source imports neither retired Connection package seam', async () => {
   const srcRoot = new URL('../src/', import.meta.url)
   for (const path of await sourceFiles(srcRoot)) {
     const literals = executableStringLiterals(await readFile(path, 'utf8'), path)
