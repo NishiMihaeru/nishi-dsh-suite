@@ -74,31 +74,56 @@ Accepted result:
 - retired `dsh-host-apiproxy` / `dsh-client-runtime` removed from production Core boundary;
 - browser client apply and alpha.1 Host/Origin + browser-auth security probes PASS.
 
-## Immediate task: validate Core registry observer/transaction correction
+### Core registry observer / registration transaction
 
-The implementation is already on the branch. Do not mix Project Memory changes into this validation.
+Accepted implementation HEAD:
 
-The corrected contract is:
+```text
+b925e2a328168e7c978126fc6474b7af11d7a63d
+```
 
-1. Provider/route identity and expected provider-owned usage contract errors are validated before registry mutation.
-2. Explicit `usage.refreshPolicy` is validated/detached before capability factories.
-3. The collector returned by `usage.create()` is validated/wrapped before registry mutation.
-4. Host `defaultRefreshPolicy` is validated before registry observers are installed.
-5. `NishiProvidersService.onChange` callbacks are non-vetoing observers:
-   - one synchronous throw cannot make `record()` throw after commit;
-   - one async rejection is contained;
-   - later observers still run;
-   - `record()` still returns the withdrawal handle;
-   - withdrawal notifications obey the same non-vetoing rule.
-6. Later transactional failures after `record()` (effect binding/model registration/install) keep the existing explicit rollback behavior.
+Gemini report commit:
 
-Focused tests were added for throwing observers, async observer rejection, invalid provider policy, invalid collector and invalid host default policy.
+```text
+e17c809ce72060f8a5e0627b1a7d2c8d58c263e9
+```
 
-After this block passes, move to Project Memory inter-process RMW integrity.
+Accepted result:
+
+- 175/175 Core tests PASS;
+- Core and full-workspace test/check/build PASS;
+- sync/async registry observer failures are non-vetoing and diagnostically contained;
+- no unhandled rejection from async observers;
+- later observers still run and committed registrations always yield a withdrawal handle;
+- post-record install failure retains original error and rolls back registry/routes/adapter;
+- stale disposer cannot evict replacement generation;
+- explicit usage policy, usage collector and host default policy are validated before registry notifications can observe invalid state;
+- real Cordis proxy and usage reconciliation probes PASS.
+
+Core source/runtime blockers found in this reopened audit are closed. Core remains formally reopened only for final supported-version-range reconciliation and joint foundation re-freeze after Project Memory remediation.
+
+## Immediate task: Project Memory inter-process RMW integrity
+
+Atomic file replacement prevents torn files, but does not serialize a read-modify-write transaction across multiple DSH processes. The audit found paths where two processes can read the same old state and the later atomic rename can overwrite the first process's logically independent change.
+
+Target this as one narrow integrity block before addressing compound topic + Memory-map partial commits.
+
+Required outcomes:
+
+1. Inspect actual DSH `@deepseek-ai/dsh-atomic-write` contracts on installed rc.2 and upstream `dsh-v0.1.2-alpha.1`.
+2. Use the supported inter-process lock primitive where available/appropriate; alpha.1 exposes `withFileLock()` specifically for serialized RMW.
+3. Identify every Project Memory path that performs read-modify-write on shared repository state, including at least:
+   - `MEMORY.md` topic map updates;
+   - exact edit paths for bootstrap/topic files;
+   - project initialization updates such as `.gitignore` where concurrent writers can lose lines.
+4. Preserve current path/symlink confinement and atomic replacement behavior inside the lock.
+5. Avoid inventing a second independent lock namespace per operation that fails to serialize writers touching the same file.
+6. Add deterministic concurrent-process regression tests that would lose an update without locking and retain both updates with the fix.
+7. Keep this block separate from compound topic/map transaction semantics; a topic write plus subsequent map update will be addressed next.
 
 ## Remaining confirmed foundation blockers
 
-1. Project Memory read-modify-write paths need inter-process serialization where atomic replacement alone can lose concurrent updates.
+1. Project Memory read-modify-write paths need inter-process serialization where atomic replacement alone can lose concurrent updates. **ACTIVE**
 2. Project Memory topic + Memory-map compound mutations need explicit failure/partial-commit handling and tests.
 3. DSH peer/dev version declarations must be reconciled only after source compatibility is proven.
 4. Core + Project Memory must then be re-frozen against the intended supported DSH family.
@@ -117,6 +142,7 @@ After this block passes, move to Project Memory inter-process RMW integrity.
 - provider-owned usage contract errors that can reject registration happen before registry mutation;
 - Project Memory context/tools use one root policy;
 - Project Memory canonical path/symlink confinement remains fail-closed;
+- Project Memory shared-state RMW must not lose independent concurrent updates across DSH processes;
 - vendor-specific delegation tools stay removed;
 - no vendor credential/session/token stores are copied, parsed, migrated or deleted.
 
