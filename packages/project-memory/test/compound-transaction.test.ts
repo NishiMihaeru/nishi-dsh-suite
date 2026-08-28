@@ -100,6 +100,27 @@ async function holdWriterLock(filename: string): Promise<{ release: () => void; 
 
 const BASE_MEMORY = '# Project Memory\n\n## Current state\nstable\n\n## Memory map\nNo topic memories yet.\n'
 
+function journalFixture(input: {
+  phase: 'pending' | 'committed'
+  ownerPid: number
+  beforeTopic: string
+}) {
+  return {
+    version: PENDING_TRANSACTION_VERSION,
+    phase: input.phase,
+    ownerPid: input.ownerPid,
+    topic: 'architecture',
+    topicBefore: {
+      exists: true,
+      contentBase64: Buffer.from(input.beforeTopic, 'utf8').toString('base64'),
+    },
+    memoryBefore: {
+      exists: true,
+      contentBase64: Buffer.from(BASE_MEMORY, 'utf8').toString('base64'),
+    },
+  }
+}
+
 test('compound topic write commits topic content and its canonical Memory map entry together', async () => {
   await withTempProject(async (projectRoot) => {
     const paths = resolveProjectMemoryPaths(projectRoot)
@@ -241,7 +262,7 @@ test('concurrent compound exact edits retain both independent changes and one ma
   })
 })
 
-test('recovery restores exact pre-transaction state after process death between participant commits', async () => {
+test('pending recovery restores exact pre-transaction state after process death between participant commits', async () => {
   await withTempProject(async (projectRoot) => {
     const paths = resolveProjectMemoryPaths(projectRoot)
     const topicPath = join(paths.memoryDir, 'architecture.md')
@@ -252,17 +273,12 @@ test('recovery restores exact pre-transaction state after process death between 
 
     const deadPid = 2_000_000_000
     const transactionPath = pendingProjectMemoryTransactionPath(projectRoot)
-    await writeFile(transactionPath, JSON.stringify({
-      version: PENDING_TRANSACTION_VERSION,
-      ownerPid: deadPid,
-      topic: 'architecture',
-      topicBefore: { exists: true, contentBase64: Buffer.from(beforeTopic, 'utf8').toString('base64') },
-      memoryBefore: { exists: true, contentBase64: Buffer.from(BASE_MEMORY, 'utf8').toString('base64') },
-    }) + '\n', 'utf8')
+    await writeFile(
+      transactionPath,
+      JSON.stringify(journalFixture({ phase: 'pending', ownerPid: deadPid, beforeTopic })) + '\n',
+      'utf8',
+    )
 
-    // Simulate a crash after both participant writes but before the journal is
-    // removed. Recovery must treat journal removal as the commit point and
-    // therefore restore the exact old state.
     await writeFile(topicPath, 'state=partially-committed\n', 'utf8')
     await writeFile(
       paths.memoryMd,
@@ -276,6 +292,42 @@ test('recovery restores exact pre-transaction state after process death between 
 
     assert.equal(await readFile(topicPath, 'utf8'), beforeTopic)
     assert.equal(await readFile(paths.memoryMd, 'utf8'), BASE_MEMORY)
+    await assertMissing(transactionPath)
+    await assertMissing(`${paths.memoryMd}.lock`)
+    await assertMissing(`${topicPath}.lock`)
+  })
+})
+
+test('committed recovery preserves both new participants and only cleans dead locks and journal', async () => {
+  await withTempProject(async (projectRoot) => {
+    const paths = resolveProjectMemoryPaths(projectRoot)
+    const topicPath = join(paths.memoryDir, 'architecture.md')
+    const beforeTopic = 'state=before\n'
+    const committedTopic = 'state=committed\n'
+    const committedMemory = BASE_MEMORY.replace(
+      'No topic memories yet.',
+      '- `architecture` → `.dsh/memory/architecture.md`',
+    )
+    await writeProjectMemoryBootstrap(projectRoot, BASE_MEMORY)
+    await writeTopicMemory(projectRoot, 'architecture', beforeTopic)
+    await mkdir(paths.localDir, { recursive: true })
+
+    const deadPid = 2_000_000_000
+    const transactionPath = pendingProjectMemoryTransactionPath(projectRoot)
+    await writeFile(
+      transactionPath,
+      JSON.stringify(journalFixture({ phase: 'committed', ownerPid: deadPid, beforeTopic })) + '\n',
+      'utf8',
+    )
+    await writeFile(topicPath, committedTopic, 'utf8')
+    await writeFile(paths.memoryMd, committedMemory, 'utf8')
+    await writeFile(`${paths.memoryMd}.lock`, `${deadPid}\n`, 'utf8')
+    await writeFile(`${topicPath}.lock`, `${deadPid}\n`, 'utf8')
+
+    await recoverPendingProjectMemoryTransaction(projectRoot)
+
+    assert.equal(await readFile(topicPath, 'utf8'), committedTopic)
+    assert.equal(await readFile(paths.memoryMd, 'utf8'), committedMemory)
     await assertMissing(transactionPath)
     await assertMissing(`${paths.memoryMd}.lock`)
     await assertMissing(`${topicPath}.lock`)
