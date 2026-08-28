@@ -1,6 +1,10 @@
 import { lstat, readFile, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import { ensureCanonicalDirectory, writeSafeFileAtomically } from './filesystem.js'
+import {
+  ensureCanonicalDirectory,
+  withSafeFileWriterLock,
+  writeSafeFileAtomically,
+} from './filesystem.js'
 import { ensureProjectMemoryBootstrap } from './bootstrap.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 
@@ -90,27 +94,50 @@ async function validateExistingProjectJson(projectJsonPath: string): Promise<boo
   return true
 }
 
+/** Ensure the project-owned ignore rule under the root .gitignore writer lock. */
 async function ensureGitignoreEntry(
   projectRoot: string,
   gitignorePath: string,
 ): Promise<boolean> {
-  const content = await readFile(gitignorePath, 'utf8')
-  const lines = content.split(/\r?\n/)
-  const hasEntry = lines.some((line) => {
-    const trimmed = line.trim()
-    return trimmed === '.dsh/local/' || trimmed === '/.dsh/local/'
+  return withSafeFileWriterLock(projectRoot, gitignorePath, async () => {
+    let content: string
+    try {
+      content = await readFile(gitignorePath, 'utf8')
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT') throw err
+
+      try {
+        await writeFile(gitignorePath, '.dsh/local/\n', {
+          encoding: 'utf8',
+          flag: 'wx',
+        })
+        return true
+      } catch (createErr: any) {
+        // Preserve a non-cooperating external creator instead of overwriting
+        // it; after EEXIST, validate and fold our line into the winner.
+        if (createErr?.code !== 'EEXIST') throw createErr
+        await validateExistingFile(gitignorePath, '.gitignore')
+        content = await readFile(gitignorePath, 'utf8')
+      }
+    }
+
+    const lines = content.split(/\r?\n/)
+    const hasEntry = lines.some((line) => {
+      const trimmed = line.trim()
+      return trimmed === '.dsh/local/' || trimmed === '/.dsh/local/'
+    })
+
+    if (hasEntry) {
+      return false
+    }
+
+    const prefix =
+      content.length === 0 || content.endsWith('\n') || content.endsWith('\r') ? '' : '\n'
+    const appendContent = `${prefix}.dsh/local/\n`
+    const updatedBuffer = Buffer.from(content + appendContent, 'utf8')
+    await writeSafeFileAtomically(projectRoot, gitignorePath, updatedBuffer)
+    return true
   })
-
-  if (hasEntry) {
-    return false
-  }
-
-  const prefix =
-    content.length === 0 || content.endsWith('\n') || content.endsWith('\r') ? '' : '\n'
-  const appendContent = `${prefix}.dsh/local/\n`
-  const updatedBuffer = Buffer.from(content + appendContent, 'utf8')
-  await writeSafeFileAtomically(projectRoot, gitignorePath, updatedBuffer)
-  return true
 }
 
 /**
@@ -199,29 +226,9 @@ export async function initializeDshProject(projectRoot: string): Promise<Project
     localDirCreated = true
   }
 
-  // 7. Ensure root .gitignore ignores .dsh/local/
-  let gitignoreEntryCreated = false
-  const gitignoreExists = await validateExistingFile(gitignorePath, '.gitignore')
-  if (!gitignoreExists) {
-    try {
-      await writeFile(gitignorePath, '.dsh/local/\n', {
-        encoding: 'utf8',
-        flag: 'wx',
-      })
-      gitignoreEntryCreated = true
-    } catch (err: any) {
-      if (err?.code === 'EEXIST') {
-        const afterExists = await validateExistingFile(gitignorePath, '.gitignore')
-        if (afterExists) {
-          gitignoreEntryCreated = await ensureGitignoreEntry(root, gitignorePath)
-        }
-      } else {
-        throw err
-      }
-    }
-  } else {
-    gitignoreEntryCreated = await ensureGitignoreEntry(root, gitignorePath)
-  }
+  // 7. Ensure root .gitignore ignores .dsh/local/. Creation and RMW both
+  // participate in the same cross-process writer lock.
+  const gitignoreEntryCreated = await ensureGitignoreEntry(root, gitignorePath)
 
   return {
     projectRoot: root,
