@@ -1,6 +1,6 @@
 # Handoff
 
-Updated for `0.1.0-rc.3` during Core and Project Memory compatibility/integrity remediation against DSH `0.1.2-alpha.1`.
+Updated for `0.1.0-rc.3` during the final Core + Project Memory supported-family re-freeze.
 
 This is the **only session handoff file**. Update it in place when the active task changes. Do not create dated session-summary or handoff documents.
 
@@ -16,14 +16,15 @@ Current family: six packages at `0.1.0-rc.3`.
 
 `0.1.0-rc.3` is in-repo and unpublished. Published `0.1.0-rc.1` remains the public npm family. No publish, merge, tag or release is authorized by this handoff.
 
-The previous Core and Project Memory acceptance remains valid for the installed DSH `0.1.1-rc.2` baseline, but both packages are **REOPENED** after reproducible findings against official DSH tag:
+The reopened audit uses two DSH generations:
 
 ```text
-dsh-v0.1.2-alpha.1
-cd5ef8148158c3a752a658978873241fdf8e2bbc
+local installed baseline: 0.1.1-rc.2
+upstream compatibility target: dsh-v0.1.2-alpha.1
+upstream commit: cd5ef8148158c3a752a658978873241fdf8e2bbc
 ```
 
-Do not resume provider cleanup until the foundation remediation in `ROADMAP.md` is complete.
+For DSH compatibility questions, actual upstream source/runtime contracts at that exact tag/commit are primary truth; documentation may lag implementation.
 
 ## Read before editing
 
@@ -33,125 +34,121 @@ Do not resume provider cleanup until the foundation remediation in `ROADMAP.md` 
 4. `docs/ARCHITECTURE.md`
 5. target package README, then exact source/tests being changed
 
-For DSH compatibility questions, use actual upstream source/contracts at the exact tag/commit above as primary truth. Documentation may lag implementation.
+## Reopened audit status
 
-## Completed remediation in this audit
+Every source/runtime blocker found in Core and Project Memory is now individually corrected and accepted.
 
-### Project Memory maintenance route — PM03
+### Core 15 — Connection/client compatibility
 
-Accepted implementation/test through `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`, Gemini report commit `10020983856a1137f286c83f9ed68c0a62605f58`, 25/25 tests, check/build and disposable alpha.1 model-selection probe PASS.
+Accepted implementation HEAD `59512d51e55f8121eccdb934e01523e4436b289c`, Gemini report commit `c991bb6ece48acb02d5c15bce3b2b970c3da391a`.
 
-### Core Connection/client compatibility — Core 15
+- rc.2 three-argument trusted-host Connection registration PASS;
+- alpha.1 authenticated two-argument Connection registration PASS;
+- host/client mount-unmount-remount and security probes PASS;
+- retired `dsh-host-apiproxy` / `dsh-client-runtime` removed from production Core boundary.
 
-Accepted implementation HEAD `59512d51e55f8121eccdb934e01523e4436b289c` and Gemini report commit `c991bb6ece48acb02d5c15bce3b2b970c3da391a`.
+### Core 16 — registry transaction integrity
 
-Accepted result includes 169/169 Core tests, check/build/frozen-lockfile PASS, rc.2 + alpha.1 Connection registration/lifecycle PASS, retired Connection/client seams removed from the production boundary, and alpha.1 Host/Origin + browser-auth security probes PASS.
+Accepted implementation HEAD `b925e2a328168e7c978126fc6474b7af11d7a63d`, Gemini report commit `e17c809ce72060f8a5e0627b1a7d2c8d58c263e9`.
 
-### Core registry observer / registration transaction — Core 16
+- 175/175 Core tests PASS;
+- non-vetoing registry observers;
+- no unhandled async observer rejection;
+- post-record rollback and stale-disposer safety PASS;
+- expected usage contract errors preflight before registry visibility.
 
-Accepted implementation HEAD `b925e2a328168e7c978126fc6474b7af11d7a63d` and Gemini report commit `e17c809ce72060f8a5e0627b1a7d2c8d58c263e9`.
+### PM03 — maintenance route timing
 
-Accepted result includes 175/175 Core tests, full workspace test/check/build PASS, non-vetoing sync/async registry observers, no unhandled observer rejection, intact post-record rollback, stale-disposer safety and preflight validation of usage policy/collector/default policy.
+Accepted through `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`, report commit `10020983856a1137f286c83f9ed68c0a62605f58`.
 
-### Project Memory inter-process RMW integrity — PM04
+The exact maintenance inbox message activates model selection before prompt assembly snapshots the first maintenance request.
 
-Accepted implementation HEAD:
+### PM04 — inter-process RMW integrity
 
-```text
-eae9caf03f8896f344d7c73b2f67d67cb9f86e9c
-```
-
-Gemini report commit:
-
-```text
-02e0dca62f49fc2ef6bba8626ae028c7da3986e2
-```
-
-Accepted result:
+Accepted implementation HEAD `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`, report commit `02e0dca62f49fc2ef6bba8626ae028c7da3986e2`.
 
 - 29/29 Project Memory tests PASS;
-- full workspace test/check/build PASS (267 tests total);
-- rc.2 and alpha.1 `withFileLock()` contracts confirmed identical;
-- same-file RMW lost updates closed for `MEMORY.md`, topic files and `.gitignore`;
-- real child-process stress retained all Memory-map entries and independent topic edits;
-- whole-file writers participate in the same per-target locks;
-- foreign lock timeout preserves foreign lock + target;
-- operation failures clean own locks;
-- target/lock/canonical-parent symlink safety PASS;
-- concurrent initializer stress and disposable alpha.1 lock probe PASS.
+- same-file RMW serialization for `MEMORY.md`, topics and `.gitignore`;
+- real multi-process stress, foreign-lock preservation, symlink safety and alpha.1 lock probe PASS.
 
-Core source/runtime blockers found in this reopened audit are closed. Project Memory now has one remaining implementation validation block before version reconciliation.
+### PM05 — compound topic + Memory-map integrity
 
-## Immediate task: validate Project Memory compound topic + Memory-map transactions
+Accepted implementation HEAD `dbe1b7a3894bc05c1c4863148060bff59166bc17`, report commit `8e8c1980a34d6c9b0cbd020f0d0166e7c4c00e01`.
 
-The implementation is on the branch. Do not mix dependency-range changes into this validation.
+- 39/39 Project Memory tests PASS;
+- 277/277 full workspace tests PASS;
+- fixed lock order `MEMORY.md -> topic.md`;
+- deterministic Memory-map errors preflight before topic mutation;
+- late map failure rolls back new/existing topic under held topic lock;
+- exact-byte restore and rollback-failure `AggregateError` PASS;
+- actual model-facing `memory_write` / `memory_edit` path and sanitization PASS.
 
-The old model-facing named-topic path was:
+## Immediate task: final Core + Project Memory supported-family re-freeze
+
+Production manifests now declare only the two DSH generations with direct evidence:
 
 ```text
-topic mutation -> release topic lock -> MEMORY.md map update
+0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-That allowed `memory_write` / `memory_edit` to report failure after the topic had already changed, and a naive later rollback could itself overwrite a concurrent writer.
+Affected manifests:
 
-Implemented contract:
+- `packages/core/package.json`
+- `packages/project-memory/package.json`
 
-1. Topic identity validation was separated into `src/topic-id.ts` so bootstrap coordination no longer depends on `topics.ts` and the compound path has no module cycle.
-2. `withMemoryMapEntryTransaction()` holds `MEMORY.md.lock`, re-reads/preflights the canonical Memory-map render and bootstrap bounds before any topic mutation, and exposes a one-shot map commit while the lock remains held.
-3. Missing `MEMORY.md` is represented by approved initial content in memory; it is not created until successful map commit.
-4. Model-facing named-topic `memory_write` / `memory_edit` use `writeTopicMemoryWithMap()` / `editTopicMemoryWithMap()`.
-5. Compound lock order is always:
+Contract:
 
-   ```text
-   MEMORY.md -> <topic>.md
-   ```
+1. Every production `@deepseek-ai/dsh-*` peer in Core/Project Memory uses exactly that explicit union.
+2. Do not replace it with a broad `>=`, caret or prerelease range: untested versions are not supported by implication.
+3. Local DSH `devDependencies` remain exactly `0.1.1-rc.2` for reproducible maintainer validation.
+4. Core retired seams `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy` remain rc.2-only dev fixtures, absent from production dependencies/peers/client injection.
+5. Alpha.1 validation stays disposable against official source/tag; the main workspace lock graph is not migrated to an unpublished/unpinned source snapshot.
+6. Peer-only changes should not require `pnpm-lock.yaml` drift.
+7. This foundation range does not broaden provider package ranges; Codex/Antigravity/Claude are handled in their own subsequent blocks.
 
-6. Topic snapshot + mutation happen under the nested topic lock.
-7. Memory-map commit happens while both locks remain held.
-8. If the late map commit fails, rollback happens before topic lock release:
-   - existing topic -> exact prior bytes restored;
-   - newly created topic -> removed;
-   - rollback failure -> `AggregateError` retaining original map error and rollback error.
-9. Low-level `writeTopicMemory()` / `editTopicMemory()` remain single-file helpers and intentionally do not touch the Memory map.
-10. Model-facing tool errors remain sanitized; storage-layer tests/review must still prove the actual transaction behavior underneath that sanitization.
+The final validation must prove both generations using the complete corrected Core + Project Memory, not isolated API snippets only.
 
-Focused tests now include:
+## Required final validation shape
 
-- happy-path topic + map commit;
-- invalid/ambiguous Memory-map preflight leaves new/existing topic untouched;
-- compound edit repairs a missing map entry;
-- separate-process concurrent compound writes retain every topic/map pair;
-- separate-process concurrent compound edits retain independent changes;
-- lock-order proof that topic lock is not acquired while `MEMORY.md.lock` is externally blocked;
-- actual `apply()`-registered `memory_write` / `memory_edit` execution and sanitized failure behavior.
+### Installed rc.2 baseline
 
-Gemini must additionally force a **late Memory-map commit failure after topic mutation** in a disposable filesystem probe and verify rollback for both a newly-created topic and an existing topic. Do not patch production code to create the failure; use filesystem/process timing or a disposable instrumented copy/probe if necessary.
+- frozen install;
+- Core test/check/build;
+- Project Memory test/check/build;
+- full workspace test/check/build;
+- preferably `pnpm verify:local` if it is quota-free and does not invoke prohibited hosted CI;
+- real/disposable Suite/Core/Memory boot/lifecycle smoke sufficient to catch peer/manifest mistakes.
 
-## Remaining foundation blockers after this validation
+### Disposable official alpha.1
 
-1. Compound Project Memory transaction validation. **ACTIVE**
-2. Reconcile Core + Project Memory DSH peer/dev version declarations with the actual supported DSH family.
-3. Final rc.2 + alpha.1 focused/full-workspace foundation validation.
-4. Re-freeze Core + Project Memory.
+Using tag `dsh-v0.1.2-alpha.1` / commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`, without rewriting the main working tree dependency graph:
 
-Then resume provider cleanup in the fixed sequence: Codex -> Antigravity -> Claude.
+- install/build Core against alpha.1 packages/source;
+- install/build Project Memory against alpha.1 packages/source;
+- Core host Connection + registry lifecycle smoke;
+- Core browser/client apply smoke where practical;
+- Project Memory actual tool registration + named write/edit/read smoke;
+- maintenance model-selection first-request probe;
+- RMW/compound transaction smoke including lock acquisition;
+- unload/dispose cleanup;
+- verify no removed alpha.1 package is a production requirement.
+
+If both generations pass, Core and Project Memory are re-frozen and provider cleanup resumes with Codex.
 
 ## Invariants to preserve
 
-- providers register through the shared `registerProvider()` path;
+- providers register through shared `registerProvider()`;
 - Core has no provider-package dependency;
-- outer `nishi-core` publishes `NishiProvidersService` before the inner host child;
-- Core does not depend on `dsh-authorization`;
-- web search follows the exact current request route and never silently falls back;
-- capability absence is legal;
+- Core has no production `dsh-authorization`, `dsh-host-apiproxy` or `dsh-client-runtime` dependency;
+- web search follows the exact route with no fallback;
 - registry observers cannot veto committed topology changes;
 - Project Memory context/tools use one root policy;
-- Project Memory canonical path/symlink confinement remains fail-closed;
-- same-file RMW writers honor the same target lock;
-- compound named-topic writes/edits acquire Memory then topic locks in one fixed order;
-- normal map failure cannot leave a named topic mutated;
-- rollback failure is explicit, not hidden;
-- vendor-specific delegation tools stay removed;
+- Project Memory filesystem confinement remains fail-closed;
+- same-file RMW writers use the same target lock;
+- compound named-topic lock order is `MEMORY.md -> topic.md`;
+- normal map failure cannot leave the topic mutated;
+- rollback failure is explicit;
+- vendor-specific delegation tools remain absent;
 - no vendor credential/session/token stores are copied, parsed, migrated or deleted.
 
 ## Development workflow
@@ -160,8 +157,8 @@ The assistant edits GitHub; Gemini validates on the maintainer's local machine.
 
 For each narrow issue:
 
-1. Fetch the current target file and SHA from `feat/core-provider-plugins-rc3` immediately before editing.
-2. Make one logically complete change with focused tests.
+1. Fetch current target file + SHA before editing.
+2. Make one logically complete change.
 3. Provide one complete Gemini validation prompt.
 4. Gemini uses:
 
@@ -173,22 +170,7 @@ For each narrow issue:
 6. Gemini overwrites only `docs/verification/gemini/LATEST.md`.
 7. Gemini commits/pushes `LATEST.md` even on FAIL.
 8. Maintainer replies `готово`.
-9. Assistant reads fresh `LATEST.md`; on FAIL fix the exact cause, on PASS fold durable evidence into `docs/verification/README.md` and continue.
-
-## Validation baselines
-
-Local installed baseline:
-
-- Node `v24.19.0` through fnm;
-- pnpm `11.21.0`;
-- DSH `0.1.1-rc.2`.
-
-Compatibility source target:
-
-- DSH tag `dsh-v0.1.2-alpha.1`;
-- upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
-
-Do not update the main working copy to alpha.1 merely to probe compatibility. Prefer disposable environments until package dependency migration is intentionally part of the scoped change.
+9. Assistant reads fresh `LATEST.md`; FAIL -> fix exact cause, PASS -> fold durable evidence and continue.
 
 ## Hard constraints
 
@@ -198,3 +180,15 @@ Do not update the main working copy to alpha.1 merely to probe compatibility. Pr
 - `@openai/codex*` and `@anthropic-ai/*` stay absent from the Suite runtime lock graph.
 - Windows remains **NOT TESTED**.
 - Read command exit codes directly; avoid pipelines that mask failures.
+
+## After foundation PASS
+
+Resume the fixed sequence:
+
+1. Codex
+2. Antigravity
+3. Claude
+4. repository-wide provider invariants
+5. cross-provider/product live acceptance
+6. install/profile lifecycle
+7. release gate
