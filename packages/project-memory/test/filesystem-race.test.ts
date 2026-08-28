@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
-import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { removeSafeRegularFile, withSafeFileWriterLock } from '../src/filesystem.js'
+import {
+  removeSafeRegularFile,
+  withSafeDirectoryScope,
+  withSafeFileWriterLock,
+} from '../src/filesystem.js'
 
 test('concurrent safe removals converge without surfacing ENOENT races', async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-remove-race-'))
@@ -55,6 +59,51 @@ test('writer scope never redirects a locked RMW into a replacement parent direct
     assert.equal(await readFile(join(movedDir, 'MEMORY.md'), 'utf8'), 'after\n')
   } finally {
     await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('child directory scope never follows a swapped canonical parent symlink', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('descriptor-anchored directory operations are a POSIX guarantee')
+    return
+  }
+
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-chain-swap-'))
+  const outsideRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-chain-outside-'))
+  const dshDir = join(projectRoot, '.dsh')
+  const movedDshDir = join(projectRoot, '.dsh-original')
+  const memoryDir = join(dshDir, 'memory')
+  const logicalTarget = join(memoryDir, 'MEMORY.md')
+  const outsideMemoryDir = join(outsideRoot, 'memory')
+  const outsideTarget = join(outsideMemoryDir, 'MEMORY.md')
+  try {
+    await mkdir(memoryDir, { recursive: true })
+    await writeFile(logicalTarget, 'inside-before\n', 'utf8')
+    await mkdir(outsideMemoryDir)
+    await writeFile(outsideTarget, 'outside-sentinel\n', 'utf8')
+
+    await assert.rejects(
+      withSafeDirectoryScope(projectRoot, async (rootScope) => {
+        const dshResult = await rootScope.withExistingChildDirectory(dshDir, async (dshScope) => {
+          await rename(dshDir, movedDshDir)
+          await symlink(outsideRoot, dshDir, 'dir')
+
+          const memoryResult = await dshScope.withExistingChildDirectory(memoryDir, async (memoryScope) => {
+            await memoryScope.writeFileAtomically(logicalTarget, Buffer.from('inside-after\n', 'utf8'))
+            return true
+          })
+          assert.equal(memoryResult, true)
+        })
+        assert.notEqual(dshResult, undefined)
+      }),
+      /changed during the filesystem operation|symbolic link|real directory/,
+    )
+
+    assert.equal(await readFile(outsideTarget, 'utf8'), 'outside-sentinel\n')
+    assert.equal(await readFile(join(movedDshDir, 'memory', 'MEMORY.md'), 'utf8'), 'inside-after\n')
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+    await rm(outsideRoot, { recursive: true, force: true })
   }
 })
 
