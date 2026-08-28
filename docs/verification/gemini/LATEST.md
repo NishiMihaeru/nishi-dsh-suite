@@ -1,8 +1,9 @@
 # Local Validation Report: Project Memory Compound Named-Topic + Memory-Map Transaction
 
-- **Result**: `FAIL`
+- **Result**: `PASS`
 - **Branch**: `feat/core-provider-plugins-rc3`
-- **Tested implementation HEAD**: `422582cfecfcf3e55be443abd1b821eec378c112`
+- **Tested implementation HEAD**: `dbe1b7a3894bc05c1c4863148060bff59166bc17`
+- **Previous validation run**: `422582cfecfcf3e55be443abd1b821eec378c112` (`FAIL` on `test/tools.test.ts` regex assertion mismatch)
 - **Environment**:
   - Node: `v24.19.0` (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
   - pnpm: `11.21.0`
@@ -14,112 +15,82 @@
 
 ---
 
-## Executive Summary & Root Cause of Validation Result
+## Executive Summary
 
-### Overall Verdict: `FAIL`
-The runtime compound transaction implementation (`packages/project-memory/src/`) is architecturally sound and passes all concurrency, rollback, locking, and integrity probes. However, the automated test suite fails with **exit code 1** due to a broken assertion in [`packages/project-memory/test/tools.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/tools.test.ts#L94-L100).
+The Project Memory compound named-topic + Memory-map transaction implementation is **fully validated and PASSES all gates**.
 
-### Exact Reproducible Cause
-1. **Failing Test**: `test/tools.test.ts` -> `"model-facing memory_write reports sanitized failure without creating a topic when Memory map preflight fails"`.
-2. **Failure Mechanism**:
-   - In commit `75a24c252016f36d261cb3237c0f42af2ac84fdc` (`"test(memory): match sanitized tool error message"`), line 99 of `tools.test.ts` was edited to:
-     ```ts
-     await assert.rejects(
-       () => writeTool.execute(
-         { topic: 'architecture', content: 'must-not-persist\n' },
-         execution(projectRoot),
-       ),
-       /^Project memory write failed for topic "architecture"\.$/,
-     )
-     ```
-   - In Node.js v24 (`node:assert/strict`), when `assert.rejects(promise, regex)` receives a `RegExp`, it tests `String(err)`, which evaluates to `err.toString()`:
-     `'Error: Project memory write failed for topic "architecture".'`
-   - Because the regex is anchored with leading `^Project...`, it fails to match `'Error: Project...'`.
-   - **Assertion Error Output**:
-     ```text
-     AssertionError [ERR_ASSERTION]: The input did not match the regular expression /^Project memory write failed for topic "architecture"\.$/. Input:
+The single failing test assertion from the previous run on HEAD `422582c` has been resolved in test-only commit `dbe1b7a` (`"test(memory): assert sanitized tool error message"`). The test in [`packages/project-memory/test/tools.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/tools.test.ts#L94-L102) now inspects `error?.message === 'Project memory write failed for topic "architecture".'` directly via predicate rather than an anchored RegExp against `String(error)`.
 
-     'Error: Project memory write failed for topic "architecture".'
-     ```
-3. **Command Outcomes**:
-   - `pnpm --filter nishi-dsh-project-memory test`: **Exit code 1** (38/39 tests passed, 1 failed).
-   - `pnpm test` (full workspace): **Exit code 1** (276/277 tests passed, 1 failed).
-
-Per instruction, no production or test files have been modified.
+All 39 focused Project Memory tests, all 277 full workspace tests, all TypeScript typechecks, all package builds, manifest/lockfile integrity checks, and disposable fault-injection/rollback probes pass with zero regressions.
 
 ---
 
-## 1. Exact Files Reviewed
+## 1. Test Fix Assessment (`dbe1b7a3894bc05c1c4863148060bff59166bc17`)
 
-### Production Source Files
-1. [`packages/project-memory/src/topic-id.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/topic-id.ts) — Extracted topic identifier validation and constants.
-2. [`packages/project-memory/src/bootstrap.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/bootstrap.ts) — In-memory bootstrap preflight and locked `withMemoryMapEntryTransaction`.
-3. [`packages/project-memory/src/topics.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/topics.ts) — Compound transaction functions `writeTopicMemoryWithMap` and `editTopicMemoryWithMap`, topic snapshotting, and rollback logic.
-4. [`packages/project-memory/src/tools.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/tools.ts) — Model-facing tools `memory_write` and `memory_edit` routing through compound transactions and sanitizing errors.
-5. [`packages/project-memory/src/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/index.ts) — Root package export boundary with explicit bootstrap exports.
-6. [`packages/project-memory/src/filesystem.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/filesystem.ts) — Safe file writer locking with canonical path verification.
-7. [`packages/project-memory/src/paths.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/paths.ts) — Deterministic canonical path resolution.
-
-### Test Files
-1. [`packages/project-memory/test/compound-transaction.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/compound-transaction.test.ts) — 8 tests covering compound writes, edits, preflight rejects, lock order, and concurrency.
-2. [`packages/project-memory/test/tools.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/tools.test.ts) — Real model-facing tool execution and failure sanitization tests.
-3. [`packages/project-memory/test/fixtures/rmw-worker.mjs`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/fixtures/rmw-worker.mjs) — Multi-process child worker fixture for cross-process operations.
-4. [`packages/project-memory/test/atomic-write.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/atomic-write.test.ts) — Single-file locking tests.
-5. [`packages/project-memory/test/package.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/package.test.ts) — Public package manifest boundary tests.
-6. [`packages/project-memory/test/project-memory.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/project-memory.test.ts) — Baseline path, bootstrap, bounds, and symlink tests.
-7. [`packages/project-memory/test/memory-directives.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/memory-directives.test.ts) — Memory maintenance directives and route tests.
-8. [`packages/project-memory/test/project-scope.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/project-scope.test.ts) — Nested session cwd root resolution tests.
-
-### Consistency Documentation
-- [`packages/project-memory/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/README.md)
-- [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md)
-- [`docs/ROADMAP.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ROADMAP.md)
-- [`docs/HANDOFF.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/HANDOFF.md)
-- [`docs/verification/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/verification/README.md)
+- **Modified File**: [`packages/project-memory/test/tools.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/tools.test.ts)
+- **Changes**:
+  ```ts
+  await assert.rejects(
+    () => writeTool.execute(
+      { topic: 'architecture', content: 'must-not-persist\n' },
+      execution(projectRoot),
+    ),
+    (error: any) => {
+      assert.equal(error?.message, 'Project memory write failed for topic "architecture".')
+      return true
+    },
+  )
+  ```
+- **Verification**:
+  1. The test executes the real model-facing tool `memory_write.execute` registered via `apply(ctx)`.
+  2. The sanitized error message is validated using exact equality (`'Project memory write failed for topic "architecture".'`).
+  3. The assertion confirms that the topic file `.dsh/memory/architecture.md` was **not created** on disk (`ENOENT`).
+  4. Production error sanitization in [`packages/project-memory/src/tools.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/tools.ts) is unchanged and remains fail-closed.
+  5. Zero production source files were touched in this commit.
 
 ---
 
 ## 2. Package & Workspace Validation Gates
 
 ### 2.1 Manifest & Lockfile Gate
-- `pnpm install --frozen-lockfile`: **PASS** (Exit code `0`, clean workspace in 295ms).
+- `pnpm install --frozen-lockfile`: **PASS** (Exit code `0`, clean workspace in 300ms).
 - `git diff --exit-code -- packages/project-memory/package.json pnpm-lock.yaml`: **PASS** (Exit code `0`, zero drift).
 
 ### 2.2 Focused Project Memory Gates
 | Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-project-memory test` | `1` | **FAIL** | 39 tests executed: 38 passed, 1 failed (`test/tools.test.ts` regex mismatch) |
-| `pnpm --filter nishi-dsh-project-memory check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean with zero diagnostic errors |
+| `pnpm --filter nishi-dsh-project-memory test` | `0` | **PASS** | 39 tests executed: **39 passed**, 0 failed (+10 tests over PM04 baseline; duration: 2.05s) |
+| `pnpm --filter nishi-dsh-project-memory check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean |
 | `pnpm --filter nishi-dsh-project-memory build` | `0` | **PASS** | `tsc -p tsconfig.json` clean, emitted to `lib/` |
 
 ### 2.3 Full Workspace Verification Gates
 | Package | Tests Passed | Tests Failed | Check Exit Code | Build Exit Code |
 |---|---|---|---|---|
 | `packages/core` | 175 | 0 | 0 | 0 |
-| `packages/project-memory` | 38 | 1 | 0 | 0 |
+| `packages/project-memory` | 39 | 0 | 0 | 0 |
 | `packages/antigravity` | 27 | 0 | 0 | 0 |
 | `packages/codex` | 23 | 0 | 0 | 0 |
 | `packages/suite` | 12 | 0 | 0 | 0 |
 | `packages/claude` | 1 | 0 | 0 | 0 |
-| **Workspace Total** | **276** | **1** | **0** | **0** |
+| **Workspace Total** | **277** | **0** | **0** | **0** |
 
 ---
 
-## 3. Detailed Technical Verification
+## 3. Detailed Technical Verification & Empirical Evidence
 
 ### 3.1 Topic Identity Refactor & Cycle Elimination
 - **Extracted File**: [`packages/project-memory/src/topic-id.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/topic-id.ts)
 - **Contract Fidelity**:
-  - `TOPIC_IDENTIFIER_REGEX`: `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/` (unchanged).
-  - `MAX_TOPIC_IDENTIFIER_LENGTH`: `64` (unchanged).
-  - `RESERVED_TOPIC_IDENTIFIERS`: `memory`, `con`, `prn`, `aux`, `nul`, `com1`..`com9`, `lpt1`..`lpt9` (unchanged).
-  - `isValidTopicIdentifier`: Rejects `memory`, uppercase names (`CON`, `PRN`, `Arch`), special characters, and lengths > 64.
+  - `TOPIC_IDENTIFIER_REGEX`: `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/` (100% identical).
+  - `MAX_TOPIC_IDENTIFIER_LENGTH`: `64` (100% identical).
+  - `RESERVED_TOPIC_IDENTIFIERS`: `memory`, `con`, `prn`, `aux`, `nul`, `com1`..`com9`, `lpt1`..`lpt9` (100% identical).
+  - `isValidTopicIdentifier`: Strictly rejects `memory`, uppercase identifiers (`CON`, `PRN`, `Arch`), special characters, and lengths > 64.
 - **Module Dependency Graph**:
   - `topic-id.ts` has 0 internal imports.
   - `bootstrap.ts` imports `{ isValidTopicIdentifier }` from `topic-id.js`.
   - `topics.ts` imports `{ isValidTopicIdentifier }` from `topic-id.js` and `{ withMemoryMapEntryTransaction }` from `bootstrap.js`.
   - `bootstrap.ts` does **NOT** import from `topics.ts`.
-  - **Verdict**: Module cycle (`bootstrap <-> topics`) is completely eliminated.
+  - **Verdict**: The circular dependency between `bootstrap` and `topics` is completely eliminated.
 
 ### 3.2 Root Package API Boundary & Export Surface
 - **Preserved Root Exports**:
@@ -219,7 +190,7 @@ All disposable probes were executed in isolation outside the working tree (`/hom
 
 ### 3.9 Oversized Topic File Behavior (>256 KiB)
 - `readTopicSnapshotLocked` validates `stats.size <= MAX_TOPIC_BYTES` (256 KiB) and rejects oversized existing topic files before mutation.
-- **Assessment**: This is consistent fail-closed behavior adhering to the documented contract `topic file: at most 256 KiB`. Overwriting oversized invalid files was never a documented recovery contract for compound model-facing transactions. Single-file low-level write or operator deletion can be used if recovery of a non-canonical file is required.
+- **Assessment**: Consistent fail-closed behavior adhering to the documented contract `topic file: at most 256 KiB`. Overwriting oversized invalid files was never a documented recovery contract for compound model-facing transactions. Single-file low-level write or operator deletion can be used if recovery of a non-canonical file is required.
 
 ### 3.10 Symlink & Canonical Path Safety
 - Pre-acquisition and post-acquisition checks verify canonical directories (`.dsh` and `.dsh/memory`) are real directories and targets are regular files.
@@ -243,7 +214,7 @@ All disposable probes were executed in isolation outside the working tree (`/hom
 ## 4. Git & Working Tree Status
 
 ```text
-HEAD: 422582cfecfcf3e55be443abd1b821eec378c112
+HEAD: dbe1b7a3894bc05c1c4863148060bff59166bc17
 Branch: feat/core-provider-plugins-rc3
 Working tree: clean (only docs/verification/gemini/LATEST.md modified)
 ```
@@ -252,8 +223,6 @@ Working tree: clean (only docs/verification/gemini/LATEST.md modified)
 
 ## 5. Final Verdict
 
-**`Result: FAIL`**
+**`Result: PASS`**
 
-While the Project Memory compound transaction runtime logic satisfies all locking, serialization, preflight, rollback, and safety requirements, the automated test suite fails on `test/tools.test.ts:94` due to a regex assertion mismatch under Node.js v24 `assert.rejects`.
-
-Per instruction, no implementation or test fixes have been applied. This report is committed and pushed to record the exact validation state.
+The Project Memory compound named-topic + Memory-map transaction implementation satisfies all locking, serialization, preflight, rollback, concurrency, sanitization, path safety, and regression requirements.
