@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import test from 'node:test'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import {
   ensureMemoryMapEntry,
   readDshProjectContext,
@@ -46,6 +48,31 @@ async function installAbandonedPending(
     'utf8',
   )
   return { topicPath, oldTopic }
+}
+
+async function holdWriterLock(filename: string): Promise<{ release: () => void; done: Promise<void> }> {
+  let release!: () => void
+  let acquired!: () => void
+  const acquiredPromise = new Promise<void>((resolve) => { acquired = resolve })
+  const done = withFileLock(filename, async () => {
+    acquired()
+    await new Promise<void>((resolve) => { release = resolve })
+  })
+  await acquiredPromise
+  return { release, done }
+}
+
+async function waitUntilMissing(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      await access(path)
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return
+      throw error
+    }
+    await sleep(10)
+  }
+  throw new Error(`Timed out waiting for ${path} to be removed`)
 }
 
 test('a pending journal owned by this live process is recoverable once the Memory map lock is free', async () => {
@@ -118,6 +145,41 @@ test('public DSH context read recovers abandoned pending state before injecting 
       assert.equal(error?.code, 'ENOENT')
       return true
     })
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('recovery fails closed if a dead-owner journal is transferred to a live owner before claim', async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-recovery-owner-race-'))
+  const deadPid = 2_000_000_000
+  try {
+    const paths = resolveProjectMemoryPaths(projectRoot)
+    const { topicPath } = await installAbandonedPending(projectRoot, deadPid)
+    const transactionPath = pendingProjectMemoryTransactionPath(projectRoot)
+    await writeFile(`${paths.memoryMd}.lock`, `${deadPid}\n`, 'utf8')
+    await writeFile(`${topicPath}.lock`, `${deadPid}\n`, 'utf8')
+
+    const heldJournal = await holdWriterLock(transactionPath)
+    const recovery = recoverPendingProjectMemoryTransaction(projectRoot)
+
+    // These removals happen only after recovery has observed the original dead
+    // journal owner and entered the canonical storage scope, but before it can
+    // acquire the journal lock held above.
+    await waitUntilMissing(`${paths.memoryMd}.lock`)
+    await waitUntilMissing(`${topicPath}.lock`)
+
+    const liveRecord = JSON.parse(await readFile(transactionPath, 'utf8'))
+    liveRecord.ownerPid = process.pid
+    await writeFile(transactionPath, `${JSON.stringify(liveRecord)}\n`, 'utf8')
+    heldJournal.release()
+    await heldJournal.done
+
+    await assert.rejects(
+      recovery,
+      /recovery journal owner changed to a live process before claim/,
+    )
+    assert.equal(JSON.parse(await readFile(transactionPath, 'utf8')).ownerPid, process.pid)
   } finally {
     await rm(projectRoot, { recursive: true, force: true })
   }
