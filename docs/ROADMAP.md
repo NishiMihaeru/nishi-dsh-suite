@@ -1,44 +1,50 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after the independent Core + Project Memory audit and remediation pass against DSH `0.1.2-alpha.1`.
+Status updated for `0.1.0-rc.3` after the independent Core + Project Memory audit and GitHub remediation pass against DSH `0.1.2-alpha.1`.
 
 This file owns **task status and order only**. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
-## Foundation — REMEDIATED, VERIFICATION REQUIRED
+## Foundation — GITHUB REMEDIATION COMPLETE, VERIFICATION REQUIRED
 
 Core and Project Memory were reopened by an independent audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). The historical foundation PASS at `0c7a177d2f4fceab58513cbd0d87fcf9c31b025b` remains historical evidence only; it does not validate the newly changed remediation tree.
 
-Audit findings addressed in the current branch:
+Audit findings and implementation follow-ups addressed in the current branch:
 
 - [x] Core Model Accounts no longer converts credential-store read failures into ordinary `NOT_CONFIGURED` state;
 - [x] failed legacy-grant deletion no longer reports a nominally successful logout;
-- [x] Project Memory POSIX reads/writes are descriptor/inode anchored instead of `lstat(path)` followed by a second pathname use;
-- [x] explicit symlinked workspace roots remain supported while `.dsh` owned final components remain real directories;
+- [x] Project Memory POSIX package-owned descendants use a pinned `projectRoot -> .dsh -> memory/local` descriptor chain instead of independent full-path reopen sequences;
+- [x] explicit symlinked workspace roots remain supported while package-owned `.dsh` components remain real directories;
+- [x] RMW locks and all read/render/write operations use one opened `SafeDirectoryScope`;
+- [x] named-topic `memory` and WAL `local` scopes belong to one pinned `.dsh` generation;
 - [x] first publication of canonical project files is complete-before-visible and no-clobber;
-- [x] model-facing memory operations and lazy initialization propagate `AbortSignal` through lock waits and commit boundaries;
-- [x] named-topic + Memory-map mutation has a `pending`/`committed` recovery journal with exact pre-images;
+- [x] model-facing memory operations and lazy initialization propagate `AbortSignal` through ordinary lock waits and commit boundaries;
+- [x] rollback after a durable partial participant commit uses mandatory settlement and cannot be cancelled by the already-fired caller signal;
+- [x] named-topic + Memory-map mutation has a `pending`/`committed` recovery WAL with exact pre-images;
 - [x] recovery cleanup is idempotent and committed state cannot fall back into rollback merely because cleanup metadata remains;
-- [x] targeted regression tests were added for the reopened failure modes.
+- [x] dead-owner recovery fails closed if WAL ownership changes to another live owner or WAL state disappears/changes after claim protocol begins;
+- [x] targeted regressions cover the reopened findings plus locked-parent replacement, intermediate `.dsh` replacement, mandatory settlement, and recovery ownership transfer.
 
 Fresh gates still required before foundation re-freeze:
 
-- [ ] `pnpm install --frozen-lockfile` PASS on the final remediation HEAD;
+- [ ] record exact local remediation HEAD and clean working tree;
+- [ ] `pnpm install --frozen-lockfile` PASS;
 - [ ] Core focused `test` + `check` + `build` PASS;
 - [ ] Project Memory focused `test` + `check` + `build` PASS;
-- [ ] full workspace tests + check/build PASS;
+- [ ] full workspace `test` + `check` + `build` PASS;
 - [ ] `pnpm verify:local` PASS;
-- [ ] disposable official `0.1.2-alpha.1` compatibility verification repeated where the changed seams require it;
+- [ ] disposable official `0.1.2-alpha.1` compatibility verification repeated for changed Core/Project Memory seams;
+- [ ] Gemini raw PASS/FAIL report committed to `docs/verification/gemini/LATEST.md`;
 - [ ] durable PASS evidence folded into `docs/verification/README.md`;
 - [ ] Core re-freeze accepted;
 - [ ] Project Memory re-freeze accepted.
 
-Until those executable gates pass, Core and Project Memory are **NOT FROZEN**. Provider cleanup is paused rather than stacking new work on an unverified foundation.
+Until those executable gates pass, Core and Project Memory are **NOT FROZEN**. Provider cleanup remains paused rather than stacking new work on an unverified foundation.
 
 ## Current sequence
 
-### 1. Foundation verification — ACTIVE
+### 1. Foundation executable verification — ACTIVE
 
-Complete the gates above without expanding scope. A verification failure reopens only the concrete failing seam.
+Run the exact local gates above without implementation repair during the validation pass. A verification failure reopens only the concrete failing seam and returns to GitHub remediation.
 
 ### 2. Codex — PAUSED UNTIL FOUNDATION RE-FREEZE
 
