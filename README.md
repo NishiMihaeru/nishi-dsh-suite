@@ -36,7 +36,7 @@ Project memory stays in the project:
 - `.dsh/memory/<topic>.md` — durable topic memory;
 - `.dsh/local/` — transient local state.
 
-Context injection and memory tools use the same nearest-Git-root policy, with explicit-cwd fallback for non-Git workspaces. Replacement writes use `@deepseek-ai/dsh-atomic-write` while keeping canonical path and symlink/junction refusal checks.
+Context injection and memory tools use the same nearest-Git-root policy, with explicit-cwd fallback for non-Git workspaces. On POSIX, package-owned descendants use a pinned `projectRoot -> .dsh -> memory/local` directory-descriptor chain. Replacement writes stay on the opened parent scope and publish atomically by rename; first publication is complete-before-visible and no-clobber via sibling temp files plus hard-link publication. Windows remains untested for the stronger descriptor-chain TOCTOU guarantee.
 
 Project memory is repository-shared content, so maintenance policy rejects secrets, quota snapshots, raw chain-of-thought, transient logs and personal facts about the operator.
 
@@ -83,7 +83,7 @@ Use `preset update` after a Suite update and `preset remove` before Suite remova
 
 ## Current development status
 
-Core and Project Memory are **DONE / FROZEN** after package, disposable-install and real DSH boot acceptance.
+Core and Project Memory are **DONE / FROZEN** after fresh package/workspace verification and disposable official DSH `0.1.2-alpha.1` runtime acceptance on implementation checkpoint `eb95ef6425c788f63339befd0c2437f78bc8dde1`.
 
 Remaining rc.3 work is provider-specific:
 
