@@ -1,235 +1,211 @@
-# Local Validation Report: Core Registry Observer & Provider Registration Transaction
+# Local Validation Report: Project Memory Inter-Process Read-Modify-Write Locking
 
 - **Result**: `PASS`
 - **Branch**: `feat/core-provider-plugins-rc3`
-- **Tested implementation HEAD**: `b925e2a328168e7c978126fc6474b7af11d7a63d`
+- **Tested implementation HEAD**: `eae9caf03f8896f344d7c73b2f67d67cb9f86e9c`
 - **Environment**:
   - Node: `v24.19.0` (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
   - pnpm: `11.21.0`
   - Installed DSH baseline: `0.1.1-rc.2`
   - Upstream DSH target: tag `dsh-v0.1.2-alpha.1` / commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
+  - Operating System: Linux (CachyOS / 6.18 kernel, x86_64)
+  - Hosted CI / GitHub Actions: Not used; local machine execution only
+  - Windows: **NOT TESTED**
 
 ---
 
 ## 1. Exact Files Reviewed
 
-1. [`packages/core/src/registry/service.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/registry/service.ts) — Provider registry service with non-vetoing observer announcements and best-effort diagnostics.
-2. [`packages/core/src/usage/service.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/usage/service.ts) — Runtime validation functions `parseUsageRefreshPolicy` and `parseUsageSnapshotCollector` preserving `UsageLimitsService.register()` contract.
-3. [`packages/core/src/runtime/registration.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/runtime/registration.ts) — Ordered registration sequence enforcing policy preflight and collector validation before registry mutation, maintaining post-record transactional rollback.
-4. [`packages/core/src/host/composition.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/composition.ts) — Host composition with preflight validation of `defaultRefreshPolicy` prior to observer registration.
-5. [`packages/core/test/registry.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/registry.test.ts) — Unit and regression test suite covering sync throwing observers, async rejecting observers, non-vetoing withdrawal, and Cordis proxy access.
-6. [`packages/core/test/registration-policy.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/registration-policy.test.ts) — Regression test suite verifying preflight rejection of malformed explicit policy, malformed collector, and validated detached copy propagation.
-7. [`packages/core/test/composition-policy.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/composition-policy.test.ts) — Regression test verifying early rejection of malformed host `defaultRefreshPolicy` prior to context service access.
-8. Supporting canonical documentation: [`packages/core/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/README.md), [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ROADMAP.md), [`docs/HANDOFF.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/HANDOFF.md), [`docs/verification/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/verification/README.md).
+1. [`packages/project-memory/src/filesystem.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/filesystem.ts) — Safe cross-process file writer lock wrapper `withSafeFileWriterLock` with pre- and post-acquisition canonical directory and target lstat validation.
+2. [`packages/project-memory/src/bootstrap.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/bootstrap.ts) — `MEMORY.md` bootstrap creation, whole-file write, exact text edit, and Memory-map entry insertion serialized under `MEMORY.md.lock`.
+3. [`packages/project-memory/src/topics.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/topics.ts) — Topic memory whole-file write and exact text edit serialized under `<topic>.md.lock`.
+4. [`packages/project-memory/src/init.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/src/init.ts) — Project root initializer serializing root `.gitignore` modification under `.gitignore.lock` while keeping `DSH.md` and `.dsh/project.json` exclusive-create `wx` documents.
+5. [`packages/project-memory/test/atomic-write.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/atomic-write.test.ts) — Inter-process contention regression tests utilizing external child worker processes.
+6. [`packages/project-memory/test/fixtures/rmw-worker.mjs`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/test/fixtures/rmw-worker.mjs) — Standalone cross-process child worker fixture executing operations under `--import tsx`.
+7. Supporting canonical documentation:
+   - [`packages/project-memory/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/project-memory/README.md)
+   - [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md)
+   - [`docs/ROADMAP.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ROADMAP.md)
+   - [`docs/HANDOFF.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/HANDOFF.md)
+   - [`docs/verification/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/verification/README.md)
 
 ---
 
-## 2. Lockfile Consistency & Gate Results
+## 2. DSH Source & Contract Assessment: `0.1.1-rc.2` vs `0.1.2-alpha.1`
 
-### 2.1 Frozen Lockfile
-```bash
-pnpm install --frozen-lockfile
-```
-- **Exit code**: `0`
-- **Output**: `Scope: all 7 workspace projects; Already up to date; Done in 314ms`
-- **Diff check** (`git diff --exit-code -- pnpm-lock.yaml packages/core/package.json`): Exit code `0` (clean, zero diffs).
+### 2.1 Installed DSH Baseline (`@deepseek-ai/dsh-atomic-write@0.1.1-rc.2`)
+- **Location**: `node_modules/.pnpm/@deepseek-ai+dsh-atomic-write@0.1.1-rc.2_.../node_modules/@deepseek-ai/dsh-atomic-write/lib/index.js`
+- **Contract Verification**:
+  - `withFileLock(filename, operation, options?)`:
+    - Lock file path: `<filename>.lock`.
+    - Lock creation: `writeFile(lockPath, `${process.pid}\n`, { mode: 0o600, flag: 'wx' })`.
+    - Contention handling: `isLockContention` catches `EEXIST` (and `EPERM` verified via `lstat`).
+    - Exponential backoff: initial 20ms, doubling up to 200ms ceiling.
+    - Default wait timeout: 2000ms (`DEFAULT_LOCK_WAIT_MS = 2e3`).
+    - Failure mode on timeout: Throws `Error: atomic-write: timed out waiting for the writer lock at <lockPath>`.
+    - Lock release: Handled unconditionally in `finally { await rm(lockPath, { force: true }); }`.
+    - Foreign lock preservation: Contender never deletes an unowned or existing lock on timeout or error.
+    - Readers remain lock-free; only writers acquire the lock.
 
-### 2.2 Core Focused Gates
+### 2.2 Upstream DSH Target (`dsh-v0.1.2-alpha.1` / `cd5ef8148158c3a752a658978873241fdf8e2bbc`)
+- **Location**: `/tmp/dsh-upstream/packages/util/atomic-write/src/index.ts`
+- **Contract Verification**:
+  - Implementation, exported types (`FileLockOptions`, `WriteFileAtomicOptions`), constants (`LOCK_RETRY_INITIAL_MS = 20`, `LOCK_RETRY_MAX_MS = 200`, `DEFAULT_LOCK_WAIT_MS = 2_000`), error messages, and behavior are **100% identical** between `0.1.1-rc.2` and `0.1.2-alpha.1`.
+  - No contract divergence or behavioral changes exist in `withFileLock` or `writeFileAtomic`.
+
+---
+
+## 3. Package & Workspace Validation Gates
+
+### 3.1 Lockfile & Dependency Consistency
+- `pnpm install --frozen-lockfile`: **PASS** (Exit code `0`, clean install in 299ms).
+- `git diff --exit-code -- packages/project-memory/package.json pnpm-lock.yaml`: **PASS** (Exit code `0`, zero drift).
+
+### 3.2 Project Memory Focused Gates
 | Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 175 tests passed, 0 failed (duration: 985ms; +6 new regression tests) |
-| `pnpm --filter nishi-dsh-core check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean |
-| `pnpm --filter nishi-dsh-core build` | `0` | **PASS** | `tsdown` built ESM node artifacts & CJS browser `lib/client.js` (120.92 kB) |
+| `pnpm --filter nishi-dsh-project-memory test` | `0` | **PASS** | 29 tests passed, 0 failed (+4 new cross-process tests over 25 accepted baseline; duration: 2.11s) |
+| `pnpm --filter nishi-dsh-project-memory check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean |
+| `pnpm --filter nishi-dsh-project-memory build` | `0` | **PASS** | `tsc -p tsconfig.json` clean, output to `lib/` |
 
-### 2.3 Full Monorepo Gates
-| Monorepo Gate Command | Exit Code | Result | Details |
+### 3.3 Full Workspace Verification Gates
+| Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm test` | `0` | **PASS** | All workspace packages pass unit and integration test suites |
+| `pnpm test` | `0` | **PASS** | 267 total tests across 6 packages passed (Core: 175, Project Memory: 29, Codex: 31, Suite: 12, Antigravity: 10, Claude: 10) |
 | `pnpm check` | `0` | **PASS** | Typecheck clean across all workspace projects |
 | `pnpm build` | `0` | **PASS** | All workspace packages build cleanly |
 
 ---
 
-## 3. Architecture & Contract Verification
+## 4. Cross-Process Locking Architecture & Safety Review
 
-### 3.1 Non-Vetoing Registry Observers (`packages/core/src/registry/service.ts`)
-- **Independent Notification Execution**: `#announce()` iterates through listeners in an isolated `try/catch` block.
-- **Sync Throw Containment**: A synchronous exception thrown by an observer:
-  - Is contained within `#announce()`;
-  - Is logged to `this.ctx.logger.warn`;
-  - Does not throw out of `record()`;
-  - Does not starve subsequent observers from receiving the event;
-  - Allows `record()` to return the withdrawal disposer callback.
-- **Async Rejection Containment**: If an observer returns a `PromiseLike`, rejection is caught via `Promise.resolve(returned).then(undefined, error => this.#warnObserverFailure(error))`, preventing `unhandledRejection` events.
-- **Disposer & Withdrawal**: `record()` returns `() => void`. Invoking the disposer removes the provider from `#byId` and `#byRoute`, and invokes `#announce()`, where withdrawal notifications follow the identical non-vetoing semantics.
-- **Pre-Mutation Validation**: Duplicate provider IDs, duplicate routes, and non-canonical strings are validated before state changes, remaining strictly vetoing.
-- **Proxy Compatibility**: All methods (`record`, `byId`, `byRoute`, `all`, `onChange`, `invalidate`, `onInvalidate`) are bound in the constructor to ensure correct operation through Cordis service proxies.
+### 4.1 Safe Writer Lock Wrapper (`packages/project-memory/src/filesystem.ts`)
+- **Target Lock Namespace**: Locks are strictly scoped to `targetFilePath` (`<target>.lock`). No disparate namespaces exist between write, edit, or map operations on the same target.
+- **Pre-Acquisition Preflight**: `validateCanonicalDirectory(dirPath)` verifies that the parent directory exists and is a real directory (not a symlink/junction) before attempting lock acquisition.
+- **Post-Acquisition Revalidation**:
+  - Immediately upon acquiring `withFileLock(targetFilePath, ...)`, `validateCanonicalDirectory(dirPath)` is re-checked to prevent race conditions involving renamed or symlinked parent directories.
+  - `lstat(targetFilePath)` is performed under lock. Pre-existing symlinks or non-regular files throw an error and abort the operation. Missing targets (`ENOENT`) are explicitly permitted.
+  - Caller operation callback executes only after all post-lock validations succeed.
+- **No Self-Locking in Primitive**: `writeSafeFileAtomically` does not acquire `withFileLock` itself, preventing double-locking or self-deadlocks. Higher-level callers hold `withSafeFileWriterLock` across the complete read-render-write cycle.
 
-### 3.2 Runtime Validators (`packages/core/src/usage/service.ts`)
-- **`parseUsageRefreshPolicy`**:
-  - `minRefreshIntervalMs`: Validated as a non-negative safe integer (`Number.isSafeInteger(v) && v >= 0`).
-  - `staleAfterMs`: Validated as a positive safe integer (`Number.isSafeInteger(v) && v > 0`).
-  - Returns a detached object copy.
-- **`parseUsageSnapshotCollector`**:
-  - Asserts non-null plain object.
-  - Asserts `collect` is a callable function.
-  - Binds the receiver (`{ collect: collector.collect.bind(collector) }`), preserving `this` context for class instances (Codex, Antigravity, Claude collectors).
-  - Preserves exact error messaging and contract compatibility with `UsageLimitsService.register()`.
+### 4.2 Target Synchronization & Re-Read Integrity
 
-### 3.3 Registration Sequence & Transaction Ordering (`packages/core/src/runtime/registration.ts`)
-The execution order in `registerProvider()` is verified:
-1. Canonical `providerId` validation (`canonicalProviderId`);
-2. Canonical `presentation.id` validation and agreement with `providerId`;
-3. Canonical and deduplicated `model.routes` validation;
-4. Explicit `usage.refreshPolicy` preflight validation and detachment;
-5. Provider `webSearch` capability factory invocation;
-6. Provider `usage` capability factory invocation;
-7. Usage collector preflight validation and binding (`parseUsageSnapshotCollector`);
-8. `registry.record()` commit;
-9. Cordis withdrawal effect registration (`ctx.effect()`);
-10. Model adapter registration (`ctx.llm.registerAdapter`);
-11. Provider-specific `descriptor.install?.(ctx, config)` execution;
-12. Comprehensive transactional rollback on post-commit failures (`rollbackRegistration`).
+#### 1. `MEMORY.md` Writers (`packages/project-memory/src/bootstrap.ts`)
+- `ensureProjectMemoryBootstrap`: Holds `MEMORY.md.lock`. Under lock, checks for existing file; if missing, creates initial content via `wx`. External `EEXIST` creator is preserved and validated.
+- `writeProjectMemoryBootstrap`: Holds `MEMORY.md.lock`. Calculates `created` flag under lock and executes `writeSafeFileAtomically` under lock.
+- `editProjectMemoryBootstrap`: Holds `MEMORY.md.lock`. The entire cycle (`lstat` -> `readFile` -> single/multiple exact match validation -> render -> bounds check -> `writeSafeFileAtomically`) executes under lock.
+- `ensureMemoryMapEntry`: Holds `MEMORY.md.lock`. Re-reads `MEMORY.md` under lock, checks section presence, formats canonical entry, verifies bounds, and atomically replaces content under lock. Calls private `ensureBootstrapFile` directly under the existing lock to prevent nested self-deadlocks.
 
-### 3.4 Host Composition Preflight (`packages/core/src/host/composition.ts`)
-- `defaultRefreshPolicy` is validated before any registry observers are installed.
-- Invalid host default policy fails immediately without reading `ctx.nishiProviders`.
-- `DEFAULT_USAGE_REFRESH_POLICY` (`minRefreshIntervalMs: 60000`, `staleAfterMs: 300000`) remains valid and immutable.
-- Provider explicit policy takes precedence over host default policy during reconciliation.
+#### 2. Topic Memory Writers (`packages/project-memory/src/topics.ts`)
+- `writeTopicMemory`: Holds `<topic>.md.lock`. Validates size bounds, detects `created` status under lock, and atomically commits.
+- `editTopicMemory`: Holds `<topic>.md.lock`. The entire cycle (`lstat` -> size validation -> `readFile` -> match detection with overlapping scan -> slice replacement -> post-render size check -> `writeSafeFileAtomically`) executes under lock. Re-reading under lock prevents lost updates from concurrent edits.
+
+#### 3. Root `.gitignore` Writer (`packages/project-memory/src/init.ts`)
+- `ensureGitignoreEntry`: Holds `<projectRoot>/.gitignore.lock`. Under lock, reads existing `.gitignore`, creates via `wx` if missing (handling external `EEXIST` by re-reading), detects whether `.dsh/local/` is already present, preserves unrelated user rules and line endings, and atomically writes the updated file.
+- `DSH.md` and `.dsh/project.json` remain create-if-absent documents using exclusive create (`wx`) without requiring RMW lock cycles.
+
+### 4.3 Lock Ordering & Deadlock Prevention
+- **No Simultaneous Multi-Lock Acquisition**: Project Memory operations never acquire topic locks and `MEMORY.md` locks simultaneously.
+- **Tool Operation Sequence**: In `memory_write` and `memory_edit` for named topics:
+  1. Acquire `<topic>.md.lock` -> mutate topic -> release `<topic>.md.lock`.
+  2. Acquire `MEMORY.md.lock` -> update memory map -> release `MEMORY.md.lock`.
+- **Deadlock Assessment**: Because locks are held sequentially and never nested across files, circular lock wait conditions are structurally impossible.
+
+### 4.4 Default Wait Duration (2000ms) Suitability
+- All operations executed under `withSafeFileWriterLock` consist exclusively of bounded local filesystem operations (`lstat`, `readFile`, in-memory regex/string rendering, `writeFileAtomic`).
+- Under lock, Project Memory does **NOT** perform:
+  - Vendor CLI executions or subprocess spawning;
+  - Network requests or HTTP calls;
+  - Model / LLM inference calls;
+  - Command lifecycle waits;
+  - Unbounded user callbacks.
+- In benchmarking, single file lock acquisitions completed in < 10ms. The default 2000ms timeout provides ample margin while bounding latency under contention.
 
 ---
 
-## 4. Live Integration Probes & Results
+## 5. Live Cross-Process Probes & Empirical Evidence
 
-A complete 6-phase integration probe was executed against a live Cordis runtime context with real service proxies and provider registration pipelines:
+A comprehensive verification probe suite was executed using standalone child OS processes (`node --import tsx packages/project-memory/test/fixtures/rmw-worker.mjs`):
 
-### 4.1 Probe 1: Synchronous Observer Throw Containment
-- **Scenario**: Primary `onChange` listener synchronously throws an error during `registerProvider()`.
+### 5.1 Probe 0: OS Child Process Separation
+- **Scenario**: Spawning `rmw-worker.mjs` child process from test runner.
+- **Evidence**:
+  - Test Runner PID: `289531`
+  - Child Process PID: `289555`
+  - Result: **PASS** (Child PID != Parent PID; lock contention is verified to occur across distinct OS processes via filesystem lock files rather than Node.js memory pointers).
+
+### 5.2 Probe 1: Whole-File Bootstrap Writer vs Exact Edit Serialization
+- **Scenario**: Parent process pre-holds `MEMORY.md.lock`. Child process launches `bootstrap-write` to replace `MEMORY.md`.
 - **Result**: **PASS**
-  - `registerProvider()` resolved cleanly without throwing;
-  - Provider was accessible via `byId('synthetic-sync')`;
-  - Model routes were accessible via `byRoute('synth-route-1')` and `byRoute('synth-route-2')`;
-  - Second observer received the registration notification (count = 1);
-  - Warning logged to `ctx.logger.warn`;
-  - Plugin fiber disposal successfully withdrew provider and routes;
-  - Second observer received the withdrawal notification (count = 2).
+  - Child process reports `READY` and remains blocked for the entire duration parent holds the lock;
+  - Upon parent release, child acquires lock, writes `whole-replacement-state`, and exits cleanly;
+  - `MEMORY.md.lock` is cleanly deleted.
 
-### 4.2 Probe 2: Async Observer Rejection Containment
-- **Scenario**: Primary `onChange` listener returns a rejected Promise during `registerProvider()`.
+### 5.3 Probe 2: Lock Cleanup After Operation Failure
+- **Scenario**: Operations on `MEMORY.md`, topic (`architecture.md`), and `.gitignore` throw errors immediately after acquiring lock.
 - **Result**: **PASS**
-  - Process-level `unhandledRejection` listener recorded **0** unhandled rejections;
-  - Provider was committed and visible in registry;
-  - Second observer was notified;
-  - Warning logged to `ctx.logger.warn`;
-  - Fiber disposal cleaned up state without unhandled rejections.
+  - In all 3 target classes, the original thrown exception was preserved and rethrown;
+  - `<target>.lock` was verified removed in each case via `finally` block cleanup.
 
-### 4.3 Probe 3: Post-Record Rollback Regression
-- **Scenario**: Registry observer throws, `record()` commits and returns disposer, then `descriptor.install()` throws.
+### 5.4 Probe 3: Foreign Lock Timeout & Non-Removal
+- **Scenario**: A foreign lock file `MEMORY.md.lock` with PID `999999` is created manually. A contender attempts `writeProjectMemoryBootstrap`.
 - **Result**: **PASS**
-  - `registerProvider()` rejected with the original install error message;
-  - Rollback cleared provider from `#byId` and `#byRoute`;
-  - Adapter registration was cleanly disposed;
-  - Contained observer error did not obscure or replace the install failure.
+  - Contender timed out after `2110ms` (respecting `DEFAULT_LOCK_WAIT_MS = 2000`);
+  - Error message: `atomic-write: timed out waiting for the writer lock at .../MEMORY.md.lock`;
+  - Foreign lock file remained intact with original PID `999999`;
+  - Target `MEMORY.md` file was not modified or corrupted;
+  - Manual cleanup of foreign lock succeeded after test.
 
-### 4.4 Probe 4: Usage Reconciliation & Preflight Validation
-- **Scenario**: Host usage composition reconciled against dynamic provider registrations, default/explicit policies, and invalid inputs.
+### 5.5 Probe 4: Concurrent Memory Map Writers Stress
+- **Scenario**: 8 independent child processes concurrently execute `memory-map` on 8 distinct topics (`architecture`, `workflow`, `testing`, `release`, `database`, `frontend`, `networking`, `security`).
 - **Result**: **PASS**
-  - Invalid host `defaultRefreshPolicy` failed immediately before `nishiProviders` access;
-  - Provider without explicit policy used `DEFAULT_USAGE_REFRESH_POLICY` (`staleAfterMs: 300000`);
-  - Provider with explicit policy used its configured policy (`staleAfterMs: 40000`);
-  - Snapshot collection and refresh operated cleanly;
-  - Invalid explicit policy was rejected before usage capability factory invocation and before registry mutation;
-  - Invalid collector was rejected after factory invocation but before registry mutation;
-  - Teardown of provider fibers correctly updated the usage roster.
+  - All 8 child processes completed cleanly;
+  - `MEMORY.md` contains all 8 topic mappings;
+  - Every mapping appears **exactly once** (0 duplicate entries, 0 lost updates);
+  - `MEMORY.md.lock` was cleanly removed.
 
-### 4.5 Probe 5: Stale Disposer & Replacement Provider Integrity
-- **Scenario**: Provider generation 1 registered and withdrawn, generation 2 registered, stale disposer 1 invoked.
+### 5.6 Probe 5: Concurrent Initializer Stress
+- **Scenario**: 6 independent child processes concurrently execute `initializeDshProject` on an empty project root.
 - **Result**: **PASS**
-  - Invoking stale disposer 1 did not remove or affect generation 2 in `byId` or `byRoute`;
-  - Live disposer 2 cleanly removed generation 2.
+  - All 6 initializers completed with exit code 0 and zero uncaught `EEXIST` errors;
+  - Final root contains exactly 1 valid `DSH.md`, 1 valid `.dsh/project.json` (`schemaVersion: 1`), 1 valid `MEMORY.md`, real directory `.dsh/local/`, and exactly 1 `.dsh/local/` entry in `.gitignore`;
+  - 0 leftover `.lock` files.
 
-### 4.6 Probe 6: Logger Crash Containment
-- **Scenario**: `ctx.logger.warn` throws an exception when reporting an observer failure.
+### 5.7 Probe 6: Symlink & Path Safety Probes
+- **Scenario**:
+  - Pre-existing symlink at `MEMORY.md` pointing to outside target;
+  - Pre-existing symlink at `MEMORY.md.lock` pointing to outside file;
+  - Canonical parent directory `.dsh/memory` replaced with directory symlink.
 - **Result**: **PASS**
-  - Exception inside `#warnObserverFailure` was contained in its own `try/catch`;
-  - Logger failure did not bubble out or restore observer veto power over committed registry state;
-  - Disposer handle was returned and remained operable.
+  - Target symlink was refused; outside referent file was unmodified;
+  - Lock path symlink was refused by `wx` exclusive create; outside lock referent was unmodified;
+  - Canonical directory symlink was refused by `validateCanonicalDirectory`;
+  - Fail-closed security invariants preserved.
+
+### 5.8 Probe 7: Official Upstream DSH `0.1.2-alpha.1` Lock Probe
+- **Scenario**: Executing `withFileLock` directly from upstream source `/tmp/dsh-upstream/packages/util/atomic-write/src/index.ts` in a multi-process contention scenario.
+- **Result**: **PASS**
+  - Process 1 held lock; Process 2 contended and blocked;
+  - Upon Process 1 release, Process 2 acquired lock and committed write;
+  - Target content verified and lock cleaned up.
 
 ---
 
-## 5. Upstream Semantic Comparison: DSH `v0.1.2-alpha.1`
+## 6. Scope Boundary Declaration
 
-### 5.1 Upstream Source Reference
-- **Repository**: `deepseek-ai/deepseek-harness`
-- **Tag**: `dsh-v0.1.2-alpha.1`
-- **Commit**: `cd5ef8148158c3a752a658978873241fdf8e2bbc`
-- **File**: `packages/llm/llm/src/index.ts`
-- **Method**: `LlmRuntime.emitAdaptersUpdated()`
-
-### 5.2 Upstream Alignment
-In DSH alpha.1 `LlmRuntime.emitAdaptersUpdated()`:
-```ts
-private emitAdaptersUpdated(): void {
-  let invariantFailure: unknown
-  for (const listener of this.ctx.events.dispatch('emit', ['llm/adapters-updated']) as Array<() => unknown>) {
-    try {
-      const returned = listener()
-      if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
-        void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
-          this.warnAdaptersListenerFailure(error)
-        })
-      }
-    } catch (error) {
-      if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
-        invariantFailure ??= error
-        continue
-      }
-      this.warnAdaptersListenerFailure(error)
-    }
-  }
-  if (invariantFailure !== undefined) throw invariantFailure as Error
-}
-```
-
-Both Core and DSH enforce the core architectural principle: **topology observers must not veto committed topology changes**. Both isolate listener executions, contain async promise rejections, and emit diagnostics via `ctx.logger.warn`.
-
-### 5.3 Assessment of Core's Deliberate Distinction Regarding `INVARIANT` Rethrow
-In DSH `LlmRuntime.emitAdaptersUpdated()`, `registerAdapter()` registers the adapter and returns an `AdapterRegistrationHandle`. However, `emitAdaptersUpdated()` is called from internal event dispatch where listeners are purely event subscribers.
-
-In Nishi Core, `NishiProvidersService.record(entry)` commits internal state to `#byId` and `#byRoute`, calls `#announce()`, and **must return the withdrawal handle `() => void` to the caller (`registerProvider()`)**:
-```ts
-this.#byId.set(id, entry)
-for (const route of routes) this.#byRoute.set(route, entry)
-this.#announce()
-
-return () => { ... }
-```
-
-If `#announce()` were to rethrow an `INVARIANT` or any other error:
-1. `record()` would throw synchronously before reaching `return () => { ... }`;
-2. The caller (`registerProvider()`) would catch the error in its outer `try/catch`, but `forgetRegistry` would be `undefined`;
-3. `rollbackRegistration` would be unable to withdraw the provider;
-4. The provider and routes would remain permanently committed in `#byId` and `#byRoute` as a **ghost provider**, causing subsequent duplicate registration errors.
-
-Therefore, Core's design—containing all observer failures in `#announce()` with best-effort diagnostics to `this.ctx.logger.warn` and ensuring `record()` always returns the withdrawal handle—is **strictly correct** for this API. Validations that can legitimately veto registration are executed prior to registry commit.
-
----
-
-## 6. Provider Package Impact Assessment
-
-The provider collector implementations in the workspace were inspected and tested:
-- **`nishi-dsh-codex`**: Uses `CodexUsageCollector` class instance.
-- **`nishi-dsh-antigravity`**: Uses `AntigravityUsageCollector` class instance.
-- **`nishi-dsh-claude`**: Uses `ClaudeUsageCollector` class instance.
-
-`parseUsageSnapshotCollector` explicitly binds the `collect` method to the collector instance (`collect: collector.collect.bind(collector)`), preserving `this` access and private state across all provider implementations. All 31 provider package tests passed without modifications.
+> [!IMPORTANT]
+> **Scope Boundary**: Cross-file compound atomicity across `memory_write(topic)` / `memory_edit(topic)` (where topic mutation and `MEMORY.md` map mutation execute as two separate file stages) is deliberately **OUT OF SCOPE** for this per-file locking block.
+>
+> If a topic write succeeds but the subsequent `MEMORY.md` map update fails, a partial commit can occur. This known behavior is the next scheduled item in `docs/ROADMAP.md` and will be resolved in a dedicated transaction remediation block.
+>
+> Per-file read-modify-write serialization, lost-update prevention, lock cleanup, and path safety for individual targets are fully verified and pass all requirements.
 
 ---
 
 ## 7. Git & Working Tree Status
 
 ```
-HEAD: b925e2a328168e7c978126fc6474b7af11d7a63d
+HEAD: eae9caf03f8896f344d7c73b2f67d67cb9f86e9c
 Branch: feat/core-provider-plugins-rc3
 Working tree: clean (only docs/verification/gemini/LATEST.md modified)
 ```
@@ -240,4 +216,4 @@ Working tree: clean (only docs/verification/gemini/LATEST.md modified)
 
 **`Result: PASS`**
 
-The Core registry observer non-vetoing semantics, provider registration preflight validations, and post-record transactional rollback have passed all local verification gates, unit tests, and live Cordis integration probes with 100% compliance.
+Project Memory inter-process read-modify-write locking satisfies all serialization, safety, performance, and compatibility contracts across DSH `0.1.1-rc.2` and DSH `0.1.2-alpha.1`.
