@@ -298,30 +298,46 @@ async function claimRecoveryJournal(
   }, signal)
 }
 
+/**
+ * Wait for a live compound owner to leave the Memory-map critical section. If
+ * a pending journal still exists once this process successfully owns
+ * MEMORY.md.lock, the original transaction is no longer active regardless of
+ * whether its process itself remains alive. The abandoned pending state can
+ * therefore be rolled back under the normal MEMORY -> topic lock order.
+ */
 async function waitForLiveTransactionToFinish(
   projectRoot: string,
   signal?: AbortSignal,
 ): Promise<boolean> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   if (!(await validateCanonicalDirectory(paths.memoryDir, signal))) return false
-  await withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async () => {}, signal)
-  const remaining = await readPendingTransaction(projectRoot, signal)
-  if (remaining === null) return false
-  if (remaining.phase === 'committed') {
-    await clearPendingProjectMemoryTransaction(projectRoot, signal)
-    return true
-  }
-  if (pidIsAlive(remaining.ownerPid)) {
-    throw new Error('Project memory transaction remained pending after its writer lock was released')
-  }
-  return recoverPendingProjectMemoryTransaction(projectRoot, signal)
+
+  return withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async () => {
+    const remaining = await readPendingTransaction(projectRoot, signal)
+    if (remaining === null) return false
+    if (remaining.phase === 'committed') {
+      await clearPendingProjectMemoryTransaction(projectRoot, signal)
+      return true
+    }
+
+    const topicPath = join(paths.memoryDir, `${remaining.topic}.md`)
+    return withSafeFileWriterLock(paths.memoryDir, topicPath, async () => {
+      signal?.throwIfAborted()
+      await restorePendingProjectMemoryTransactionLocked(projectRoot, remaining)
+      signal?.throwIfAborted()
+      await clearPendingProjectMemoryTransaction(projectRoot, signal)
+      return true
+    }, signal)
+  }, signal)
 }
 
 /**
  * Recover a compound topic/map transaction. `pending` journals restore both
  * exact pre-images. `committed` journals preserve both new participant states
  * and exist only so a crash before lock cleanup can safely clean protocol files.
- * A live owner is awaited through the normal MEMORY.md writer lock.
+ * A live owner is first awaited through the normal MEMORY.md writer lock; a
+ * pending journal left after that barrier is abandoned transaction state and is
+ * recovered even when the old process remains alive.
  */
 export async function recoverPendingProjectMemoryTransaction(
   projectRoot: string,
