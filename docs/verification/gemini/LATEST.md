@@ -1,8 +1,8 @@
-# Local Validation Report: Core DSH Connection/Client Compatibility Migration
+# Local Validation Report: Core Registry Observer & Provider Registration Transaction
 
 - **Result**: `PASS`
 - **Branch**: `feat/core-provider-plugins-rc3`
-- **Tested implementation HEAD**: `59512d51e55f8121eccdb934e01523e4436b289c`
+- **Tested implementation HEAD**: `b925e2a328168e7c978126fc6474b7af11d7a63d`
 - **Environment**:
   - Node: `v24.19.0` (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
   - pnpm: `11.21.0`
@@ -13,15 +13,14 @@
 
 ## 1. Exact Files Reviewed
 
-1. [`packages/core/src/host/connection-compat.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/connection-compat.ts) — Connection RPC arity detection and registration abstraction.
-2. [`packages/core/test/connection-compat.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/connection-compat.test.ts) — Unit tests for rc.2 3-argument and alpha.1 2-argument registration.
-3. [`packages/core/src/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/index.ts) — Host RPC channel registration through `registerConnectionRpcChannel()`.
-4. [`packages/core/src/host/rpc.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/rpc.ts) — Usage Limits RPC handler and structural error types.
-5. [`packages/core/src/host/authorization-rpc.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/authorization-rpc.ts) — Model Accounts Authorization RPC handler and structural error types.
-6. [`packages/core/src/client/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/client/index.ts) — Browser client entry using Cordis `Context` without `dsh-client-runtime`.
-7. [`packages/core/package.json`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/package.json) — Production package boundary (retired packages only in `devDependencies`).
-8. [`packages/core/test/package-boundary.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/package-boundary.test.ts) — Regression test suite enforcing isolation of retired packages.
-9. [`packages/core/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/README.md), [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md), [`docs/HANDOFF.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/HANDOFF.md), [`docs/RELEASE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/RELEASE.md), [`docs/ROADMAP.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ROADMAP.md), [`docs/verification/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/verification/README.md).
+1. [`packages/core/src/registry/service.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/registry/service.ts) — Provider registry service with non-vetoing observer announcements and best-effort diagnostics.
+2. [`packages/core/src/usage/service.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/usage/service.ts) — Runtime validation functions `parseUsageRefreshPolicy` and `parseUsageSnapshotCollector` preserving `UsageLimitsService.register()` contract.
+3. [`packages/core/src/runtime/registration.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/runtime/registration.ts) — Ordered registration sequence enforcing policy preflight and collector validation before registry mutation, maintaining post-record transactional rollback.
+4. [`packages/core/src/host/composition.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/composition.ts) — Host composition with preflight validation of `defaultRefreshPolicy` prior to observer registration.
+5. [`packages/core/test/registry.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/registry.test.ts) — Unit and regression test suite covering sync throwing observers, async rejecting observers, non-vetoing withdrawal, and Cordis proxy access.
+6. [`packages/core/test/registration-policy.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/registration-policy.test.ts) — Regression test suite verifying preflight rejection of malformed explicit policy, malformed collector, and validated detached copy propagation.
+7. [`packages/core/test/composition-policy.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/composition-policy.test.ts) — Regression test verifying early rejection of malformed host `defaultRefreshPolicy` prior to context service access.
+8. Supporting canonical documentation: [`packages/core/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/README.md), [`docs/ARCHITECTURE.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ARCHITECTURE.md), [`docs/ROADMAP.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/ROADMAP.md), [`docs/HANDOFF.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/HANDOFF.md), [`docs/verification/README.md`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/docs/verification/README.md).
 
 ---
 
@@ -32,158 +31,213 @@
 pnpm install --frozen-lockfile
 ```
 - **Exit code**: `0`
-- **Output**: `Scope: all 7 workspace projects; Already up to date; Done in 318ms`
+- **Output**: `Scope: all 7 workspace projects; Already up to date; Done in 314ms`
 - **Diff check** (`git diff --exit-code -- pnpm-lock.yaml packages/core/package.json`): Exit code `0` (clean, zero diffs).
 
 ### 2.2 Core Focused Gates
 | Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 169 tests passed, 0 failed (duration: 966ms) |
+| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 175 tests passed, 0 failed (duration: 985ms; +6 new regression tests) |
 | `pnpm --filter nishi-dsh-core check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean |
 | `pnpm --filter nishi-dsh-core build` | `0` | **PASS** | `tsdown` built ESM node artifacts & CJS browser `lib/client.js` (120.92 kB) |
 
----
-
-## 3. Connection API Arity & Helper Verification
-
-### 3.1 Actual Function Arity from Published/Built Packages
-- **DSH `0.1.1-rc.2`** (`@deepseek-ai/dsh-client-connection/lib/index.js`):
-  ```js
-  handle: (channel, handler, options) => this.register(owner, channel, handler, options)
-  ```
-  - **Actual `rpc.handle.length`**: `3`
-- **DSH `0.1.2-alpha.1`** (`packages/client/connection/lib/index.js` built from upstream commit `cd5ef8148`):
-  ```js
-  handle: (channel, handler) => this.register(owner, channel, handler)
-  ```
-  - **Actual `rpc.handle.length`**: `2`
-- **Build/Transpilation Impact**: Neither `tsdown` nor Rolldown alters the parameter counts or function shapes in either package build. The arity detection in `packages/core/src/host/connection-compat.ts` (`handle.length >= 3`) is deterministic and reliable.
-
-### 3.2 Helper Behavior
-- [`packages/core/src/host/connection-compat.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/host/connection-compat.ts):
-  - In rc.2 environment: calls `handle(channel, handler, { authority: 'trusted-host' })`.
-  - In alpha.1 environment: calls `handle(channel, handler)`.
-- Verified in unit tests ([`packages/core/test/connection-compat.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/connection-compat.test.ts)) and live runtime probes.
+### 2.3 Full Monorepo Gates
+| Monorepo Gate Command | Exit Code | Result | Details |
+|---|---|---|---|
+| `pnpm test` | `0` | **PASS** | All workspace packages pass unit and integration test suites |
+| `pnpm check` | `0` | **PASS** | Typecheck clean across all workspace projects |
+| `pnpm build` | `0` | **PASS** | All workspace packages build cleanly |
 
 ---
 
-## 4. Host Registration, RPC Wire Shapes, & Lifecycle
+## 3. Architecture & Contract Verification
 
-### 4.1 Channel Registrations
-In [`packages/core/src/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/index.ts), both Core RPC channels are registered via `registerConnectionRpcChannel`:
-1. `/usage-limits` (`USAGE_LIMITS_CHANNEL`) -> `createUsageLimitsRpcHandler(hostService)`
-2. `/authorization` (`AUTHORIZATION_RPC_CHANNEL`) -> `createAuthorizationRpcHandler(authController)`
+### 3.1 Non-Vetoing Registry Observers (`packages/core/src/registry/service.ts`)
+- **Independent Notification Execution**: `#announce()` iterates through listeners in an isolated `try/catch` block.
+- **Sync Throw Containment**: A synchronous exception thrown by an observer:
+  - Is contained within `#announce()`;
+  - Is logged to `this.ctx.logger.warn`;
+  - Does not throw out of `record()`;
+  - Does not starve subsequent observers from receiving the event;
+  - Allows `record()` to return the withdrawal disposer callback.
+- **Async Rejection Containment**: If an observer returns a `PromiseLike`, rejection is caught via `Promise.resolve(returned).then(undefined, error => this.#warnObserverFailure(error))`, preventing `unhandledRejection` events.
+- **Disposer & Withdrawal**: `record()` returns `() => void`. Invoking the disposer removes the provider from `#byId` and `#byRoute`, and invokes `#announce()`, where withdrawal notifications follow the identical non-vetoing semantics.
+- **Pre-Mutation Validation**: Duplicate provider IDs, duplicate routes, and non-canonical strings are validated before state changes, remaining strictly vetoing.
+- **Proxy Compatibility**: All methods (`record`, `byId`, `byRoute`, `all`, `onChange`, `invalidate`, `onInvalidate`) are bound in the constructor to ensure correct operation through Cordis service proxies.
 
-### 4.2 Lifecycle & Disposer Ownership
-- `Connection` is the sole lifecycle owner through `owner.effect(() => owner.webServer.register(route), ...)`.
-- Core does NOT create a second disposer or redundant effect.
-- **Mount / Unload / Remount Probe Results**:
-  - **rc.2**: Initial mount registers 2 channels (`/usage-limits`, `/authorization`). Plugin unload clears all routes (0 remaining). Remount registers exactly 2 channels without duplicates.
-  - **alpha.1**: Initial mount registers 2 channels. Plugin unload clears all routes (0 remaining). Remount registers exactly 2 channels without duplicates.
+### 3.2 Runtime Validators (`packages/core/src/usage/service.ts`)
+- **`parseUsageRefreshPolicy`**:
+  - `minRefreshIntervalMs`: Validated as a non-negative safe integer (`Number.isSafeInteger(v) && v >= 0`).
+  - `staleAfterMs`: Validated as a positive safe integer (`Number.isSafeInteger(v) && v > 0`).
+  - Returns a detached object copy.
+- **`parseUsageSnapshotCollector`**:
+  - Asserts non-null plain object.
+  - Asserts `collect` is a callable function.
+  - Binds the receiver (`{ collect: collector.collect.bind(collector) }`), preserving `this` context for class instances (Codex, Antigravity, Claude collectors).
+  - Preserves exact error messaging and contract compatibility with `UsageLimitsService.register()`.
 
-### 4.3 Structural RPC Result & Error Shapes
-- Production Core imports neither `@deepseek-ai/dsh-host-apiproxy` nor `@deepseek-ai/dsh-client-runtime`.
-- Type inference uses `type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>` and `type ConnectionRpcError = Extract<ConnectionRpcResult, { ok: false }>['error']`.
-- **Wire Shapes**:
-  - Success: `{ ok: true, value: <DTO> }`
-  - `bad-request`: `{ ok: false, error: { code: 'bad-request', message: string, details: { issues: [...] } } }`
-  - `internal`: `{ ok: false, error: { code: 'internal', message: string, details: {} } }`
-- Verified against both rc.2 and alpha.1 wire expectations; browser-facing RPC wire contract remains identical.
+### 3.3 Registration Sequence & Transaction Ordering (`packages/core/src/runtime/registration.ts`)
+The execution order in `registerProvider()` is verified:
+1. Canonical `providerId` validation (`canonicalProviderId`);
+2. Canonical `presentation.id` validation and agreement with `providerId`;
+3. Canonical and deduplicated `model.routes` validation;
+4. Explicit `usage.refreshPolicy` preflight validation and detachment;
+5. Provider `webSearch` capability factory invocation;
+6. Provider `usage` capability factory invocation;
+7. Usage collector preflight validation and binding (`parseUsageSnapshotCollector`);
+8. `registry.record()` commit;
+9. Cordis withdrawal effect registration (`ctx.effect()`);
+10. Model adapter registration (`ctx.llm.registerAdapter`);
+11. Provider-specific `descriptor.install?.(ctx, config)` execution;
+12. Comprehensive transactional rollback on post-commit failures (`rollbackRegistration`).
 
----
-
-## 5. Browser Client Compatibility & First-Party Patterns
-
-### 5.1 Cordis Client Context Transition
-- Browser entry [`packages/core/src/client/index.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/src/client/index.ts) uses `import type { Context as ClientContext } from '@deepseek-ai/cordis'`.
-- First-party packages:
-  - **rc.2**: Supported by existing client runtime graph (`ui-sidebar`, `ui-settings`, `locale`).
-  - **alpha.1**: `dsh-client-runtime` is completely removed upstream. Upstream client plugins (`ui-sidebar`, `ui-settings`, `locale`, `ui-renderer`) use Cordis `Context` directly.
-- Service declarations provide Core access to:
-  - `ctx.connection` (via `@deepseek-ai/dsh-client-connection/client`)
-  - `ctx.locale` (via `@deepseek-ai/dsh-client-locale/client`)
-  - `ctx.slots` (via `@deepseek-ai/dsh-client-ui-renderer/client` / `@deepseek-ai/dsh-client-ui-slots`)
-- Slot components registered:
-  - `sidebar.footer.action` (`id: 'usage-limits'`)
-  - `settings.section` (`id: 'usage-limits'`)
-  - `settings.section` (`id: 'model-accounts'`)
-- Dictionary namespaces registered: `usage-limits`, `model-accounts`.
-- Build purity gate passes cleanly and emits `lib/client.js` wrapped in `window.__ModuleLoader__.load()`.
-
----
-
-## 6. Dependency Boundary & Regression Tests
-
-### 6.1 Package Boundary
-- `packages/core/package.json`:
-  - `dependencies`: `@deepseek-ai/schemastery` only.
-  - `peerDependencies`: `@deepseek-ai/cordis`, `@deepseek-ai/dsh-client-connection`, `@deepseek-ai/dsh-client-locale`, `@deepseek-ai/dsh-client-ui-primitives`, `@deepseek-ai/dsh-client-ui-settings`, `@deepseek-ai/dsh-client-ui-sidebar`, `@deepseek-ai/dsh-client-ui-slots`, `@deepseek-ai/dsh-credentials`, `@deepseek-ai/dsh-llm`, `@deepseek-ai/dsh-subprocess`, `@deepseek-ai/dsh-system-prompt`, `@deepseek-ai/dsh-timeout`, `@deepseek-ai/dsh-tools`, `react`.
-  - `@deepseek-ai/dsh-host-apiproxy` and `@deepseek-ai/dsh-client-runtime` are **completely absent** from `dependencies`, `peerDependencies`, and `dsh.client.inject`.
-  - Present only in `devDependencies` as `"0.1.1-rc.2"` backward-compatibility fixtures to keep the local rc.2 test toolchain operable.
-- Peer dependencies version range note: `peerDependencies` currently remain `0.1.1-rc.2`. Version range widening to `0.1.1-rc.2 || ^0.1.2-alpha.1` is planned for the subsequent release phase.
-
-### 6.2 Boundary Regression Suite
-- [`packages/core/test/package-boundary.test.ts`](file:///home/acedia/%D0%9F%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/nishi-dsh-suite/packages/core/test/package-boundary.test.ts) asserts:
-  - Retired packages are absent from `dependencies` and `peerDependencies`.
-  - Production TypeScript source files contain no imports or string references to retired packages.
-  - `dsh.client.inject` does not request `dsh-client-runtime`.
-  - Provider package isolation and neutrality rules are preserved.
+### 3.4 Host Composition Preflight (`packages/core/src/host/composition.ts`)
+- `defaultRefreshPolicy` is validated before any registry observers are installed.
+- Invalid host default policy fails immediately without reading `ctx.nishiProviders`.
+- `DEFAULT_USAGE_REFRESH_POLICY` (`minRefreshIntervalMs: 60000`, `staleAfterMs: 300000`) remains valid and immutable.
+- Provider explicit policy takes precedence over host default policy during reconciliation.
 
 ---
 
-## 7. Security Review: Transition from `{ authority: 'trusted-host' }` to alpha.1
+## 4. Live Integration Probes & Results
 
-- **rc.2 Security Model**:
-  - Passed `{ authority: 'trusted-host' }` to `rpc.handle()`.
-  - `HostConnectionService.register()` evaluated `isTrustedApiRequest(req, this.trustedHosts)` to verify the Host/Origin fence (protecting against DNS rebinding and cross-site requests).
-- **alpha.1 Security Model**:
-  - Two-argument `handle(channel, handler)` executes `requestRejection(req)` on every request before the HTTP bridge invokes `fetchHandler`:
-    ```ts
-    requestRejection(request: ConnectionTrustRequest): ConnectionRequestRejection {
-      if (!isTrustedApiRequest(request, this.trustedHosts)) return 403
-      return this.browserAuth.isAuthenticated(request) ? undefined : 401
+A complete 6-phase integration probe was executed against a live Cordis runtime context with real service proxies and provider registration pipelines:
+
+### 4.1 Probe 1: Synchronous Observer Throw Containment
+- **Scenario**: Primary `onChange` listener synchronously throws an error during `registerProvider()`.
+- **Result**: **PASS**
+  - `registerProvider()` resolved cleanly without throwing;
+  - Provider was accessible via `byId('synthetic-sync')`;
+  - Model routes were accessible via `byRoute('synth-route-1')` and `byRoute('synth-route-2')`;
+  - Second observer received the registration notification (count = 1);
+  - Warning logged to `ctx.logger.warn`;
+  - Plugin fiber disposal successfully withdrew provider and routes;
+  - Second observer received the withdrawal notification (count = 2).
+
+### 4.2 Probe 2: Async Observer Rejection Containment
+- **Scenario**: Primary `onChange` listener returns a rejected Promise during `registerProvider()`.
+- **Result**: **PASS**
+  - Process-level `unhandledRejection` listener recorded **0** unhandled rejections;
+  - Provider was committed and visible in registry;
+  - Second observer was notified;
+  - Warning logged to `ctx.logger.warn`;
+  - Fiber disposal cleaned up state without unhandled rejections.
+
+### 4.3 Probe 3: Post-Record Rollback Regression
+- **Scenario**: Registry observer throws, `record()` commits and returns disposer, then `descriptor.install()` throws.
+- **Result**: **PASS**
+  - `registerProvider()` rejected with the original install error message;
+  - Rollback cleared provider from `#byId` and `#byRoute`;
+  - Adapter registration was cleanly disposed;
+  - Contained observer error did not obscure or replace the install failure.
+
+### 4.4 Probe 4: Usage Reconciliation & Preflight Validation
+- **Scenario**: Host usage composition reconciled against dynamic provider registrations, default/explicit policies, and invalid inputs.
+- **Result**: **PASS**
+  - Invalid host `defaultRefreshPolicy` failed immediately before `nishiProviders` access;
+  - Provider without explicit policy used `DEFAULT_USAGE_REFRESH_POLICY` (`staleAfterMs: 300000`);
+  - Provider with explicit policy used its configured policy (`staleAfterMs: 40000`);
+  - Snapshot collection and refresh operated cleanly;
+  - Invalid explicit policy was rejected before usage capability factory invocation and before registry mutation;
+  - Invalid collector was rejected after factory invocation but before registry mutation;
+  - Teardown of provider fibers correctly updated the usage roster.
+
+### 4.5 Probe 5: Stale Disposer & Replacement Provider Integrity
+- **Scenario**: Provider generation 1 registered and withdrawn, generation 2 registered, stale disposer 1 invoked.
+- **Result**: **PASS**
+  - Invoking stale disposer 1 did not remove or affect generation 2 in `byId` or `byRoute`;
+  - Live disposer 2 cleanly removed generation 2.
+
+### 4.6 Probe 6: Logger Crash Containment
+- **Scenario**: `ctx.logger.warn` throws an exception when reporting an observer failure.
+- **Result**: **PASS**
+  - Exception inside `#warnObserverFailure` was contained in its own `try/catch`;
+  - Logger failure did not bubble out or restore observer veto power over committed registry state;
+  - Disposer handle was returned and remained operable.
+
+---
+
+## 5. Upstream Semantic Comparison: DSH `v0.1.2-alpha.1`
+
+### 5.1 Upstream Source Reference
+- **Repository**: `deepseek-ai/deepseek-harness`
+- **Tag**: `dsh-v0.1.2-alpha.1`
+- **Commit**: `cd5ef8148158c3a752a658978873241fdf8e2bbc`
+- **File**: `packages/llm/llm/src/index.ts`
+- **Method**: `LlmRuntime.emitAdaptersUpdated()`
+
+### 5.2 Upstream Alignment
+In DSH alpha.1 `LlmRuntime.emitAdaptersUpdated()`:
+```ts
+private emitAdaptersUpdated(): void {
+  let invariantFailure: unknown
+  for (const listener of this.ctx.events.dispatch('emit', ['llm/adapters-updated']) as Array<() => unknown>) {
+    try {
+      const returned = listener()
+      if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+        void Promise.resolve(returned as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+          this.warnAdaptersListenerFailure(error)
+        })
+      }
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code === 'INVARIANT') {
+        invariantFailure ??= error
+        continue
+      }
+      this.warnAdaptersListenerFailure(error)
     }
-    ```
-  - **Host/Origin Fence**: Enforced first (`isTrustedApiRequest`). Untrusted Host header or cross-site request returns **`403 Forbidden`**.
-  - **Browser Authentication**: Enforced second (`browserAuth.isAuthenticated`). Validates HMAC-SHA256 signed `dsh-auth-*` cookie minted through process launch-token exchange. Missing or invalid cookie returns **`401 Unauthorized`**.
-- **Conclusion**: The transition to alpha.1 two-argument registration **strictly tightens** security. Core RPC endpoints (`/usage-limits`, `/authorization`) cannot be accessed as anonymous LAN endpoints.
+  }
+  if (invariantFailure !== undefined) throw invariantFailure as Error
+}
+```
+
+Both Core and DSH enforce the core architectural principle: **topology observers must not veto committed topology changes**. Both isolate listener executions, contain async promise rejections, and emit diagnostics via `ctx.logger.warn`.
+
+### 5.3 Assessment of Core's Deliberate Distinction Regarding `INVARIANT` Rethrow
+In DSH `LlmRuntime.emitAdaptersUpdated()`, `registerAdapter()` registers the adapter and returns an `AdapterRegistrationHandle`. However, `emitAdaptersUpdated()` is called from internal event dispatch where listeners are purely event subscribers.
+
+In Nishi Core, `NishiProvidersService.record(entry)` commits internal state to `#byId` and `#byRoute`, calls `#announce()`, and **must return the withdrawal handle `() => void` to the caller (`registerProvider()`)**:
+```ts
+this.#byId.set(id, entry)
+for (const route of routes) this.#byRoute.set(route, entry)
+this.#announce()
+
+return () => { ... }
+```
+
+If `#announce()` were to rethrow an `INVARIANT` or any other error:
+1. `record()` would throw synchronously before reaching `return () => { ... }`;
+2. The caller (`registerProvider()`) would catch the error in its outer `try/catch`, but `forgetRegistry` would be `undefined`;
+3. `rollbackRegistration` would be unable to withdraw the provider;
+4. The provider and routes would remain permanently committed in `#byId` and `#byRoute` as a **ghost provider**, causing subsequent duplicate registration errors.
+
+Therefore, Core's design—containing all observer failures in `#announce()` with best-effort diagnostics to `this.ctx.logger.warn` and ensuring `record()` always returns the withdrawal handle—is **strictly correct** for this API. Validations that can legitimately veto registration are executed prior to registry commit.
 
 ---
 
-## 8. Disposable DSH alpha.1 Probe Results
+## 6. Provider Package Impact Assessment
 
-A disposable upstream checkout was probed at tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) in `/tmp/dsh-upstream`:
-1. **Built upstream packages**: `pnpm build:lib:host` and `pnpm build:lib:client`.
-2. **Runtime probe executed**:
-   - `Alpha1HostConnectionService.rpc.handle.length === 2`: **VERIFIED**
-   - Untrusted Host header rejection -> `403 Forbidden`: **VERIFIED**
-   - Unauthenticated request rejection -> `401 Unauthorized`: **VERIFIED**
-   - Authenticated launch token exchange -> `303 Redirect` + `Set-Cookie`: **VERIFIED**
-   - Core mount / unmount / remount lifecycle -> clean teardown and zero leaks: **VERIFIED**
-   - RPC handler wire format (`get-roster`, `bad-request`, `list-flows`): **VERIFIED**
-   - Client plugin apply with Cordis `Context` (`locale`, `slots`, `connection`): **VERIFIED**
-- **Exit code**: `0`
+The provider collector implementations in the workspace were inspected and tested:
+- **`nishi-dsh-codex`**: Uses `CodexUsageCollector` class instance.
+- **`nishi-dsh-antigravity`**: Uses `AntigravityUsageCollector` class instance.
+- **`nishi-dsh-claude`**: Uses `ClaudeUsageCollector` class instance.
+
+`parseUsageSnapshotCollector` explicitly binds the `collect` method to the collector instance (`collect: collector.collect.bind(collector)`), preserving `this` access and private state across all provider implementations. All 31 provider package tests passed without modifications.
 
 ---
 
-## 9. Out-of-Scope Findings
-
-- **Registry listener / ghost-provider transaction issue**: Confirmed existing known issue, excluded from scope as instructed.
-
----
-
-## 10. Git Status
+## 7. Git & Working Tree Status
 
 ```
-HEAD: 59512d51e55f8121eccdb934e01523e4436b289c
+HEAD: b925e2a328168e7c978126fc6474b7af11d7a63d
 Branch: feat/core-provider-plugins-rc3
 Working tree: clean (only docs/verification/gemini/LATEST.md modified)
 ```
 
 ---
 
-## 11. Final Verdict
+## 8. Final Verdict
 
 **`Result: PASS`**
 
-Core DSH Connection and client compatibility migration successfully passes all local verification gates, backward compatibility contracts with DSH `0.1.1-rc.2`, forward compatibility runtime probes with DSH `0.1.2-alpha.1`, dependency boundary invariants, and security assessments.
+The Core registry observer non-vetoing semantics, provider registration preflight validations, and post-record transactional rollback have passed all local verification gates, unit tests, and live Cordis integration probes with 100% compliance.
