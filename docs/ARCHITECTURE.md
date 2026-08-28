@@ -1,6 +1,6 @@
 # Architecture
 
-Status: canonical `0.1.0-rc.3` architecture. This file describes the code as it exists now.
+Status: canonical `0.1.0-rc.3` architecture. This file describes the code as it exists now; compatibility remediation against DSH `0.1.2-alpha.1` is active where noted in `ROADMAP.md`.
 
 ## Product contract
 
@@ -66,9 +66,11 @@ The internal host child injects:
 ['nishiProviders', 'connection', 'credentials']
 ```
 
-Only that child reads those services. This avoids the outer core waiting for the `nishiProviders` service that it publishes itself. Real DSH boot and unload/remount acceptance proved this lifecycle.
+Only that child reads those services. This avoids the outer core waiting for the `nishiProviders` service that it publishes itself.
 
 The core does not import or inject `@deepseek-ai/dsh-authorization`. Model Accounts reads DSH credentials directly. The Suite currently keeps the official authorization row as a surrounding-profile compatibility seam, not a core dependency and not vendor-auth brokerage.
+
+The host/browser Connection boundary is currently under explicit DSH `0.1.2-alpha.1` migration. The intended contract is that Connection owns transport authentication/fencing and effect-scoped channel registration; Core owns only its logical RPC endpoints and safe DTO handlers.
 
 ## Provider contract
 
@@ -164,7 +166,7 @@ There is no vendor fallback.
 8. optional provider install;
 9. rollback of core-owned state if a later stage fails.
 
-Rollback failures are aggregated with the original failure.
+Rollback failures are aggregated with the original failure. The alpha.1 audit has reopened this area because observer failure during registry notification can currently escape after mutation but before a withdrawal capability reaches `registerProvider()`; the target invariant remains fully transactional core-owned registration.
 
 ## Core neutrality
 
@@ -185,9 +187,11 @@ Project Memory uses one root policy for context injection and tools:
 
 Canonical memory paths reject symlink/junction path components and non-regular targets. Replacement writes use `@deepseek-ai/dsh-atomic-write` after those checks.
 
-`/memory` and `/consolidate` register only with both `commands` and `llm` injected. Their temporary model selection is scoped to the maintenance turn.
+`/memory` and `/consolidate` register only with both `commands` and `llm` injected. Their temporary model selection is scoped to the maintenance turn. The selected provider/model is activated when the exact steered maintenance message is emitted through `agent/inbox/claimed`, before DSH prompt assembly snapshots model selection; cleanup removes the selection/listeners on idle, matching turn stop/error or steering failure.
 
 Project memory is repository-shared data. Maintenance policy rejects secrets, credential material, quota snapshots, raw chain-of-thought, transient logs and operator-personal facts.
+
+Atomic replacement is not treated as equivalent to a multi-process read-modify-write transaction. RMW serialization and compound topic/map failure semantics are reopened integrity work and are tracked in `ROADMAP.md`.
 
 ## Provider-native memory policy
 
@@ -215,7 +219,9 @@ Antigravity suppression remains partly configuration and partly prompt-level gui
 8. Stale browser async work cannot resurrect withdrawn providers.
 9. Vendor-specific subagent registration/tools are absent.
 10. Project Memory root selection and filesystem confinement are provider-independent.
+11. Maintenance model selection must be active before prompt assembly snapshots the first maintenance step.
+12. Core-owned registration must not leave visible registry/route state when registration fails.
 
 ## Current implementation state
 
-Core and Project Memory are **DONE / FROZEN** for rc.3. Codex, Antigravity and Claude provider-specific cleanup/acceptance remain. Cross-provider live switching, dynamic-roster browser acceptance, final install/profile lifecycle and release gates remain open. See `ROADMAP.md` and `HANDOFF.md`; do not duplicate status in this file.
+Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing is already corrected and accepted; remaining foundation blockers and exact order live in `ROADMAP.md` / `HANDOFF.md`. Provider cleanup resumes only after the foundation is re-frozen.
