@@ -70,7 +70,7 @@ Only that child reads those services. This avoids the outer core waiting for the
 
 The core does not import or inject `@deepseek-ai/dsh-authorization`. Model Accounts reads DSH credentials directly. The Suite currently keeps the official authorization row as a surrounding-profile compatibility seam, not a core dependency and not vendor-auth brokerage.
 
-The host/browser Connection boundary is currently under explicit DSH `0.1.2-alpha.1` migration. The intended contract is that Connection owns transport authentication/fencing and effect-scoped channel registration; Core owns only its logical RPC endpoints and safe DTO handlers.
+The Connection boundary is dual-generation compatible with installed DSH `0.1.1-rc.2` and upstream `0.1.2-alpha.1`: Core owns only logical RPC endpoints and safe DTO handlers, while Connection owns transport fencing/authentication and effect-scoped channel registration. The rc.2 three-argument `trusted-host` registration and alpha.1 authenticated two-argument registration are isolated behind the Core Connection compatibility helper.
 
 ## Provider contract
 
@@ -133,6 +133,8 @@ Executable lookup is descriptor-driven: explicit config, then the descriptor's e
 
 Usage source and normalization belong to the provider. Core owns generic caching, invalidation, public projection and browser lifecycle.
 
+An explicit provider `usage.refreshPolicy` is validated and detached before any capability factory or registry mutation. This keeps malformed provider-owned policy out of the observer/reconciliation path; the same parser is reused by `UsageLimitsService.register()` so direct and descriptor-backed registrations share one policy contract.
+
 A registered provider with no usage capability remains visible and receives an explicit synthetic `UNSUPPORTED` public state. It is not hidden and does not receive a fake collector.
 
 ### Web search
@@ -159,14 +161,19 @@ There is no vendor fallback.
 1. provider-id validation;
 2. presentation-id validation;
 3. canonical/deduplicated route validation;
-4. optional web-search/usage capability construction on the provider context;
-5. registry record;
-6. Cordis withdrawal effect binding;
-7. adapter construction/registration for model providers;
-8. optional provider install;
-9. rollback of core-owned state if a later stage fails.
+4. explicit usage refresh-policy validation/detachment, when supplied;
+5. optional web-search/usage capability construction on the provider context;
+6. registry record;
+7. Cordis withdrawal effect binding;
+8. adapter construction/registration for model providers;
+9. optional provider install;
+10. rollback of core-owned state if a later transaction stage fails.
 
-Rollback failures are aggregated with the original failure. The alpha.1 audit has reopened this area because observer failure during registry notification can currently escape after mutation but before a withdrawal capability reaches `registerProvider()`; the target invariant remains fully transactional core-owned registration.
+Rollback failures are aggregated with the original failure.
+
+Registry change notifications are **non-vetoing observers**, not transaction participants. `record()` commits the provider id/routes first and always returns its withdrawal handle even if a synchronous listener throws; async listener rejections are contained as well, and later observers still run. Provider descriptor validation that can legitimately reject registration therefore belongs before the registry commit rather than inside an `onChange` observer.
+
+This avoids the previous ghost-provider failure mode where a listener could throw after Map mutation but before `registerProvider()` received the withdrawal handle.
 
 ## Core neutrality
 
@@ -220,8 +227,9 @@ Antigravity suppression remains partly configuration and partly prompt-level gui
 9. Vendor-specific subagent registration/tools are absent.
 10. Project Memory root selection and filesystem confinement are provider-independent.
 11. Maintenance model selection must be active before prompt assembly snapshots the first maintenance step.
-12. Core-owned registration must not leave visible registry/route state when registration fails.
+12. Provider descriptor validation that can reject registration happens before registry mutation.
+13. Registry change observers are non-vetoing; a broken observer cannot create ghost provider/route state by denying the caller its withdrawal handle.
 
 ## Current implementation state
 
-Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing is already corrected and accepted; remaining foundation blockers and exact order live in `ROADMAP.md` / `HANDOFF.md`. Provider cleanup resumes only after the foundation is re-frozen.
+Core and Project Memory are **REOPENED** for compatibility/integrity remediation after an audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Project Memory maintenance-route timing and Core Connection/client compatibility are already corrected and accepted; the Core registry transaction correction is implemented and awaiting focused validation. Remaining foundation blockers and exact order live in `ROADMAP.md` / `HANDOFF.md`. Provider cleanup resumes only after the foundation is re-frozen.
