@@ -307,7 +307,7 @@ export async function writeTopicMemoryWithMap(
           )
           return writeResult
         } catch (error) {
-          await rollbackJournaledTransaction(
+          return rollbackJournaledTransaction(
             projectRoot,
             topic,
             journal,
@@ -377,7 +377,7 @@ export async function editTopicMemoryWithMap(
           )
           return editResult
         } catch (error) {
-          await rollbackJournaledTransaction(
+          return rollbackJournaledTransaction(
             projectRoot,
             topic,
             journal,
