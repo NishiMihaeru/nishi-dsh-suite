@@ -9,6 +9,7 @@ import {
 } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 import { isValidTopicIdentifier } from './topic-id.js'
+import { settleCommittedProjectMemoryTransactionUnderMapLock } from './transaction.js'
 
 export const MAX_BOOTSTRAP_LINES = 200
 export const MAX_BOOTSTRAP_BYTES = 25 * 1024
@@ -340,6 +341,7 @@ export async function withMemoryMapEntryTransaction<T>(
 
   return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
     signal?.throwIfAborted()
+    await settleCommittedProjectMemoryTransactionUnderMapLock(projectRoot, signal)
     const currentContent = await readBootstrapOrInitial(memoryDir, memoryMd, signal)
     const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
     assertBootstrapBounds(updatedContent)
