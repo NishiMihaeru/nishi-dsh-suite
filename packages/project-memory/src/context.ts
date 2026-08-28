@@ -1,7 +1,6 @@
-import { lstat, readFile } from 'node:fs/promises'
-import { isAbsolute, join, normalize } from 'node:path'
+import { dirname, isAbsolute, join, normalize } from 'node:path'
 import { MAX_BOOTSTRAP_BYTES, MAX_BOOTSTRAP_LINES } from './bootstrap.js'
-import { validateCanonicalDirectory } from './filesystem.js'
+import { readSafeRegularFile, validateCanonicalDirectory } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 
 export const MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES = 64 * 1024 // 64 KiB (65,536 bytes)
@@ -55,54 +54,29 @@ async function readInstructionFile(
   signal?: AbortSignal,
 ): Promise<ReadInstructionResult> {
   signal?.throwIfAborted()
+  const parent = dirname(filePath)
 
-  let stats
   try {
-    stats = await lstat(filePath)
-  } catch (err: any) {
-    if (signal?.aborted) {
-      signal.throwIfAborted()
-    }
-    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') {
+    if (!(await validateCanonicalDirectory(parent, signal))) {
       return { exists: false, content: null, rawLength: 0 }
     }
-    throw new Error(`Canonical context ${sourceLabel} could not be read safely.`)
-  }
-
-  signal?.throwIfAborted()
-
-  if (stats.isSymbolicLink()) {
-    throw new Error(`Canonical context ${sourceLabel} must not be a symbolic link.`)
-  }
-  if (!stats.isFile()) {
-    throw new Error(`Canonical context ${sourceLabel} must be a regular file.`)
-  }
-  if (stats.size > MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES) {
-    throw new Error('Canonical context instruction budget exceeded.')
-  }
-
-  signal?.throwIfAborted()
-
-  let buffer: Buffer
-  try {
-    buffer = await readFile(filePath)
+    const buffer = await readSafeRegularFile(parent, filePath, {
+      signal,
+      maxBytes: MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES,
+    })
+    if (buffer === null) return { exists: false, content: null, rawLength: 0 }
+    signal?.throwIfAborted()
+    return {
+      exists: true,
+      content: buffer.toString('utf8'),
+      rawLength: buffer.length,
+    }
   } catch (err: any) {
-    if (signal?.aborted) {
-      signal.throwIfAborted()
+    if (signal?.aborted) signal.throwIfAborted()
+    if (typeof err?.message === 'string' && err.message.includes('exceeds maximum size limit')) {
+      throw new Error('Canonical context instruction budget exceeded.')
     }
     throw new Error(`Canonical context ${sourceLabel} could not be read safely.`)
-  }
-
-  signal?.throwIfAborted()
-
-  if (buffer.length > MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES) {
-    throw new Error('Canonical context instruction budget exceeded.')
-  }
-
-  return {
-    exists: true,
-    content: buffer.toString('utf8'),
-    rawLength: buffer.length,
   }
 }
 
@@ -118,52 +92,22 @@ async function readStrictMemoryBootstrap(
   const memoryMd = paths.memoryMd
 
   try {
-    const dshExists = await validateCanonicalDirectory(dshDir)
-    if (!dshExists) {
+    if (!(await validateCanonicalDirectory(dshDir, signal))) {
+      return { exists: false, content: null }
+    }
+    if (!(await validateCanonicalDirectory(memoryDir, signal))) {
       return { exists: false, content: null }
     }
 
-    const memoryDirExists = await validateCanonicalDirectory(memoryDir)
-    if (!memoryDirExists) {
-      return { exists: false, content: null }
-    }
-
+    const rawBuffer = await readSafeRegularFile(memoryDir, memoryMd, {
+      signal,
+      maxBytes: MAX_BOOTSTRAP_BYTES,
+    })
+    if (rawBuffer === null) return { exists: false, content: null }
     signal?.throwIfAborted()
-
-    let fileStats
-    try {
-      fileStats = await lstat(memoryMd)
-    } catch (err: any) {
-      if (signal?.aborted) {
-        signal.throwIfAborted()
-      }
-      if (err?.code === 'ENOENT') {
-        return { exists: false, content: null }
-      }
-      throw new Error('Canonical context memory bootstrap could not be read safely.')
-    }
-
-    if (fileStats.isSymbolicLink() || !fileStats.isFile()) {
-      throw new Error('Canonical context memory bootstrap could not be read safely.')
-    }
-
-    if (fileStats.size > MAX_BOOTSTRAP_BYTES) {
-      throw new Error('Canonical context memory bootstrap could not be read safely.')
-    }
-
-    signal?.throwIfAborted()
-
-    const rawBuffer = await readFile(memoryMd)
-
-    signal?.throwIfAborted()
-
-    if (rawBuffer.length > MAX_BOOTSTRAP_BYTES) {
-      throw new Error('Canonical context memory bootstrap could not be read safely.')
-    }
 
     const content = rawBuffer.toString('utf8')
-    const lines = countLines(content)
-    if (lines > MAX_BOOTSTRAP_LINES) {
+    if (countLines(content) > MAX_BOOTSTRAP_LINES) {
       throw new Error('Canonical context memory bootstrap could not be read safely.')
     }
 
@@ -172,9 +116,7 @@ async function readStrictMemoryBootstrap(
       content,
     }
   } catch (err: any) {
-    if (signal?.aborted) {
-      signal.throwIfAborted()
-    }
+    if (signal?.aborted) signal.throwIfAborted()
     throw new Error('Canonical context memory bootstrap could not be read safely.')
   }
 }
@@ -184,9 +126,6 @@ async function readStrictMemoryBootstrap(
  * 1. <dshHome>/AGENTS.md (global instructions)
  * 2. <projectRoot>/DSH.md (project contract)
  * 3. <projectRoot>/.dsh/memory/MEMORY.md (memory bootstrap)
- *
- * Enforces fail-closed security, path non-leakage, aggregate instruction budget (<= 64 KiB),
- * and strict MEMORY bootstrap limits (<= 25 KiB, <= 200 lines, exactly one read, no truncation).
  */
 export async function readCanonicalProjectContext(
   options: ReadCanonicalProjectContextOptions,
@@ -214,7 +153,6 @@ export async function readCanonicalProjectContext(
 
   const projectRoot = normalize(options.projectRoot)
   const dshHome = normalize(options.dshHome)
-
   const agentsPath = join(dshHome, 'AGENTS.md')
   const dshPath = join(projectRoot, 'DSH.md')
 
@@ -227,9 +165,7 @@ export async function readCanonicalProjectContext(
   }
 
   signal?.throwIfAborted()
-
   const memoryBootstrap = await readStrictMemoryBootstrap(projectRoot, signal)
-
   signal?.throwIfAborted()
 
   return {
@@ -245,14 +181,7 @@ export async function readCanonicalProjectContext(
   }
 }
 
-/**
- * Safely reads the DSH project-only context sources from an explicit root:
- * 1. <projectRoot>/DSH.md (project contract)
- * 2. <projectRoot>/.dsh/memory/MEMORY.md (memory bootstrap)
- *
- * Enforces fail-closed security, path non-leakage, per-source instruction budget (<= 64 KiB),
- * and strict MEMORY bootstrap limits (<= 25 KiB, <= 200 lines, exactly one read, no truncation).
- */
+/** Safely reads the DSH project-only context sources from an explicit root. */
 export async function readDshProjectContext(
   options: ReadDshProjectContextOptions,
 ): Promise<DshProjectContext> {
@@ -273,13 +202,10 @@ export async function readDshProjectContext(
 
   const projectRoot = normalize(options.projectRoot)
   const dshPath = join(projectRoot, 'DSH.md')
-
   const dshResult = await readInstructionFile(dshPath, 'project contract', signal)
 
   signal?.throwIfAborted()
-
   const memoryBootstrap = await readStrictMemoryBootstrap(projectRoot, signal)
-
   signal?.throwIfAborted()
 
   return {
@@ -290,4 +216,3 @@ export async function readDshProjectContext(
     memoryBootstrap,
   }
 }
-
