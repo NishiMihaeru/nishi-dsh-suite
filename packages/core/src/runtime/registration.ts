@@ -18,6 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ProviderDescriptor } from '../registry/descriptor.js'
 import { canonicalProviderId, canonicalProviderRoute } from '../registry/identity.js'
+import { parseUsageRefreshPolicy } from '../usage/service.js'
 
 /** Config fields every subscription-CLI provider plugin shares. */
 export interface SharedProviderConfig {
@@ -137,16 +138,17 @@ async function rollbackRegistration(
 
 /**
  * The single registration path every provider goes through: validate its
- * identity first, construct provider-owned search/usage capabilities, record
- * the provider, register its model route, then run provider-specific install.
+ * identity and provider-owned policy first, construct provider-owned
+ * search/usage capabilities, record the provider, register its model route,
+ * then run provider-specific install.
  *
- * Identity validation happens before any capability factory runs. Once core
- * state starts mutating, registration is transactional for the resources the
- * core directly owns: the registry entry and the LLM registration. A failure
- * in model creation, adapter registration, or install withdraws both before
- * the rejection escapes. Factory/install effects that providers register on
- * their own Cordis fiber remain fiber-owned and are cleaned when the rejected
- * provider plugin unloads.
+ * Identity/policy validation happens before any capability factory runs. Once
+ * core state starts mutating, registration is transactional for the resources
+ * the core directly owns: the registry entry and the LLM registration. A
+ * failure in model creation, adapter registration, or install withdraws both
+ * before the rejection escapes. Registry change listeners are observers and
+ * cannot veto a committed record; their failures are contained by the
+ * registry itself.
  */
 export async function registerProvider<TConfig extends SharedProviderConfig>(
   ctx: Context,
@@ -183,6 +185,10 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
     throw new Error(`${providerId}: a provider declaring a model capability must declare at least one route`)
   }
 
+  const refreshPolicy = descriptor.usage?.refreshPolicy === undefined
+    ? undefined
+    : parseUsageRefreshPolicy(descriptor.usage.refreshPolicy, `${providerId}: usage.refreshPolicy`)
+
   const webSearch = descriptor.webSearch?.create(ctx, config)
   const usage = descriptor.usage === undefined
     ? undefined
@@ -190,9 +196,7 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
         collector: descriptor.usage.create(ctx, config, {
           invalidate: () => registry.invalidate(providerId),
         }),
-        ...(descriptor.usage.refreshPolicy === undefined
-          ? {}
-          : { refreshPolicy: descriptor.usage.refreshPolicy }),
+        ...(refreshPolicy === undefined ? {} : { refreshPolicy }),
       }
 
   let forgetRegistry: (() => void) | undefined
