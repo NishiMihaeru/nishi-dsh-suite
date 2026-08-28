@@ -1,12 +1,10 @@
-import { isAbsolute, join } from 'node:path'
-import {
-  ensureCanonicalDirectory,
-  readSafeRegularFile,
-  validateCanonicalDirectory,
-  withSafeFileWriterLock,
-  type SafeDirectoryScope,
-} from './filesystem.js'
+import { isAbsolute } from 'node:path'
+import type { SafeDirectoryScope } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
+import {
+  withEnsuredProjectMemoryScope,
+  withExistingProjectMemoryScope,
+} from './storage.js'
 import { isValidTopicIdentifier } from './topic-id.js'
 import {
   recoverPendingProjectMemoryTransaction,
@@ -109,11 +107,7 @@ async function ensureBootstrapFile(
   signal?.throwIfAborted()
   const existing = await scope.readRegularFile(memoryMd)
   if (existing !== null) return false
-  return scope.writeFileExclusiveAtomic(
-    memoryMd,
-    INITIAL_MEMORY_MD_CONTENT,
-    { mode: 0o644 },
-  )
+  return scope.writeFileExclusiveAtomic(memoryMd, INITIAL_MEMORY_MD_CONTENT, { mode: 0o644 })
 }
 
 async function readBootstrapOrInitial(
@@ -131,18 +125,15 @@ export async function ensureProjectMemoryBootstrap(
   signal?.throwIfAborted()
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
-  await ensureCanonicalDirectory(memoryDir, signal)
-  const created = await withSafeFileWriterLock(
-    memoryDir,
-    memoryMd,
-    (scope) => ensureBootstrapFile(scope, memoryMd, signal),
+  const created = await withEnsuredProjectMemoryScope(
+    projectRoot,
+    (memoryScope) => memoryScope.withWriterLock(
+      paths.memoryMd,
+      (scope) => ensureBootstrapFile(scope, paths.memoryMd, signal),
+    ),
     signal,
   )
-  return { created, memoryPath: memoryMd }
+  return { created, memoryPath: paths.memoryMd }
 }
 
 export async function readProjectMemoryBootstrap(
@@ -152,18 +143,16 @@ export async function readProjectMemoryBootstrap(
   signal?.throwIfAborted()
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  const memoryMd = paths.memoryMd
-  if (!(await validateCanonicalDirectory(dshDir, signal))) return { exists: false, content: null, path: memoryMd }
-  if (!(await validateCanonicalDirectory(memoryDir, signal))) return { exists: false, content: null, path: memoryMd }
-  const rawBuffer = await readSafeRegularFile(memoryDir, memoryMd, { signal })
-  if (rawBuffer === null) return { exists: false, content: null, path: memoryMd }
-  return {
-    exists: true,
-    content: boundedUtf8Bootstrap(rawBuffer, MAX_BOOTSTRAP_LINES, MAX_BOOTSTRAP_BYTES),
-    path: memoryMd,
-  }
+  const result = await withExistingProjectMemoryScope(projectRoot, async (memoryScope) => {
+    const rawBuffer = await memoryScope.readRegularFile(paths.memoryMd)
+    if (rawBuffer === null) return { exists: false, content: null, path: paths.memoryMd }
+    return {
+      exists: true,
+      content: boundedUtf8Bootstrap(rawBuffer, MAX_BOOTSTRAP_LINES, MAX_BOOTSTRAP_BYTES),
+      path: paths.memoryMd,
+    }
+  }, signal)
+  return result ?? { exists: false, content: null, path: paths.memoryMd }
 }
 
 export async function writeProjectMemoryBootstrap(
@@ -177,19 +166,16 @@ export async function writeProjectMemoryBootstrap(
   assertBootstrapBounds(content)
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
-  await ensureCanonicalDirectory(memoryDir, signal)
 
-  return withSafeFileWriterLock(memoryDir, memoryMd, async (scope) => {
-    signal?.throwIfAborted()
-    const current = await scope.readRegularFile(memoryMd)
-    const created = current === null
-    signal?.throwIfAborted()
-    await scope.writeFileAtomically(memoryMd, Buffer.from(content, 'utf8'))
-    return { created, memoryPath: memoryMd }
+  return withEnsuredProjectMemoryScope(projectRoot, (memoryScope) => {
+    return memoryScope.withWriterLock(paths.memoryMd, async (scope) => {
+      signal?.throwIfAborted()
+      const current = await scope.readRegularFile(paths.memoryMd)
+      const created = current === null
+      signal?.throwIfAborted()
+      await scope.writeFileAtomically(paths.memoryMd, Buffer.from(content, 'utf8'))
+      return { created, memoryPath: paths.memoryMd }
+    })
   }, signal)
 }
 
@@ -205,49 +191,47 @@ export async function editProjectMemoryBootstrap(
   if (typeof newText !== 'string') throw new Error('newText must be a string')
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  const memoryMd = paths.memoryMd
-  if (!(await validateCanonicalDirectory(dshDir, signal))) {
-    throw new Error(`Cannot edit project memory bootstrap: directory "${dshDir}" does not exist`)
-  }
-  if (!(await validateCanonicalDirectory(memoryDir, signal))) {
-    throw new Error(`Cannot edit project memory bootstrap: directory "${memoryDir}" does not exist`)
-  }
 
-  return withSafeFileWriterLock(memoryDir, memoryMd, async (scope) => {
-    signal?.throwIfAborted()
-    const currentBuffer = await scope.readRegularFile(memoryMd)
-    if (currentBuffer === null) {
-      throw new Error(`Project memory bootstrap file "${memoryMd}" does not exist; cannot edit missing file`)
-    }
-    const currentContent = currentBuffer.toString('utf8')
-    const firstIndex = currentContent.indexOf(oldText)
-    if (firstIndex === -1) {
-      throw new Error(`Exact match for oldText not found in project memory bootstrap (${memoryMd})`)
-    }
-    const secondIndex = currentContent.indexOf(oldText, firstIndex + 1)
-    if (secondIndex !== -1) {
-      let count = 2
-      let pos = secondIndex + 1
-      while (pos < currentContent.length) {
-        const next = currentContent.indexOf(oldText, pos)
-        if (next === -1) break
-        count++
-        pos = next + 1
+  const result = await withExistingProjectMemoryScope(projectRoot, (memoryScope) => {
+    return memoryScope.withWriterLock(paths.memoryMd, async (scope) => {
+      signal?.throwIfAborted()
+      const currentBuffer = await scope.readRegularFile(paths.memoryMd)
+      if (currentBuffer === null) {
+        throw new Error(`Project memory bootstrap file "${paths.memoryMd}" does not exist; cannot edit missing file`)
       }
-      throw new Error(
-        `Multiple occurrences (${count}) of oldText found in project memory bootstrap; exact single match required`,
-      )
-    }
-    const updatedContent =
-      currentContent.slice(0, firstIndex) + newText + currentContent.slice(firstIndex + oldText.length)
-    assertBootstrapBounds(updatedContent)
-    const updatedBuffer = Buffer.from(updatedContent, 'utf8')
-    signal?.throwIfAborted()
-    await scope.writeFileAtomically(memoryMd, updatedBuffer)
-    return { memoryPath: memoryMd, bytesWritten: updatedBuffer.length }
+      const currentContent = currentBuffer.toString('utf8')
+      const firstIndex = currentContent.indexOf(oldText)
+      if (firstIndex === -1) {
+        throw new Error(`Exact match for oldText not found in project memory bootstrap (${paths.memoryMd})`)
+      }
+      const secondIndex = currentContent.indexOf(oldText, firstIndex + 1)
+      if (secondIndex !== -1) {
+        let count = 2
+        let pos = secondIndex + 1
+        while (pos < currentContent.length) {
+          const next = currentContent.indexOf(oldText, pos)
+          if (next === -1) break
+          count++
+          pos = next + 1
+        }
+        throw new Error(
+          `Multiple occurrences (${count}) of oldText found in project memory bootstrap; exact single match required`,
+        )
+      }
+      const updatedContent =
+        currentContent.slice(0, firstIndex) + newText + currentContent.slice(firstIndex + oldText.length)
+      assertBootstrapBounds(updatedContent)
+      const updatedBuffer = Buffer.from(updatedContent, 'utf8')
+      signal?.throwIfAborted()
+      await scope.writeFileAtomically(paths.memoryMd, updatedBuffer)
+      return { memoryPath: paths.memoryMd, bytesWritten: updatedBuffer.length }
+    })
   }, signal)
+
+  if (result === undefined) {
+    throw new Error(`Cannot edit project memory bootstrap: directory "${paths.memoryDir}" does not exist`)
+  }
+  return result
 }
 
 function escapeRegex(str: string): string {
@@ -317,11 +301,6 @@ export function insertTopicIntoMemoryMapContent(content: string, topic: string):
   return lines.join(eol)
 }
 
-/**
- * Hold the MEMORY.md writer lock while preflighting one canonical map entry.
- * The callback receives the same directory scope that owns MEMORY.md.lock so a
- * nested topic lock/read/write cannot reopen a replaceable parent pathname.
- */
 export async function withMemoryMapEntryTransaction<T>(
   projectRoot: string,
   topic: string,
@@ -333,33 +312,30 @@ export async function withMemoryMapEntryTransaction<T>(
   if (!isValidTopicIdentifier(topic)) throw new Error(`Invalid topic memory identifier "${topic}"`)
   await recoverPendingProjectMemoryTransaction(projectRoot, signal)
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  const memoryDir = paths.memoryDir
-  const memoryMd = paths.memoryMd
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
-  await ensureCanonicalDirectory(memoryDir, signal)
 
-  return withSafeFileWriterLock(memoryDir, memoryMd, async (scope) => {
-    signal?.throwIfAborted()
-    await settleCommittedProjectMemoryTransactionUnderMapLock(projectRoot, scope, signal)
-    const currentContent = await readBootstrapOrInitial(scope, memoryMd)
-    const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
-    assertBootstrapBounds(updatedContent)
-    let committed = false
-    const commitMap: CommitMemoryMapEntry = async () => {
-      if (committed) return
+  return withEnsuredProjectMemoryScope(projectRoot, (memoryScope) => {
+    return memoryScope.withWriterLock(paths.memoryMd, async (scope) => {
       signal?.throwIfAborted()
-      if (updatedContent !== currentContent || currentContent === INITIAL_MEMORY_MD_CONTENT) {
-        await scope.writeFileAtomically(memoryMd, Buffer.from(updatedContent, 'utf8'))
+      await settleCommittedProjectMemoryTransactionUnderMapLock(projectRoot, scope, signal)
+      const currentContent = await readBootstrapOrInitial(scope, paths.memoryMd)
+      const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
+      assertBootstrapBounds(updatedContent)
+      let committed = false
+      const commitMap: CommitMemoryMapEntry = async () => {
+        if (committed) return
+        signal?.throwIfAborted()
+        if (updatedContent !== currentContent || currentContent === INITIAL_MEMORY_MD_CONTENT) {
+          await scope.writeFileAtomically(paths.memoryMd, Buffer.from(updatedContent, 'utf8'))
+        }
+        committed = true
       }
-      committed = true
-    }
 
-    const result = await operation(commitMap, scope)
-    if (!committed) {
-      throw new Error(`Project memory transaction for topic "${topic}" completed without committing the Memory map`)
-    }
-    return result
+      const result = await operation(commitMap, scope)
+      if (!committed) {
+        throw new Error(`Project memory transaction for topic "${topic}" completed without committing the Memory map`)
+      }
+      return result
+    })
   }, signal)
 }
 
