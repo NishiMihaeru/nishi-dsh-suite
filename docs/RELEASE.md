@@ -2,15 +2,22 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / PROVIDER-LIVE ACCEPTANCE OPEN**
+Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION REVALIDATION OPEN**
 
-Compatibility baseline:
+Current local acceptance baseline:
 
 - DeepSeek Harness `0.1.1-rc.2`
 - Node `24.x` (acceptance baseline `24.19.0`)
 - pnpm `11.21.0`
 - Linux/CachyOS development/acceptance environment
 - Windows: **NOT TESTED**
+
+Additional compatibility source target:
+
+- official DSH tag `dsh-v0.1.2-alpha.1`
+- commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
+
+The rc.2-baseline foundation evidence remains valid, but Core and Project Memory are reopened until the alpha.1 compatibility/integrity blockers in `ROADMAP.md` are fixed and revalidated. This file does not imply that rc.3 already declares alpha.1 as its published dependency baseline.
 
 This file is the only current release runbook/status document. Historical rc.1/rc.2 release notes are available in git history if needed.
 
@@ -29,11 +36,9 @@ Exactly six packages move together at `0.1.0-rc.3`:
 
 ## Main rc.3 change
 
-The Suite now has one provider-independent core plus one plugin per provider. Project Memory remains separate and provider-agnostic.
+The Suite has one provider-independent core plus one plugin per provider. Project Memory remains separate and provider-agnostic.
 
 Vendor-specific delegation tools are removed. Orchestrator uses DSH-native `subagent` / `subagent_fork` on the active primary route.
-
-Retired published/experimental boundaries include the old Claude Code subagent, usage-limits helper packages, primary-web-search package, Codex usage-source package and intermediate provider-kit boundary. Do not deprecate npm names until release/deprecation is explicitly approved.
 
 Provider routes preserved for compatibility:
 
@@ -46,11 +51,9 @@ Claude is usage-only and has no Nishi model route/search backend.
 
 The old `ctx.projectMemory` delegated service boundary is gone. Current memory surface is ordinary DSH `memory_read`, `memory_write`, `memory_edit` plus `/memory` and `/consolidate` maintenance commands.
 
-## Accepted foundation
+## Foundation evidence and reopened compatibility work
 
-Core and Project Memory are frozen after local/package and real DSH acceptance.
-
-Accepted foundation evidence includes:
+Previously accepted rc.2-baseline foundation evidence includes:
 
 - `pnpm verify:local` PASS at accepted checkpoints;
 - six rc.3 tarballs;
@@ -64,23 +67,32 @@ Accepted foundation evidence includes:
 - atomic-write dependency resolution in installed Suite profile;
 - Project Memory Cordis command injection and real DSH boot.
 
-This foundation evidence does not replace the final provider/product live run after remaining provider changes.
+The later audit against official DSH `0.1.2-alpha.1` reopened the foundation. Project Memory maintenance route timing has already been fixed and validated against both the installed rc.2 baseline and disposable alpha.1 runtime contracts. Core Connection/client migration, Core registration transaction correction, and remaining Project Memory integrity work are still open.
+
+The foundation must be re-frozen before final provider/product live acceptance.
 
 ## Open release work
 
-Provider-specific work is tracked only in `ROADMAP.md`. Before rc.3 can be release-ready, all providers must be frozen and the product-level live run must cover:
+Before rc.3 can be release-ready:
+
+- complete/revalidate all reopened Core + Project Memory work in `ROADMAP.md`;
+- freeze Codex, Antigravity and Claude;
+- run cross-provider product acceptance;
+- run final target-profile install/update/remove lifecycle;
+- run managed Orchestrator preset lifecycle;
+- recheck the exact DSH compatibility/dependency range that rc.3 will publish.
+
+Product live acceptance must still cover:
 
 - Codex primary/search/vendor-memory suppression;
 - Antigravity primary/model switch/search;
 - Codex -> Antigravity switch inside one session;
 - Project Memory continuity across that switch;
-- live Usage & Limits dynamic-roster cases;
-- final target-profile install/update/remove lifecycle;
-- managed Orchestrator preset lifecycle.
+- live Usage & Limits dynamic-roster cases.
 
 ## Final release commands
 
-Run after the last provider change:
+Run after the last implementation/dependency change:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -105,7 +117,7 @@ Release must continue to satisfy:
 
 ## Orchestrator preset distribution
 
-DSH `0.1.1-rc.2` does not reliably preserve third-party contributed preset roots. The supported rc.3 path therefore remains the explicit managed bridge:
+The installed rc.2 baseline does not reliably preserve third-party contributed preset roots. Until compatibility work deliberately changes this, the supported rc.3 path remains the explicit managed bridge:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install
@@ -122,21 +134,13 @@ The prepared registry template is:
 docs/market/awesome-dsh-plugin-entry.yml
 ```
 
-Current description may advertise:
-
-- Codex and Antigravity primary integrations;
-- Claude usage visibility;
-- routed web search;
-- Project Memory;
-- Usage & Limits;
-- managed Orchestrator preset bridge with DSH-native delegation.
-
-It must not advertise retired vendor-specific subagents or automatic preset discovery.
+It may advertise only behavior proven by the final released build. It must not advertise retired vendor-specific subagents, automatic preset discovery, or compatibility with a DSH version/range that has not passed the final release gates.
 
 Current Market gates:
 
 - [x] repository PR #1 merged historically;
 - [x] repository has sufficient commit history;
+- [ ] reopened foundation compatibility/integrity remediation complete;
 - [ ] repository topic `dsh-plugin` added;
 - [ ] rc.3 family published consistently to npm;
 - [ ] final deterministic/local/live release gates PASS;
@@ -148,4 +152,4 @@ Current Market gates:
 
 **No rc.3 publication approval has been given.**
 
-Do not publish packages, merge the rc.3 feature branch, create a tag/release, or deprecate npm packages merely because the technical gates pass. Request explicit maintainer approval after all required gates are complete.
+Do not publish packages, merge the rc.3 feature branch, create a tag/release, or deprecate npm packages merely because technical gates pass. Request explicit maintainer approval after all required gates are complete.
