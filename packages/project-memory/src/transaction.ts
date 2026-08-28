@@ -131,7 +131,7 @@ export async function createPendingProjectMemoryTransaction(
   }
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
-  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(paths.localDir, signal)
 
   const record: PendingProjectMemoryTransaction = {
@@ -155,33 +155,38 @@ export async function createPendingProjectMemoryTransaction(
   return record
 }
 
+/**
+ * Mark a live compound transaction committed while its caller still owns both
+ * MEMORY.md.lock and topic.md.lock. A separate journal lock is deliberately not
+ * acquired: any other Project Memory operation that sees this live owner must
+ * wait on MEMORY.md.lock before touching the journal. This makes the atomic
+ * journal replace itself the commit point, with no later lock-cleanup failure
+ * able to turn a committed transaction back into the rollback path.
+ */
 export async function markProjectMemoryTransactionCommitted(
   projectRoot: string,
   expected: PendingProjectMemoryTransaction,
   signal?: AbortSignal,
 ): Promise<PendingProjectMemoryTransaction> {
   signal?.throwIfAborted()
-  if (expected.phase !== 'pending') {
-    throw new Error('Project memory transaction can only be committed from pending state')
+  if (expected.phase !== 'pending' || expected.ownerPid !== process.pid) {
+    throw new Error('Project memory transaction can only commit its own pending journal')
   }
   const paths = resolveProjectMemoryPaths(projectRoot)
   const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
-
-  return withSafeFileWriterLock(paths.localDir, journalPath, async () => {
-    const current = await readPendingTransaction(projectRoot, signal)
-    if (
-      current === null
-      || current.phase !== 'pending'
-      || current.ownerPid !== expected.ownerPid
-      || current.topic !== expected.topic
-    ) {
-      throw new Error('Project memory recovery journal changed before transaction commit')
-    }
-    signal?.throwIfAborted()
-    const committed: PendingProjectMemoryTransaction = { ...current, phase: 'committed' }
-    await writeSafeFileAtomically(paths.localDir, journalPath, serializePendingTransaction(committed), signal)
-    return committed
-  }, signal)
+  const current = await readPendingTransaction(projectRoot, signal)
+  if (
+    current === null
+    || current.phase !== 'pending'
+    || current.ownerPid !== expected.ownerPid
+    || current.topic !== expected.topic
+  ) {
+    throw new Error('Project memory recovery journal changed before transaction commit')
+  }
+  signal?.throwIfAborted()
+  const committed: PendingProjectMemoryTransaction = { ...current, phase: 'committed' }
+  await writeSafeFileAtomically(paths.localDir, journalPath, serializePendingTransaction(committed), signal)
+  return committed
 }
 
 export async function clearPendingProjectMemoryTransaction(
@@ -331,7 +336,7 @@ export async function recoverPendingProjectMemoryTransaction(
 
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
-  await ensureCanonicalDirectory(dshDir, signal)
+  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
   await ensureCanonicalDirectory(paths.memoryDir, signal)
   await ensureCanonicalDirectory(paths.localDir, signal)
   const topicPath = join(paths.memoryDir, `${initial.topic}.md`)
