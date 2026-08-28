@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,7 @@ import {
   writeProjectMemoryBootstrap,
   writeTopicMemory,
 } from '../src/index.js'
+import { withSafeFileWriterLock, writeFileExclusiveAtomic } from '../src/filesystem.js'
 
 const RMW_WORKER = fileURLToPath(new URL('./fixtures/rmw-worker.mjs', import.meta.url))
 
@@ -267,5 +268,56 @@ test('project initialization preserves existing .gitignore content under the fil
       'initializer must add exactly one .dsh/local/ rule',
     )
     await assertMissing(`${gitignorePath}.lock`)
+  })
+})
+
+test('writer lock cancellation rejects before a contended lock is released and never runs the mutation', async () => {
+  await withTempProject(async (projectRoot) => {
+    const target = join(projectRoot, 'state.md')
+    await writeFile(target, 'before\n', 'utf8')
+    const held = await holdWriterLock(target)
+    const controller = new AbortController()
+    let mutationRan = false
+
+    const pending = withSafeFileWriterLock(
+      projectRoot,
+      target,
+      async () => {
+        mutationRan = true
+        await writeFile(target, 'after\n', 'utf8')
+      },
+      controller.signal,
+    )
+
+    controller.abort(new Error('cancel writer wait'))
+    const releaseTimer = setTimeout(() => held.release(), 200)
+    try {
+      await assert.rejects(pending, (error: any) => {
+        assert.equal(error, controller.signal.reason)
+        return true
+      })
+    } finally {
+      clearTimeout(releaseTimer)
+      held.release()
+      await held.done
+    }
+
+    assert.equal(mutationRan, false)
+    assert.equal(await readFile(target, 'utf8'), 'before\n')
+  })
+})
+
+test('exclusive atomic publication never overwrites an external winner and leaves no temp sibling', async () => {
+  await withTempProject(async (projectRoot) => {
+    const target = join(projectRoot, 'first-publish.txt')
+    assert.equal(await writeFileExclusiveAtomic(projectRoot, target, 'first complete value\n', { mode: 0o644 }), true)
+    assert.equal(await readFile(target, 'utf8'), 'first complete value\n')
+
+    await writeFile(target, 'external winner\n', 'utf8')
+    assert.equal(await writeFileExclusiveAtomic(projectRoot, target, 'must not replace\n', { mode: 0o644 }), false)
+    assert.equal(await readFile(target, 'utf8'), 'external winner\n')
+
+    const siblings = await readdir(projectRoot)
+    assert.deepEqual(siblings.filter((name) => name.startsWith('first-publish.txt.') && name.endsWith('.tmp')), [])
   })
 })
