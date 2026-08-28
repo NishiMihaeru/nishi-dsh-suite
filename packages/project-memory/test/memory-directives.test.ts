@@ -4,6 +4,7 @@ import {
   MEMORY_CONSOLIDATION_DIRECTIVE,
   MEMORY_MAINTENANCE_DIRECTIVE,
   registerMemoryCommands,
+  scheduleMaintenanceTurn,
 } from '../src/commands.ts'
 
 // Project memory is committed and ships with the repository to every collaborator.
@@ -65,4 +66,77 @@ test('maintenance commands request both commands and llm services from Cordis', 
     },
   })
   assert.deepEqual(registered, ['memory', 'consolidate'])
+})
+
+test('maintenance route is selected when its inbox message is claimed, before prompt assembly', async () => {
+  type Listener = (...args: any[]) => any
+  const listeners = new Map<string, Set<Listener>>()
+  const on = (event: string, listener: Listener) => {
+    let bucket = listeners.get(event)
+    if (bucket === undefined) {
+      bucket = new Set()
+      listeners.set(event, bucket)
+    }
+    bucket.add(listener)
+    return () => { bucket?.delete(listener) }
+  }
+  const onlyListener = (event: string): Listener => {
+    const bucket = listeners.get(event)
+    assert.equal(bucket?.size, 1, `expected one ${event} listener`)
+    return [...bucket!][0]!
+  }
+
+  let maintenanceMessage: any
+  let resolveIdle!: () => void
+  const idle = new Promise<void>((resolve) => { resolveIdle = resolve })
+  const agent = {
+    ctx: { on },
+    steer(message: any) { maintenanceMessage = message },
+    whenIdle() { return idle },
+  }
+
+  scheduleMaintenanceTurn(
+    agent as any,
+    { provider: 'codex-app-server', model: 'gpt-5.6-sol' },
+    'test maintenance directive',
+  )
+  assert.ok(maintenanceMessage, 'the maintenance directive must be steered into the agent inbox')
+
+  onlyListener('agent/inbox/claimed')({ agent, message: maintenanceMessage, turn: 7 })
+
+  const assembled = await onlyListener('system-prompt/assemble')(
+    undefined,
+    undefined,
+    async () => ({ variables: { provider: 'default-provider', model: 'default-model' } }),
+  )
+  assert.deepEqual(assembled.variables, {
+    provider: 'codex-app-server',
+    model: 'gpt-5.6-sol',
+  })
+
+  const request = await onlyListener('agent/request')(
+    { agent, turn: 7, step: 1, signal: new AbortController().signal },
+    async () => ({
+      provider: 'default-provider',
+      model: 'default-model',
+      reasoningEffort: 'high',
+    }),
+  )
+  assert.deepEqual(request, {
+    provider: 'codex-app-server',
+    model: 'gpt-5.6-sol',
+  })
+
+  resolveIdle()
+  await idle
+  await Promise.resolve()
+  for (const event of [
+    'agent/inbox/claimed',
+    'system-prompt/assemble',
+    'agent/request',
+    'agent/error',
+    'agent/turn-stopping',
+  ]) {
+    assert.equal(listeners.get(event)?.size ?? 0, 0, `${event} listener must be disposed after maintenance becomes idle`)
+  }
 })
