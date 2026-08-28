@@ -90,6 +90,24 @@ Accepted result:
 
 Future agents must update canonical docs in place rather than creating new dated plans, handoffs, session summaries or per-task verification reports.
 
+## Codex live-probe contract repair
+
+The stale rc.2/early-rc.3 Codex primary live fixture was corrected and accepted on commit `4c75129a7f766d415182441d91ed1e8e1ca8a50d`.
+
+Accepted result:
+
+- live primary fixture uses the registry-first rc.3 contract and mounts without a `subagents` service;
+- vendor-specific `CODEX_SUBAGENT_OK` live acceptance was removed because Codex delegation is no longer part of rc.3;
+- executable override uses `env.DSH_CODEX_EXECUTABLE`, not the removed `config.executable` field;
+- provider `codex` and route `codex-app-server` register successfully;
+- Codex package tests PASS: 31/31;
+- Codex typecheck PASS;
+- Codex build PASS;
+- real `test:live:primary` PASS with model `gpt-5.6-sol` returning `CODEX_PRIMARY_OK`;
+- adapter/process teardown completed cleanly with no lingering child process.
+
+This closes only the stale live-fixture inconsistency. Remaining Codex cleanup and final provider acceptance stay open in `ROADMAP.md`.
+
 ## Historical release/acceptance baseline
 
 Published `0.1.0-rc.1` historically passed Linux/CachyOS local and registry-only installation smoke, including Suite resolution, managed preset lifecycle and normal removal. rc.2 was intentionally parked unpublished after local/live work.
