@@ -174,8 +174,14 @@ async function rollbackJournaledTransaction(
   journalScope: SafeDirectoryScope,
 ): Promise<never> {
   try {
-    await restorePendingProjectMemoryTransactionLocked(projectRoot, journal, memoryScope)
-    await clearPendingProjectMemoryTransaction(projectRoot, undefined, journalScope)
+    // Once a participant has been durably replaced, rollback is protocol
+    // settlement rather than new user work. It must finish even when the
+    // caller's AbortSignal is already aborted, while staying on the exact same
+    // opened directory identities and still-held writer locks.
+    const settlementMemoryScope = memoryScope.forSettlement()
+    const settlementJournalScope = journalScope.forSettlement()
+    await restorePendingProjectMemoryTransactionLocked(projectRoot, journal, settlementMemoryScope)
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournalScope)
   } catch (rollbackError) {
     throw new AggregateError(
       [originalError, rollbackError],
