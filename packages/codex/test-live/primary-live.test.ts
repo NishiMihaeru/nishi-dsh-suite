@@ -86,24 +86,28 @@ function createRealSubprocess() {
 
 function createLiveContext() {
   const adapters = new Map<string, any>()
-  const providers = new Map<string, any>()
+  const registeredProviders = new Map<string, any>()
   const events = new Map<string, Function[]>()
   const sessions = new Map<string, any>()
 
   const ctx: any = {
+    nishiProviders: {
+      record(entry: any) {
+        registeredProviders.set(entry.id, entry)
+        return () => registeredProviders.delete(entry.id)
+      },
+      invalidate() {},
+    },
     subprocess: createRealSubprocess(),
     llm: {
       adapters,
       registerAdapter(names: string[], adapter: any) {
-        for (const name of names) {
-          adapters.set(name, adapter)
+        for (const name of names) adapters.set(name, adapter)
+        return () => {
+          for (const name of names) {
+            if (adapters.get(name) === adapter) adapters.delete(name)
+          }
         }
-      },
-    },
-    subagents: {
-      providers,
-      registerProvider(provider: any) {
-        providers.set(provider.name, provider)
       },
     },
     sessions: {
@@ -124,7 +128,9 @@ function createLiveContext() {
       list.push(fn)
       events.set(event, list)
     },
-    effect() {},
+    effect(fn: () => unknown) {
+      return fn()
+    },
     logger: {
       warn(msg: string) {
         console.warn('WARN:', msg)
@@ -132,19 +138,22 @@ function createLiveContext() {
     },
   }
 
-  return { ctx, adapters, providers, sessions }
+  return { ctx, adapters, registeredProviders, sessions }
 }
 
-test('LIVE PROBE: Codex primary returns CODEX_PRIMARY_OK', async () => {
+test('LIVE PROBE: Codex primary mounts without vendor subagents and returns CODEX_PRIMARY_OK', async () => {
   const resolved = resolveCodexExecutable()
   assert.ok(resolved.executable, 'External Codex CLI resolved')
 
-  const { ctx, adapters, sessions } = createLiveContext()
+  const { ctx, adapters, registeredProviders, sessions } = createLiveContext()
+  assert.equal('subagents' in ctx, false, 'Codex primary must not require a vendor subagent service')
 
   await codex.apply(ctx, {
-    executable: resolved.executable,
+    env: { DSH_CODEX_EXECUTABLE: resolved.executable },
     turnTimeoutMs: 120_000,
   })
+
+  assert.deepEqual([...registeredProviders.keys()], ['codex'])
 
   const sessionId = `test-primary-${Date.now()}`
   sessions.set(sessionId, {
@@ -164,66 +173,28 @@ test('LIVE PROBE: Codex primary returns CODEX_PRIMARY_OK', async () => {
   console.log(`Using primary model: ${model}`)
 
   const chunks: any[] = []
-  for await (const chunk of adapter.stream({
-    provider: 'codex-app-server',
-    model,
-    sessionId,
-    messages: [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: 'Ответь ровно CODEX_PRIMARY_OK' }],
-        source: { kind: 'user' },
-      },
-    ],
-    signal: AbortSignal.timeout(120_000),
-  })) {
-    chunks.push(chunk)
-  }
-
-  const textBlocks = chunks.filter((c: any) => c.type === 'block-end' && c.block.type === 'text')
-  const fullText = textBlocks.map((c: any) => c.block.text).join('\n').trim()
-  console.log(`Codex Primary response: ${JSON.stringify(fullText)}`)
-  assert.ok(fullText.includes('CODEX_PRIMARY_OK'), `Expected CODEX_PRIMARY_OK, got: ${fullText}`)
-  await adapter.dispose()
-})
-
-test('LIVE PROBE: Codex subagent runs and returns CODEX_SUBAGENT_OK', async () => {
-  const resolved = resolveCodexExecutable()
-  assert.ok(resolved.executable, 'External Codex CLI resolved')
-
-  const { ctx, providers } = createLiveContext()
-
-  await codex.apply(ctx, {
-    executable: resolved.executable,
-    turnTimeoutMs: 120_000,
-  })
-
-  const subagentProvider = providers.get('codex')
-  assert.ok(subagentProvider, 'codex subagent provider registered')
-
-  const run = await subagentProvider.start({
-    parent: {
-      session: {
-        header: {
-          id: 'test-session-parent' as any,
-          cwd: process.cwd(),
-        },
-      },
-    },
-    prompt: [{ type: 'text', text: 'Ответь ровно CODEX_SUBAGENT_OK' }],
-    signal: AbortSignal.timeout(120_000),
-  })
-
-  assert.ok(run, 'Subagent run started')
   try {
-    const result = await run.result
-    console.log(`Subagent result: ${JSON.stringify(result)}`)
-    assert.ok(
-      result.output.some((b: any) => b.text?.includes('CODEX_SUBAGENT_OK')),
-      `Expected CODEX_SUBAGENT_OK in result output: ${JSON.stringify(result)}`,
-    )
+    for await (const chunk of adapter.stream({
+      provider: 'codex-app-server',
+      model,
+      sessionId,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'Ответь ровно CODEX_PRIMARY_OK' }],
+          source: { kind: 'user' },
+        },
+      ],
+      signal: AbortSignal.timeout(120_000),
+    })) {
+      chunks.push(chunk)
+    }
+
+    const textBlocks = chunks.filter((c: any) => c.type === 'block-end' && c.block.type === 'text')
+    const fullText = textBlocks.map((c: any) => c.block.text).join('\n').trim()
+    console.log(`Codex Primary response: ${JSON.stringify(fullText)}`)
+    assert.ok(fullText.includes('CODEX_PRIMARY_OK'), `Expected CODEX_PRIMARY_OK, got: ${fullText}`)
   } finally {
-    // This probe used to end here with no disposal at all, leaking the run.
-    await run.dispose?.()
+    await adapter.dispose()
   }
 })
