@@ -468,11 +468,16 @@ function createDirectoryScope(
       childDirPath: string,
       operation: (childScope: SafeDirectoryScope) => Promise<T>,
     ): Promise<T> {
-      const result = await withChildDirectory(childDirPath, operation, true)
-      if (result === undefined) {
+      let completed = false
+      let value!: T
+      await withChildDirectory(childDirPath, async (childScope) => {
+        value = await operation(childScope)
+        completed = true
+      }, true)
+      if (!completed) {
         throw new Error(`Canonical directory at "${childDirPath}" was not created`)
       }
-      return result
+      return value
     },
 
     forSettlement() {
