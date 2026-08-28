@@ -99,14 +99,19 @@ export class UsageLimitsClientController {
   async loadCached(): Promise<void> {
     const generation = this.rosterGeneration
     try {
-      const providers = await this.rpc.getProviders()
+      const cachedProviders = await this.rpc.getProviders()
       if (generation !== this.rosterGeneration) return
 
-      const rosterIds = new Set(this.snapshot.roster.map((entry) => entry.providerId))
-      const newProviders = { ...this.snapshot.providers }
-      for (const item of providers) {
-        if (!rosterIds.has(item.providerId)) continue
-        newProviders[item.providerId] = { status: 'ready', usage: item }
+      const cachedById = new Map(cachedProviders.map((item) => [item.providerId, item] as const))
+      const newProviders: Record<string, ProviderEntryState> = {}
+      for (const entry of this.snapshot.roster) {
+        const usage = cachedById.get(entry.providerId)
+        // The host's cached list is authoritative. A missing provider means
+        // its prior observation was invalidated or never collected, so a
+        // browser-side FRESH copy must not survive and suppress ensureFresh().
+        newProviders[entry.providerId] = usage === undefined
+          ? { status: 'loading' }
+          : { status: 'ready', usage }
       }
       this.snapshot = {
         phase: 'ready',
