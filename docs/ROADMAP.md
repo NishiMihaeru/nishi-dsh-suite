@@ -8,7 +8,7 @@ This file owns **task status and order only**. Architecture belongs in `ARCHITEC
 
 The previous Core and Project Memory acceptance remains valid for the installed DSH `0.1.1-rc.2` baseline, but a source-level audit against official tag `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`) found reproducible compatibility/integrity blockers. Both packages are therefore **REOPENED** until the blockers below are fixed and revalidated.
 
-### Core — REOPENED
+### Core — REOPENED pending final family re-freeze
 
 Previously accepted rc.2-baseline behavior remains:
 
@@ -26,9 +26,9 @@ Current remediation:
 
 - [x] Core host RPC compatibility across DSH `0.1.1-rc.2` and `0.1.2-alpha.1`; retired `dsh-host-apiproxy` production boundary removed; rc.2/alpha.1 mount-unmount-remount + security probes PASS on `59512d51e55f8121eccdb934e01523e4436b289c`.
 - [x] Core browser entry migrated away from retired production `dsh-client-runtime`; Cordis/client service context works against rc.2 and disposable alpha.1.
-- [ ] Registry observer/transaction correction: non-vetoing change notifications plus preflight usage policy/collector/default-policy validation are implemented and awaiting focused validation.
-- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family only after all source/runtime remediation is proven.
-- [ ] Re-freeze Core after the registry correction and final supported-family validation.
+- [x] Registry observer/transaction correction PASS on `b925e2a328168e7c978126fc6474b7af11d7a63d`: change notifications are non-vetoing, expected usage policy/collector/default-policy failures are preflighted before registry mutation, post-record rollback remains intact.
+- [ ] Reconcile Core DSH peer/dev dependency declarations with the actual supported DSH family only after Project Memory source/runtime remediation is proven.
+- [ ] Re-freeze Core together with Project Memory after final supported-family validation.
 
 ### Project Memory — REOPENED
 
