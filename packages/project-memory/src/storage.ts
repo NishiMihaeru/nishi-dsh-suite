@@ -80,6 +80,19 @@ export async function withExistingProjectLocalScope<T>(
   )
 }
 
+export async function withEnsuredProjectLocalScope<T>(
+  projectRoot: string,
+  operation: (localScope: SafeDirectoryScope) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const paths = resolveProjectMemoryPaths(projectRoot)
+  return withEnsuredProjectDshScope(
+    projectRoot,
+    (dshScope) => dshScope.withEnsuredChildDirectory(paths.localDir, operation),
+    signal,
+  )
+}
+
 export async function withEnsuredProjectStorageScopes<T>(
   projectRoot: string,
   operation: (scopes: ProjectStorageScopes) => Promise<T>,
