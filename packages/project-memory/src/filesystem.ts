@@ -1,4 +1,4 @@
-import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { lstat, mkdir } from 'node:fs/promises'
 
 /**
@@ -48,11 +48,53 @@ export async function ensureCanonicalDirectory(dirPath: string): Promise<void> {
 }
 
 /**
+ * Run one complete writer operation while holding DSH's cross-process lock for
+ * the exact target file. Every Project Memory writer that may race a
+ * read-modify-write path uses this same `<target>.lock` namespace, so another
+ * DSH process cannot commit between a read and the matching atomic replace.
+ *
+ * The canonical parent and existing target are revalidated after acquisition.
+ * A missing target is legal; a pre-existing target must be a regular file.
+ */
+export async function withSafeFileWriterLock<T>(
+  dirPath: string,
+  targetFilePath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (!(await validateCanonicalDirectory(dirPath))) {
+    throw new Error(`Canonical target directory at "${dirPath}" does not exist`)
+  }
+
+  return withFileLock(targetFilePath, async () => {
+    if (!(await validateCanonicalDirectory(dirPath))) {
+      throw new Error(`Canonical target directory at "${dirPath}" does not exist`)
+    }
+
+    try {
+      const stats = await lstat(targetFilePath)
+      if (stats.isSymbolicLink() || !stats.isFile()) {
+        throw new Error(
+          `Canonical target at "${targetFilePath}" must be a regular file, not a symbolic link or non-regular entry`,
+        )
+      }
+    } catch (err: any) {
+      if (err?.code !== 'ENOENT') throw err
+    }
+
+    return operation()
+  })
+}
+
+/**
  * Atomically replaces one project-owned text file through the harness writer.
  * The canonical parent directory is revalidated immediately before the write,
  * and a pre-existing target must still be a regular file rather than a
  * symlink/non-regular entry. Project memory is repository content, so fresh
  * replacement inodes use normal owner-write/world-read file permissions.
+ *
+ * This primitive deliberately does not acquire a writer lock itself. Callers
+ * that participate in read-modify-write coordination hold
+ * {@link withSafeFileWriterLock} across the whole read/render/commit cycle.
  */
 export async function writeSafeFileAtomically(
   dirPath: string,
