@@ -58,6 +58,15 @@ function assertPositiveSafeInteger(value: unknown, context: string): number {
   return value;
 }
 
+/** Validate/detach a collector before it becomes registry-visible. */
+export function parseUsageSnapshotCollector(value: unknown, context = 'collector'): UsageSnapshotCollector {
+  const collector = assertPlainObject(value, context) as unknown as UsageSnapshotCollector;
+  if (typeof collector.collect !== 'function') {
+    throw new UsageContractError(`${context} must be an object with a callable collect method`);
+  }
+  return { collect: collector.collect.bind(collector) };
+}
+
 /**
  * Validate and detach one usage refresh policy before it becomes registry-visible.
  * Provider descriptors may carry a custom policy, while UsageLimitsService also
@@ -114,16 +123,9 @@ export class UsageLimitsService {
     if (this.registrations.has(providerId)) {
       throw new UsageContractError(`Duplicate registration for providerId "${providerId}"`);
     }
-    const collector = obj.collector as UsageSnapshotCollector;
-    if (!collector || typeof collector !== 'object' || typeof collector.collect !== 'function') {
-      throw new UsageContractError(`${context}.collector must be an object with a callable collect method`);
-    }
+    const collector = parseUsageSnapshotCollector(obj.collector, `${context}.collector`);
     const policy = parseUsageRefreshPolicy(obj.policy, `${context}.policy`);
-    const entry: UsageProviderRegistration = {
-      providerId,
-      collector: { collect: collector.collect.bind(collector) },
-      policy,
-    };
+    const entry: UsageProviderRegistration = { providerId, collector, policy };
     this.registrations.set(providerId, entry);
     this.registrationOrder.push(providerId);
 
