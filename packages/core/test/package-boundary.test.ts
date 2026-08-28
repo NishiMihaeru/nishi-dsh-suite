@@ -6,6 +6,10 @@ import * as ts from 'typescript'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
 const AUTHORIZATION_PACKAGE = '@deepseek-ai/dsh-authorization'
+const RETIRED_DSH_PACKAGES = [
+  '@deepseek-ai/dsh-host-apiproxy',
+  '@deepseek-ai/dsh-client-runtime',
+] as const
 const PROVIDER_PACKAGES = [
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
@@ -13,6 +17,17 @@ const PROVIDER_PACKAGES = [
 ] as const
 const PROVIDER_IDS = ['codex', 'antigravity', 'claude'] as const
 const PROVIDER_RELATIVE_IMPORT_FRAGMENTS = ['../codex', '../antigravity', '../claude'] as const
+
+interface CoreManifest {
+  dependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+  dsh?: {
+    client?: {
+      inject?: string[]
+    }
+  }
+}
 
 async function sourceFiles(root: URL): Promise<URL[]> {
   const paths: URL[] = []
@@ -40,9 +55,9 @@ function executableStringLiterals(source: string, path: URL): string[] {
   return values
 }
 
-async function coreManifest(): Promise<Record<string, Record<string, string> | undefined>> {
+async function coreManifest(): Promise<CoreManifest> {
   const raw = await readFile(new URL('../package.json', import.meta.url), 'utf8')
-  return JSON.parse(raw) as Record<string, Record<string, string> | undefined>
+  return JSON.parse(raw) as CoreManifest
 }
 
 test('nishi-dsh-core has no dependency on the retired subagent package', async () => {
@@ -77,14 +92,48 @@ test('nishi-dsh-core has no dependency on the unused DSH authorization package',
 test('core source does not import the unused DSH authorization package', async () => {
   const srcRoot = new URL('../src/', import.meta.url)
   for (const path of await sourceFiles(srcRoot)) {
-    const source = await readFile(path, 'utf8')
+    const literals = executableStringLiterals(await readFile(path, 'utf8'), path)
     const relativePath = path.href.slice(srcRoot.href.length)
-    const literals = executableStringLiterals(source, path)
     assert.equal(
       literals.some((value) => value === AUTHORIZATION_PACKAGE || value.startsWith(`${AUTHORIZATION_PACKAGE}/`)),
       false,
       `${relativePath} must not import ${AUTHORIZATION_PACKAGE}`,
     )
+  }
+})
+
+test('Core no longer depends on DSH package seams retired by alpha.1', async () => {
+  const manifest = await coreManifest()
+
+  for (const retiredPackage of RETIRED_DSH_PACKAGES) {
+    for (const field of ['dependencies', 'peerDependencies', 'devDependencies'] as const) {
+      assert.equal(
+        manifest[field]?.[retiredPackage],
+        undefined,
+        `${retiredPackage} must stay absent from ${field}`,
+      )
+    }
+  }
+
+  assert.equal(
+    manifest.dsh?.client?.inject?.includes('@deepseek-ai/dsh-client-runtime'),
+    false,
+    'the browser manifest must not request the removed dsh-client-runtime plugin',
+  )
+})
+
+test('Core source imports neither retired Connection package seam', async () => {
+  const srcRoot = new URL('../src/', import.meta.url)
+  for (const path of await sourceFiles(srcRoot)) {
+    const literals = executableStringLiterals(await readFile(path, 'utf8'), path)
+    const relativePath = path.href.slice(srcRoot.href.length)
+    for (const retiredPackage of RETIRED_DSH_PACKAGES) {
+      assert.equal(
+        literals.some((value) => value === retiredPackage || value.startsWith(`${retiredPackage}/`)),
+        false,
+        `${relativePath} must not import ${retiredPackage}`,
+      )
+    }
   }
 })
 
