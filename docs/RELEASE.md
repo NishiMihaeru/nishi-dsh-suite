@@ -2,7 +2,7 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION FINAL REVALIDATION OPEN**
+Status: **IN REPOSITORY / UNPUBLISHED / PROVIDER FREEZE WORK ACTIVE**
 
 Current local acceptance baseline:
 
@@ -17,15 +17,17 @@ Additional compatibility source target:
 - official DSH tag `dsh-v0.1.2-alpha.1`
 - commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
 
-Core and Project Memory source/runtime blockers found by the alpha.1 audit are corrected and individually accepted. Their production DSH peers now declare the exact tested union:
+Core and Project Memory are re-frozen. Their production DSH peers accept exactly:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Local dev dependencies remain pinned to rc.2; alpha.1 is validated from the official source/tag in disposable environments. Foundation publication/release status remains open until one final joint dual-generation validation passes.
+Local dev dependencies remain pinned to rc.2; alpha.1 evidence comes from official source/runtime probes in disposable environments.
 
-This file is the only current release runbook/status document. Historical rc.1/rc.2 release notes are available in git history if needed.
+This foundation range does **not** automatically broaden provider packages or the complete Suite. Codex, Antigravity and Claude still require provider-specific compatibility/freeze work.
+
+This file is the only current release runbook/status document. Historical rc.1/rc.2 release notes and superseded foundation reports remain in git history.
 
 ## rc.3 family
 
@@ -39,8 +41,6 @@ Exactly six packages move together at `0.1.0-rc.3`:
 6. `nishi-dsh-suite`
 
 `0.1.0-rc.1` remains the published npm family. rc.2 was deliberately left unpublished.
-
-The Core/Project Memory peer-family reconciliation does not by itself broaden provider-package DSH ranges. Codex, Antigravity and Claude still follow their own cleanup/freeze blocks before the six-package family can be release-ready.
 
 ## Main rc.3 change
 
@@ -59,42 +59,52 @@ Claude is usage-only and has no Nishi model route/search backend.
 
 The old `ctx.projectMemory` delegated service boundary is gone. Current memory surface is ordinary DSH `memory_read`, `memory_write`, `memory_edit` plus `/memory` and `/consolidate` maintenance commands.
 
-## Foundation evidence
+## Foundation evidence — ACCEPTED
 
-Accepted rc.2-baseline foundation evidence includes:
+Final foundation implementation HEAD:
 
-- local workspace test/check/build and accepted `verify:local` checkpoints;
-- six rc.3 tarballs and disposable Suite install/reinstall closure at historical checkpoints;
-- installed Core subpath imports;
-- real DSH host boot and HTTP readiness;
-- real agent-plane `nishi-dsh-core/web-search` mount;
-- Core unload/remount without duplicate registry/RPC services;
-- provider-neutral synthetic fourth-provider proof;
-- Project Memory nested-root consistency;
-- atomic-write dependency resolution in installed Suite profile;
-- Project Memory Cordis command injection and real DSH boot.
+```text
+0c7a177d2f4fceab58513cbd0d87fcf9c31b025b
+```
 
-Accepted reopened-audit evidence additionally includes:
+Final raw PASS report commit:
 
-- Core 15 Connection/client migration against rc.2 + alpha.1;
-- Core 16 registry observer/registration transaction integrity;
-- PM03 maintenance first-request model-selection timing;
-- PM04 cross-process same-file RMW locking;
-- PM05 compound topic + Memory-map transaction preflight/rollback integrity;
-- disposable alpha.1 source/runtime probes for all changed seams.
+```text
+c209be795601ac7c4a3328c4af6bdbefde7f9f82
+```
 
-The only remaining foundation gate is the final combined validation of the completed Core + Project Memory against both declared DSH generations.
+Accepted final foundation gates:
+
+- `pnpm install --frozen-lockfile` PASS;
+- Core `176/176` tests + check/build PASS;
+- Project Memory `39/39` tests + check/build PASS;
+- full workspace `270/270` tests + check/build PASS;
+- `pnpm verify:local` PASS;
+- six rc.3 local tarballs generated;
+- packed Core/Project Memory metadata PASS;
+- actual rc.2 + official alpha.1 Core runtime/client compatibility PASS;
+- actual rc.2 + official alpha.1 Project Memory tool/locking/maintenance compatibility PASS;
+- retired Core Connection/client seams remain outside the production runtime boundary.
+
+Foundation state:
+
+```text
+Core: FROZEN
+Project Memory: FROZEN
+```
 
 ## Open release work
 
 Before rc.3 can be release-ready:
 
-- pass the final Core + Project Memory supported-family re-freeze;
-- freeze Codex, Antigravity and Claude;
-- run cross-provider product acceptance;
-- run final target-profile install/update/remove lifecycle;
-- run managed Orchestrator preset lifecycle;
-- recheck final package dependency ranges across the whole six-package family after provider freezes.
+1. freeze Codex after provider-specific cleanup, compatibility and live acceptance;
+2. freeze Antigravity after cleanup/catalog/compatibility/live acceptance;
+3. freeze Claude after usage-only cleanup/compatibility/smoke;
+4. recheck repository-wide provider invariants and whole-family DSH package declarations;
+5. run cross-provider product acceptance;
+6. run final target-profile install/update/remove lifecycle;
+7. run managed Orchestrator preset lifecycle;
+8. run final deterministic/local/vendor/bundle/name release gates.
 
 Product live acceptance must still cover:
 
@@ -148,13 +158,16 @@ The prepared registry template is:
 docs/market/awesome-dsh-plugin-entry.yml
 ```
 
-It may advertise only behavior proven by the final released build. It must not advertise retired vendor-specific subagents, automatic preset discovery, or compatibility with a DSH version/range that has not passed the final release gates.
+It may advertise only behavior proven by the final released build. It must not advertise retired vendor-specific subagents, automatic preset discovery, or compatibility with a DSH version/range that has not passed the relevant provider/family release gates.
 
 Current Market gates:
 
 - [x] repository PR #1 merged historically;
 - [x] repository has sufficient commit history;
-- [ ] final foundation supported-family re-freeze PASS;
+- [x] Core + Project Memory foundation re-freeze PASS;
+- [ ] Codex frozen;
+- [ ] Antigravity frozen;
+- [ ] Claude frozen;
 - [ ] repository topic `dsh-plugin` added;
 - [ ] rc.3 family published consistently to npm;
 - [ ] final deterministic/local/live release gates PASS;
