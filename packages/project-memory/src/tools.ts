@@ -41,6 +41,10 @@ function isBootstrapTopic(topic: unknown): boolean {
   return typeof topic === 'string' && topic.toLowerCase() === 'memory'
 }
 
+function rethrowCancellation(signal: AbortSignal): void {
+  if (signal.aborted) signal.throwIfAborted()
+}
+
 const memoryReadTool = defineTool({
   name: 'memory_read',
   description:
@@ -98,6 +102,7 @@ const memoryReadTool = defineTool({
         content: res.content,
       }
     } catch {
+      rethrowCancellation(exec.signal)
       sanitizeToolError('read', args.topic)
     }
   },
@@ -158,6 +163,7 @@ const memoryWriteTool = defineTool({
         bytes_written: bytesWritten,
       }
     } catch {
+      rethrowCancellation(exec.signal)
       sanitizeToolError('write', args.topic)
     }
   },
@@ -217,6 +223,7 @@ const memoryEditTool = defineTool({
         bytes_written: res.bytesWritten,
       }
     } catch {
+      rethrowCancellation(exec.signal)
       sanitizeToolError('edit', args.topic)
     }
   },
