@@ -44,6 +44,7 @@ Core 01–14 remain accepted for the DSH `0.1.1-rc.2` baseline. The package is *
 | Core 13 | canonical Web Search route parsing/error taxonomy PASS |
 | Core 14 | final package/install/real DSH boot/unload-remount acceptance PASS |
 | Core 15 | DSH rc.2/alpha.1 Connection + browser-client compatibility migration PASS |
+| Core 16 | registry observer non-vetoing semantics + registration preflight/rollback integrity PASS |
 
 Core 14 included full local workspace gates, six rc.3 tarballs, disposable Suite installation, installed Core subpath imports, real host boot/HTTP readiness, real agent-plane `nishi-dsh-core/web-search`, and unload/remount without duplicate registry/usage/RPC services.
 
@@ -67,7 +68,30 @@ Accepted result:
 - disposable alpha.1 host/client probe PASS;
 - alpha.1 Connection Host/Origin fence plus browser authentication were verified before Core handlers, with untrusted requests rejected (403) and unauthenticated requests rejected (401).
 
-Current open Core validation is the separately reproducible registry-listener transaction hole; version-range reconciliation/re-freeze remains later after all foundation blockers are closed.
+### Core 16 registry transaction integrity
+
+Accepted implementation HEAD: `b925e2a328168e7c978126fc6474b7af11d7a63d`.
+Gemini raw validation report commit: `e17c809ce72060f8a5e0627b1a7d2c8d58c263e9`.
+
+Accepted result:
+
+- Core tests PASS: 175/175;
+- Core typecheck/build PASS;
+- full monorepo test/check/build PASS;
+- frozen lockfile PASS with no package/lockfile drift;
+- synchronous and async registry observer failures are non-vetoing, diagnostically logged and do not starve later observers;
+- async observer rejection produces no unhandled rejection;
+- `record()` always returns a usable withdrawal handle after a committed registration;
+- provider/routes cleanly withdraw through real Cordis service proxies even with broken observers;
+- post-record install failure still rejects with the original failure and rolls back registry + adapter state;
+- stale disposer cannot remove a replacement provider generation;
+- explicit usage policy is validated/detached before capability factories and registry mutation;
+- usage collector shape is validated/bound after its factory but before registry mutation;
+- invalid host default usage policy fails before registry observer setup;
+- valid default/explicit policy reconciliation and usage refresh PASS;
+- behavior aligns with alpha.1 DSH's non-vetoing topology-observer principle while intentionally avoiding a post-commit rethrow that would recreate disposer loss for this registry API.
+
+Core source/runtime blockers found by the reopened audit are now closed. Core remains formally REOPENED only until supported DSH peer ranges and the final foundation re-freeze are handled together after Project Memory integrity remediation.
 
 ## Project Memory stabilization baseline
 
@@ -143,16 +167,15 @@ Published `0.1.0-rc.1` historically passed Linux/CachyOS local and registry-only
 
 Ordered open validation is now:
 
-1. Core registry listener/transaction correction.
-2. Project Memory inter-process RMW integrity.
-3. Project Memory compound topic/map mutation failure semantics and focused test gaps.
-4. Re-freeze Core + Project Memory against the intended supported DSH family.
-5. Codex provider cleanup + focused/local/live acceptance.
-6. Antigravity provider cleanup/catalog + focused/local/live acceptance.
-7. Claude usage-only cleanup/smoke.
-8. Repository-wide provider invariants.
-9. Cross-provider/product live acceptance.
-10. Final profile/install/release gates.
+1. Project Memory inter-process RMW integrity.
+2. Project Memory compound topic/map mutation failure semantics and focused test gaps.
+3. Supported DSH peer/dev range reconciliation + Core/Project Memory re-freeze.
+4. Codex provider cleanup + focused/local/live acceptance.
+5. Antigravity provider cleanup/catalog + focused/local/live acceptance.
+6. Claude usage-only cleanup/smoke.
+7. Repository-wide provider invariants.
+8. Cross-provider/product live acceptance.
+9. Final profile/install/release gates.
 
 See `docs/ROADMAP.md` for task status and `docs/HANDOFF.md` for the immediate next run.
 
