@@ -66,15 +66,39 @@ test('invalid provider usage policy is rejected before capability factory or reg
   assert.equal(recordCalled, false)
 })
 
+test('invalid collector returned by the provider factory is rejected before registry mutation', async () => {
+  let recordCalled = false
+  const spec = descriptor({ minRefreshIntervalMs: 0, staleAfterMs: 5_000 })
+  spec.usage!.create = (() => ({ collect: 'not-callable' })) as any
+
+  const ctx = {
+    nishiProviders: {
+      record() {
+        recordCalled = true
+        return () => {}
+      },
+      invalidate() {},
+    },
+  }
+
+  await assert.rejects(
+    () => registerProvider(ctx as any, spec, CONFIG),
+    /fixture: usage\.collector must be an object with a callable collect method/,
+  )
+  assert.equal(recordCalled, false)
+})
+
 test('valid provider usage policy is detached and passed through the registry contract', async () => {
   const refreshPolicy = { minRefreshIntervalMs: 1_000, staleAfterMs: 5_000 }
   const spec = descriptor(refreshPolicy)
   let recordedPolicy: unknown
+  let recordedCollector: unknown
 
   const ctx = {
     nishiProviders: {
       record(entry: any) {
         recordedPolicy = entry.usage?.refreshPolicy
+        recordedCollector = entry.usage?.collector
         return () => {}
       },
       invalidate() {},
@@ -84,8 +108,11 @@ test('valid provider usage policy is detached and passed through the registry co
     },
   }
 
+  const originalCollector = spec.usage!.create({} as any, CONFIG, { invalidate() {} })
+  spec.usage!.create = (() => originalCollector) as any
   await registerProvider(ctx as any, spec, CONFIG)
 
   assert.deepEqual(recordedPolicy, refreshPolicy)
   assert.notEqual(recordedPolicy, refreshPolicy, 'registry-visible policy must be a detached validated copy')
+  assert.notEqual(recordedCollector, originalCollector, 'registry-visible collector must be a detached validated wrapper')
 })
