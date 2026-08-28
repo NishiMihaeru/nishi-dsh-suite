@@ -5,7 +5,6 @@ import {
   readSafeRegularFile,
   withSafeFileWriterLock,
   writeFileExclusiveAtomic,
-  writeSafeFileAtomically,
 } from './filesystem.js'
 import { ensureProjectMemoryBootstrap } from './bootstrap.js'
 import { resolveProjectMemoryPaths } from './paths.js'
@@ -95,33 +94,23 @@ async function validateExistingProjectJson(
   return true
 }
 
-/** Ensure the project-owned ignore rule under the root .gitignore writer lock. */
 async function ensureGitignoreEntry(
   projectRoot: string,
   gitignorePath: string,
   signal?: AbortSignal,
 ): Promise<boolean> {
   const rootOptions = { allowDirectorySymlink: true } as const
-  return withSafeFileWriterLock(projectRoot, gitignorePath, async () => {
+  return withSafeFileWriterLock(projectRoot, gitignorePath, async (scope) => {
     signal?.throwIfAborted()
-    let raw = await readSafeRegularFile(projectRoot, gitignorePath, {
-      signal,
-      allowDirectorySymlink: true,
-    })
+    let raw = await scope.readRegularFile(gitignorePath)
     if (raw === null) {
-      const created = await writeFileExclusiveAtomic(
-        projectRoot,
+      const created = await scope.writeFileExclusiveAtomic(
         gitignorePath,
         '.dsh/local/\n',
         { mode: 0o644 },
-        signal,
-        rootOptions,
       )
       if (created) return true
-      raw = await readSafeRegularFile(projectRoot, gitignorePath, {
-        signal,
-        allowDirectorySymlink: true,
-      })
+      raw = await scope.readRegularFile(gitignorePath)
       if (raw === null) throw new Error('Canonical .gitignore disappeared during initialization')
     }
 
@@ -137,22 +126,14 @@ async function ensureGitignoreEntry(
       content.length === 0 || content.endsWith('\n') || content.endsWith('\r') ? '' : '\n'
     const appendContent = `${prefix}.dsh/local/\n`
     signal?.throwIfAborted()
-    await writeSafeFileAtomically(
-      projectRoot,
+    await scope.writeFileAtomically(
       gitignorePath,
       Buffer.from(content + appendContent, 'utf8'),
-      signal,
-      rootOptions,
     )
     return true
   }, signal, rootOptions)
 }
 
-/**
- * Initializes a DSH project root idempotently. Initial canonical files are
- * published only after their full content exists in a sibling temp inode; the
- * no-clobber publication never overwrites a concurrent external creator.
- */
 export async function initializeDshProject(
   projectRoot: string,
   signal?: AbortSignal,
@@ -167,7 +148,6 @@ export async function initializeDshProject(
   const dshDir = join(root, '.dsh')
   const gitignorePath = join(root, '.gitignore')
 
-  // 1. Preflight known existing canonical targets before ordinary initialization mutation.
   await validateExistingFile(paths.dshMd, 'DSH.md')
   await validateExistingDir(dshDir, '.dsh')
   await validateExistingProjectJson(paths.projectJson, signal)
@@ -177,16 +157,11 @@ export async function initializeDshProject(
   await validateExistingFile(gitignorePath, '.gitignore')
   signal?.throwIfAborted()
 
-  // A crash-recovery rollback is part of making the existing project coherent,
-  // so perform it before creating any new initialization state.
   await recoverPendingProjectMemoryTransaction(root, signal)
   signal?.throwIfAborted()
 
-  // 2. Ensure .dsh directory. The workspace root itself may be a symlink path,
-  // but the newly created .dsh final component must be a real directory.
   await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
 
-  // 3. Create DSH.md if absent through atomic no-clobber publication.
   const dshMdCreated = await writeFileExclusiveAtomic(
     root,
     paths.dshMd,
@@ -197,7 +172,6 @@ export async function initializeDshProject(
   )
   if (!dshMdCreated) await validateExistingFile(paths.dshMd, 'DSH.md')
 
-  // 4. Create .dsh/project.json if absent through the same publication protocol.
   const projectJsonCreated = await writeFileExclusiveAtomic(
     dshDir,
     paths.projectJson,
@@ -207,15 +181,12 @@ export async function initializeDshProject(
   )
   if (!projectJsonCreated) await validateExistingProjectJson(paths.projectJson, signal)
 
-  // 5. Ensure MEMORY.md bootstrap.
   const bootstrapResult = await ensureProjectMemoryBootstrap(root, signal)
 
-  // 6. Ensure .dsh/local/ directory.
   const localDirExists = await validateExistingDir(paths.localDir, '.dsh/local')
   if (!localDirExists) await ensureCanonicalDirectory(paths.localDir, signal)
   const localDirCreated = !localDirExists
 
-  // 7. Ensure root .gitignore ignores .dsh/local/.
   const gitignoreEntryCreated = await ensureGitignoreEntry(root, gitignorePath, signal)
 
   return {
