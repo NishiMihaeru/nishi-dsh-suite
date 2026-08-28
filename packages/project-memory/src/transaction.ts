@@ -15,6 +15,8 @@ export const PENDING_TRANSACTION_VERSION = 1
 const PENDING_TRANSACTION_FILENAME = 'project-memory-transaction.json'
 const MAX_PENDING_TRANSACTION_BYTES = 1024 * 1024
 
+export type ProjectMemoryTransactionPhase = 'pending' | 'committed'
+
 export interface TransactionFileSnapshot {
   readonly exists: boolean
   readonly contentBase64?: string
@@ -22,6 +24,7 @@ export interface TransactionFileSnapshot {
 
 export interface PendingProjectMemoryTransaction {
   readonly version: typeof PENDING_TRANSACTION_VERSION
+  readonly phase: ProjectMemoryTransactionPhase
   readonly ownerPid: number
   readonly topic: string
   readonly topicBefore: TransactionFileSnapshot
@@ -72,6 +75,7 @@ function parsePendingTransaction(buffer: Buffer): PendingProjectMemoryTransactio
   const record = parsed as Record<string, unknown>
   if (
     record.version !== PENDING_TRANSACTION_VERSION
+    || (record.phase !== 'pending' && record.phase !== 'committed')
     || typeof record.ownerPid !== 'number'
     || !Number.isSafeInteger(record.ownerPid)
     || record.ownerPid <= 0
@@ -82,7 +86,7 @@ function parsePendingTransaction(buffer: Buffer): PendingProjectMemoryTransactio
   ) {
     throw new Error('Project memory recovery journal is invalid')
   }
-  const allowed = new Set(['version', 'ownerPid', 'topic', 'topicBefore', 'memoryBefore'])
+  const allowed = new Set(['version', 'phase', 'ownerPid', 'topic', 'topicBefore', 'memoryBefore'])
   if (Object.keys(record).some(key => !allowed.has(key))) {
     throw new Error('Project memory recovery journal contains unknown fields')
   }
@@ -132,6 +136,7 @@ export async function createPendingProjectMemoryTransaction(
 
   const record: PendingProjectMemoryTransaction = {
     version: PENDING_TRANSACTION_VERSION,
+    phase: 'pending',
     ownerPid: process.pid,
     topic: input.topic,
     topicBefore: snapshotFromBuffer(input.topicBefore),
@@ -150,6 +155,35 @@ export async function createPendingProjectMemoryTransaction(
   return record
 }
 
+export async function markProjectMemoryTransactionCommitted(
+  projectRoot: string,
+  expected: PendingProjectMemoryTransaction,
+  signal?: AbortSignal,
+): Promise<PendingProjectMemoryTransaction> {
+  signal?.throwIfAborted()
+  if (expected.phase !== 'pending') {
+    throw new Error('Project memory transaction can only be committed from pending state')
+  }
+  const paths = resolveProjectMemoryPaths(projectRoot)
+  const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
+
+  return withSafeFileWriterLock(paths.localDir, journalPath, async () => {
+    const current = await readPendingTransaction(projectRoot, signal)
+    if (
+      current === null
+      || current.phase !== 'pending'
+      || current.ownerPid !== expected.ownerPid
+      || current.topic !== expected.topic
+    ) {
+      throw new Error('Project memory recovery journal changed before transaction commit')
+    }
+    signal?.throwIfAborted()
+    const committed: PendingProjectMemoryTransaction = { ...current, phase: 'committed' }
+    await writeSafeFileAtomically(paths.localDir, journalPath, serializePendingTransaction(committed), signal)
+    return committed
+  }, signal)
+}
+
 export async function clearPendingProjectMemoryTransaction(
   projectRoot: string,
   signal?: AbortSignal,
@@ -163,6 +197,9 @@ export async function restorePendingProjectMemoryTransactionLocked(
   projectRoot: string,
   record: PendingProjectMemoryTransaction,
 ): Promise<void> {
+  if (record.phase !== 'pending') {
+    throw new Error('Committed project memory transaction must not be rolled back')
+  }
   const paths = resolveProjectMemoryPaths(projectRoot)
   const topicPath = join(paths.memoryDir, `${record.topic}.md`)
   const topicBefore = bufferFromSnapshot(record.topicBefore)
@@ -222,7 +259,7 @@ async function claimRecoveryJournal(
   return withSafeFileWriterLock(paths.localDir, journalPath, async () => {
     const current = await readPendingTransaction(projectRoot, signal)
     if (current === null) return null
-    if (current.topic !== expected.topic) {
+    if (current.topic !== expected.topic || current.phase !== expected.phase) {
       throw new Error('Project memory recovery journal changed while recovery was starting')
     }
     if (current.ownerPid !== expected.ownerPid) {
@@ -237,6 +274,17 @@ async function claimRecoveryJournal(
   }, signal)
 }
 
+async function finishCommittedRecovery(
+  projectRoot: string,
+  record: PendingProjectMemoryTransaction,
+): Promise<boolean> {
+  if (record.phase !== 'committed') {
+    throw new Error('Project memory committed recovery received a pending journal')
+  }
+  await clearPendingProjectMemoryTransaction(projectRoot)
+  return true
+}
+
 async function waitForLiveTransactionToFinish(
   projectRoot: string,
   signal?: AbortSignal,
@@ -246,18 +294,21 @@ async function waitForLiveTransactionToFinish(
   await withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async () => {}, signal)
   const remaining = await readPendingTransaction(projectRoot, signal)
   if (remaining === null) return false
+  if (remaining.phase === 'committed') {
+    await clearPendingProjectMemoryTransaction(projectRoot, signal)
+    return true
+  }
   if (pidIsAlive(remaining.ownerPid)) {
-    throw new Error('Project memory transaction remained live after its writer lock was released')
+    throw new Error('Project memory transaction remained pending after its writer lock was released')
   }
   return recoverPendingProjectMemoryTransaction(projectRoot, signal)
 }
 
 /**
- * Restore a compound topic/map transaction whose process died before journal
- * removal. Journal removal is the commit point: while the journal exists, both
- * participant files are restored to their exact pre-transaction bytes. A live
- * transaction is awaited through the normal MEMORY.md writer lock rather than
- * mistaken for a crash.
+ * Recover a compound topic/map transaction. `pending` journals restore both
+ * exact pre-images. `committed` journals preserve both new participant states
+ * and exist only so a crash before lock cleanup can safely clean protocol files.
+ * A live owner is awaited through the normal MEMORY.md writer lock.
  */
 export async function recoverPendingProjectMemoryTransaction(
   projectRoot: string,
@@ -278,8 +329,6 @@ export async function recoverPendingProjectMemoryTransaction(
   const topicPath = join(paths.memoryDir, `${initial.topic}.md`)
   const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
 
-  // A process death can strand any of the three protocol locks. PID liveness,
-  // not file age, is the authority for recovery; a live owner is never removed.
   await removeDeadLockIfPresent(paths.localDir, journalPath)
   await removeDeadLockIfPresent(paths.memoryDir, paths.memoryMd)
   await removeDeadLockIfPresent(paths.memoryDir, topicPath)
@@ -294,8 +343,16 @@ export async function recoverPendingProjectMemoryTransaction(
   return withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async () => {
     const current = await readPendingTransaction(projectRoot, signal)
     if (current === null) return false
-    if (current.ownerPid !== process.pid || current.topic !== claimed.topic) {
+    if (
+      current.ownerPid !== process.pid
+      || current.topic !== claimed.topic
+      || current.phase !== claimed.phase
+    ) {
       throw new Error('Project memory recovery journal changed after recovery claimed it')
+    }
+
+    if (current.phase === 'committed') {
+      return finishCommittedRecovery(projectRoot, current)
     }
 
     return withSafeFileWriterLock(paths.memoryDir, topicPath, async () => {
