@@ -1,16 +1,12 @@
 import { join } from 'node:path'
-import {
-  ensureCanonicalDirectory,
-  readSafeRegularFile,
-  removeSafeRegularFile,
-  validateCanonicalDirectory,
-  withSafeDirectoryScope,
-  withSafeFileWriterLock,
-  writeFileExclusiveAtomic,
-  writeSafeFileAtomically,
-  type SafeDirectoryScope,
-} from './filesystem.js'
+import type { SafeDirectoryScope } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
+import {
+  withEnsuredProjectLocalScope,
+  withEnsuredProjectMemoryScope,
+  withEnsuredProjectStorageScopes,
+  withExistingProjectLocalScope,
+} from './storage.js'
 import { isValidTopicIdentifier } from './topic-id.js'
 
 export const PENDING_TRANSACTION_VERSION = 1
@@ -124,14 +120,12 @@ async function readPendingTransaction(
   signal?: AbortSignal,
 ): Promise<PendingProjectMemoryTransaction | null> {
   signal?.throwIfAborted()
-  const paths = resolveProjectMemoryPaths(projectRoot)
-  if (!(await validateCanonicalDirectory(paths.localDir, signal))) return null
-  const buffer = await readSafeRegularFile(paths.localDir, pendingProjectMemoryTransactionPath(projectRoot), {
+  const result = await withExistingProjectLocalScope(
+    projectRoot,
+    (localScope) => readPendingTransactionFromScope(projectRoot, localScope),
     signal,
-    maxBytes: MAX_PENDING_TRANSACTION_BYTES,
-  })
-  if (buffer === null) return null
-  return parsePendingTransaction(buffer)
+  )
+  return result ?? null
 }
 
 export async function createPendingProjectMemoryTransaction(
@@ -144,10 +138,6 @@ export async function createPendingProjectMemoryTransaction(
   if (!isValidTopicIdentifier(input.topic)) {
     throw new Error(`Invalid topic memory identifier "${input.topic}"`)
   }
-  const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
-  await ensureCanonicalDirectory(paths.localDir, signal)
 
   const record: PendingProjectMemoryTransaction = {
     version: PENDING_TRANSACTION_VERSION,
@@ -158,19 +148,14 @@ export async function createPendingProjectMemoryTransaction(
     memoryBefore: snapshotFromBuffer(input.memoryBefore),
   }
   const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
+  const writeRecord = (scope: SafeDirectoryScope) => scope.writeFileExclusiveAtomic(
+    journalPath,
+    serializePendingTransaction(record),
+    { mode: 0o600 },
+  )
   const created = journalScope === undefined
-    ? await writeFileExclusiveAtomic(
-        paths.localDir,
-        journalPath,
-        serializePendingTransaction(record),
-        { mode: 0o600 },
-        signal,
-      )
-    : await journalScope.writeFileExclusiveAtomic(
-        journalPath,
-        serializePendingTransaction(record),
-        { mode: 0o600 },
-      )
+    ? await withEnsuredProjectLocalScope(projectRoot, writeRecord, signal)
+    : await writeRecord(journalScope)
   if (!created) {
     throw new Error('Project memory has an unresolved pending transaction')
   }
@@ -187,27 +172,27 @@ export async function markProjectMemoryTransactionCommitted(
   if (expected.phase !== 'pending' || expected.ownerPid !== process.pid) {
     throw new Error('Project memory transaction can only commit its own pending journal')
   }
-  const paths = resolveProjectMemoryPaths(projectRoot)
   const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
-  const current = journalScope === undefined
-    ? await readPendingTransaction(projectRoot, signal)
-    : await readPendingTransactionFromScope(projectRoot, journalScope)
-  if (
-    current === null
-    || current.phase !== 'pending'
-    || current.ownerPid !== expected.ownerPid
-    || current.topic !== expected.topic
-  ) {
-    throw new Error('Project memory recovery journal changed before transaction commit')
+  const mark = async (scope: SafeDirectoryScope): Promise<PendingProjectMemoryTransaction> => {
+    const current = await readPendingTransactionFromScope(projectRoot, scope)
+    if (
+      current === null
+      || current.phase !== 'pending'
+      || current.ownerPid !== expected.ownerPid
+      || current.topic !== expected.topic
+    ) {
+      throw new Error('Project memory recovery journal changed before transaction commit')
+    }
+    signal?.throwIfAborted()
+    const committed: PendingProjectMemoryTransaction = { ...current, phase: 'committed' }
+    await scope.writeFileAtomically(journalPath, serializePendingTransaction(committed))
+    return committed
   }
-  signal?.throwIfAborted()
-  const committed: PendingProjectMemoryTransaction = { ...current, phase: 'committed' }
-  if (journalScope === undefined) {
-    await writeSafeFileAtomically(paths.localDir, journalPath, serializePendingTransaction(committed), signal)
-  } else {
-    await journalScope.writeFileAtomically(journalPath, serializePendingTransaction(committed))
-  }
-  return committed
+
+  if (journalScope !== undefined) return mark(journalScope)
+  const result = await withExistingProjectLocalScope(projectRoot, mark, signal)
+  if (result === undefined) throw new Error('Project memory recovery journal disappeared before transaction commit')
+  return result
 }
 
 export async function clearPendingProjectMemoryTransaction(
@@ -215,13 +200,16 @@ export async function clearPendingProjectMemoryTransaction(
   signal?: AbortSignal,
   journalScope?: SafeDirectoryScope,
 ): Promise<void> {
-  const paths = resolveProjectMemoryPaths(projectRoot)
+  const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
   if (journalScope !== undefined) {
-    await journalScope.removeRegularFile(pendingProjectMemoryTransactionPath(projectRoot))
+    await journalScope.removeRegularFile(journalPath)
     return
   }
-  if (!(await validateCanonicalDirectory(paths.localDir, signal))) return
-  await removeSafeRegularFile(paths.localDir, pendingProjectMemoryTransactionPath(projectRoot), signal)
+  await withExistingProjectLocalScope(
+    projectRoot,
+    async (localScope) => { await localScope.removeRegularFile(journalPath) },
+    signal,
+  )
 }
 
 export async function restorePendingProjectMemoryTransactionLocked(
@@ -237,52 +225,44 @@ export async function restorePendingProjectMemoryTransactionLocked(
   const topicBefore = bufferFromSnapshot(record.topicBefore)
   const memoryBefore = bufferFromSnapshot(record.memoryBefore)
 
-  if (memoryScope === undefined) {
-    if (topicBefore === null) await removeSafeRegularFile(paths.memoryDir, topicPath)
-    else await writeSafeFileAtomically(paths.memoryDir, topicPath, topicBefore)
+  const restore = async (scope: SafeDirectoryScope): Promise<void> => {
+    if (topicBefore === null) await scope.removeRegularFile(topicPath)
+    else await scope.writeFileAtomically(topicPath, topicBefore)
 
-    if (memoryBefore === null) await removeSafeRegularFile(paths.memoryDir, paths.memoryMd)
-    else await writeSafeFileAtomically(paths.memoryDir, paths.memoryMd, memoryBefore)
-    return
+    if (memoryBefore === null) await scope.removeRegularFile(paths.memoryMd)
+    else await scope.writeFileAtomically(paths.memoryMd, memoryBefore)
   }
 
-  if (topicBefore === null) await memoryScope.removeRegularFile(topicPath)
-  else await memoryScope.writeFileAtomically(topicPath, topicBefore)
-
-  if (memoryBefore === null) await memoryScope.removeRegularFile(paths.memoryMd)
-  else await memoryScope.writeFileAtomically(paths.memoryMd, memoryBefore)
+  if (memoryScope !== undefined) {
+    await restore(memoryScope)
+    return
+  }
+  await withEnsuredProjectMemoryScope(projectRoot, restore)
 }
 
-/**
- * Called only while the caller already owns MEMORY.md.lock on `memoryScope`.
- * The same scope is reused for any nested topic rollback, so the transaction
- * barrier and participant restore cannot drift to a replacement memoryDir.
- */
 export async function settleCommittedProjectMemoryTransactionUnderMapLock(
   projectRoot: string,
   memoryScope: SafeDirectoryScope,
+  journalScope: SafeDirectoryScope,
   signal?: AbortSignal,
 ): Promise<boolean> {
+  const current = await readPendingTransactionFromScope(projectRoot, journalScope)
+  if (current === null) return false
+  if (current.phase === 'committed') {
+    await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
+    return true
+  }
+
   const paths = resolveProjectMemoryPaths(projectRoot)
-  if (!(await validateCanonicalDirectory(paths.localDir, signal))) return false
-
-  return withSafeDirectoryScope(paths.localDir, async (journalScope) => {
-    const current = await readPendingTransactionFromScope(projectRoot, journalScope)
-    if (current === null) return false
-    if (current.phase === 'committed') {
-      await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
-      return true
-    }
-
-    const topicPath = join(paths.memoryDir, `${current.topic}.md`)
-    return memoryScope.withWriterLock(topicPath, async () => {
-      signal?.throwIfAborted()
-      await restorePendingProjectMemoryTransactionLocked(projectRoot, current, memoryScope)
-      signal?.throwIfAborted()
-      await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
-      return true
-    })
-  }, signal)
+  const topicPath = join(paths.memoryDir, `${current.topic}.md`)
+  return memoryScope.withWriterLock(topicPath, async () => {
+    signal?.throwIfAborted()
+    const settlementMemory = memoryScope.forSettlement()
+    const settlementJournal = journalScope.forSettlement()
+    await restorePendingProjectMemoryTransactionLocked(projectRoot, current, settlementMemory)
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournal)
+    return true
+  })
 }
 
 function pidIsAlive(pid: number): boolean {
@@ -296,9 +276,12 @@ function pidIsAlive(pid: number): boolean {
   }
 }
 
-async function lockOwnerPid(dirPath: string, targetFilePath: string): Promise<number | null> {
+async function lockOwnerPid(
+  scope: SafeDirectoryScope,
+  targetFilePath: string,
+): Promise<number | null> {
   const lockPath = `${targetFilePath}.lock`
-  const lock = await readSafeRegularFile(dirPath, lockPath, { maxBytes: 64 })
+  const lock = await scope.readRegularFile(lockPath, { maxBytes: 64 })
   if (lock === null) return null
   const parsed = Number(lock.toString('utf8').trim())
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
@@ -307,13 +290,35 @@ async function lockOwnerPid(dirPath: string, targetFilePath: string): Promise<nu
   return parsed
 }
 
-async function removeDeadLockIfPresent(dirPath: string, targetFilePath: string): Promise<void> {
-  const ownerPid = await lockOwnerPid(dirPath, targetFilePath)
-  if (ownerPid === null) return
-  if (pidIsAlive(ownerPid)) {
-    throw new Error(`Project memory recovery found a writer lock owned by a live process at "${targetFilePath}.lock"`)
+async function removeDeadLockIfPresent(
+  scope: SafeDirectoryScope,
+  targetFilePath: string,
+): Promise<void> {
+  const ownerPid = await lockOwnerPid(scope, targetFilePath)
+  if (ownerPid === null || pidIsAlive(ownerPid)) return
+  await scope.removeRegularFile(`${targetFilePath}.lock`)
+}
+
+async function settlePendingUnderMemoryBarrier(
+  projectRoot: string,
+  memoryScope: SafeDirectoryScope,
+  journalScope: SafeDirectoryScope,
+  record: PendingProjectMemoryTransaction,
+): Promise<boolean> {
+  const paths = resolveProjectMemoryPaths(projectRoot)
+  if (record.phase === 'committed') {
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, journalScope.forSettlement())
+    return true
   }
-  await removeSafeRegularFile(dirPath, `${targetFilePath}.lock`)
+
+  const topicPath = join(paths.memoryDir, `${record.topic}.md`)
+  return memoryScope.withWriterLock(topicPath, async () => {
+    const settlementMemory = memoryScope.forSettlement()
+    const settlementJournal = journalScope.forSettlement()
+    await restorePendingProjectMemoryTransactionLocked(projectRoot, record, settlementMemory)
+    await clearPendingProjectMemoryTransaction(projectRoot, undefined, settlementJournal)
+    return true
+  })
 }
 
 async function waitForLiveTransactionToFinish(
@@ -321,35 +326,22 @@ async function waitForLiveTransactionToFinish(
   signal?: AbortSignal,
 ): Promise<boolean> {
   const paths = resolveProjectMemoryPaths(projectRoot)
-  if (!(await validateCanonicalDirectory(paths.memoryDir, signal))) return false
-  if (!(await validateCanonicalDirectory(paths.localDir, signal))) return false
-
-  return withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async (memoryScope) => {
-    return withSafeDirectoryScope(paths.localDir, async (journalScope) => {
-      const remaining = await readPendingTransactionFromScope(projectRoot, journalScope)
+  return withEnsuredProjectStorageScopes(projectRoot, ({ memory, local }) => {
+    return memory.withWriterLock(paths.memoryMd, async (memoryScope) => {
+      const remaining = await readPendingTransactionFromScope(projectRoot, local)
       if (remaining === null) return false
-      if (remaining.phase === 'committed') {
-        await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
-        return true
-      }
-
-      const topicPath = join(paths.memoryDir, `${remaining.topic}.md`)
-      return memoryScope.withWriterLock(topicPath, async () => {
-        signal?.throwIfAborted()
-        await restorePendingProjectMemoryTransactionLocked(projectRoot, remaining, memoryScope)
-        signal?.throwIfAborted()
-        await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
-        return true
-      })
-    }, signal)
+      return settlePendingUnderMemoryBarrier(projectRoot, memoryScope, local, remaining)
+    })
   }, signal)
 }
 
 /**
- * Recover a compound topic/map transaction. `pending` journals restore both
- * exact pre-images. `committed` journals preserve both new participant states.
- * Recovery binds journal and memory participants to stable directory scopes so
- * no lock/read/restore step can reopen a replacement parent pathname.
+ * Recover a compound topic/map transaction. All package-owned descendants are
+ * opened through one pinned projectRoot -> .dsh descriptor chain. A dead owner
+ * is claimed under the journal lock, then participant state is settled under
+ * the normal MEMORY.md -> topic lock order. A live owner is first crossed via
+ * the MEMORY.md lock barrier; pending state that still exists after that barrier
+ * is abandoned and is rolled back even if the old process itself remains live.
  */
 export async function recoverPendingProjectMemoryTransaction(
   projectRoot: string,
@@ -363,56 +355,42 @@ export async function recoverPendingProjectMemoryTransaction(
   }
 
   const paths = resolveProjectMemoryPaths(projectRoot)
-  const dshDir = join(paths.projectRoot, '.dsh')
-  await ensureCanonicalDirectory(dshDir, signal, { allowParentDirectorySymlink: true })
-  await ensureCanonicalDirectory(paths.memoryDir, signal)
-  await ensureCanonicalDirectory(paths.localDir, signal)
-  const topicPath = join(paths.memoryDir, `${initial.topic}.md`)
   const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
 
-  await removeDeadLockIfPresent(paths.localDir, journalPath)
-  await removeDeadLockIfPresent(paths.memoryDir, paths.memoryMd)
-  await removeDeadLockIfPresent(paths.memoryDir, topicPath)
+  return withEnsuredProjectStorageScopes(projectRoot, async ({ memory, local }) => {
+    const initialTopicPath = join(paths.memoryDir, `${initial.topic}.md`)
+    await removeDeadLockIfPresent(local, journalPath)
+    await removeDeadLockIfPresent(memory, paths.memoryMd)
+    await removeDeadLockIfPresent(memory, initialTopicPath)
 
-  return withSafeFileWriterLock(paths.localDir, journalPath, async (journalScope) => {
-    const current = await readPendingTransactionFromScope(projectRoot, journalScope)
-    if (current === null) return false
-    if (current.topic !== initial.topic || current.phase !== initial.phase) {
-      throw new Error('Project memory recovery journal changed while recovery was starting')
-    }
-    if (current.ownerPid !== initial.ownerPid) {
-      if (pidIsAlive(current.ownerPid)) return waitForLiveTransactionToFinish(projectRoot, signal)
-      throw new Error('Project memory recovery journal owner changed unexpectedly')
-    }
-    if (pidIsAlive(current.ownerPid)) return waitForLiveTransactionToFinish(projectRoot, signal)
-
-    const claimed: PendingProjectMemoryTransaction = { ...current, ownerPid: process.pid }
-    await journalScope.writeFileAtomically(journalPath, serializePendingTransaction(claimed))
-
-    return withSafeFileWriterLock(paths.memoryDir, paths.memoryMd, async (memoryScope) => {
-      const latest = await readPendingTransactionFromScope(projectRoot, journalScope)
-      if (latest === null) return false
-      if (
-        latest.ownerPid !== process.pid
-        || latest.topic !== claimed.topic
-        || latest.phase !== claimed.phase
-      ) {
-        throw new Error('Project memory recovery journal changed after recovery claimed it')
+    return local.withWriterLock(journalPath, async (journalScope) => {
+      const current = await readPendingTransactionFromScope(projectRoot, journalScope)
+      if (current === null) return false
+      if (current.topic !== initial.topic || current.phase !== initial.phase) {
+        throw new Error('Project memory recovery journal changed while recovery was starting')
+      }
+      if (current.ownerPid !== initial.ownerPid && pidIsAlive(current.ownerPid)) {
+        return false
+      }
+      if (pidIsAlive(current.ownerPid)) {
+        return false
       }
 
-      if (latest.phase === 'committed') {
-        await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
-        return true
-      }
+      const claimed: PendingProjectMemoryTransaction = { ...current, ownerPid: process.pid }
+      await journalScope.writeFileAtomically(journalPath, serializePendingTransaction(claimed))
 
-      const currentTopicPath = join(paths.memoryDir, `${latest.topic}.md`)
-      return memoryScope.withWriterLock(currentTopicPath, async () => {
-        signal?.throwIfAborted()
-        await restorePendingProjectMemoryTransactionLocked(projectRoot, latest, memoryScope)
-        signal?.throwIfAborted()
-        await clearPendingProjectMemoryTransaction(projectRoot, signal, journalScope)
-        return true
+      return memory.withWriterLock(paths.memoryMd, async (memoryScope) => {
+        const latest = await readPendingTransactionFromScope(projectRoot, journalScope)
+        if (latest === null) return false
+        if (
+          latest.ownerPid !== process.pid
+          || latest.topic !== claimed.topic
+          || latest.phase !== claimed.phase
+        ) {
+          throw new Error('Project memory recovery journal changed after recovery claimed it')
+        }
+        return settlePendingUnderMemoryBarrier(projectRoot, memoryScope, journalScope, latest)
       })
-    }, signal)
+    })
   }, signal)
 }
