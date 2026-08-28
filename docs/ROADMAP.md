@@ -37,11 +37,11 @@ Previously accepted root/path/context behavior remains unless a new blocker prov
 Current remediation:
 
 - [x] Maintenance route is selected when the exact maintenance inbox message is claimed, before prompt assembly; first request uses the requested provider/model. Gemini + disposable alpha.1 probe PASS on `b3948f3443fc7d0418b64c688865fb7c0ec9eebf`.
-- [ ] Add inter-process serialization for read-modify-write paths where atomic replacement alone can lose concurrent updates.
+- [ ] Inter-process per-file writer serialization is implemented and awaiting focused validation: `MEMORY.md`, topic files and initializer `.gitignore` RMW use the DSH `withFileLock()` target namespace; whole-file writers of the same target honor the same lock; cross-process regression workers added.
 - [ ] Prevent or explicitly contain partial topic/map commits in `memory_write` / `memory_edit`; add failure-path regression coverage.
-- [ ] Add focused coverage for currently weak lifecycle/tool/init paths required by the fixes above.
+- [ ] Add focused coverage for remaining weak lifecycle/tool/init paths required by the compound-mutation fix.
 - [ ] Reconcile Project Memory DSH peer/dev dependency declarations with the supported DSH family after compatibility is proven.
-- [ ] Focused Project Memory `test` / `check` / `build` PASS.
+- [ ] Focused Project Memory `test` / `check` / `build` PASS for the RMW block.
 - [ ] Disposable compatibility probe against official `dsh-v0.1.2-alpha.1` PASS.
 - [ ] Re-freeze Project Memory.
 
