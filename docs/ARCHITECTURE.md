@@ -134,7 +134,9 @@ On `agent/pre-step`, successful initialized roots are cached. In-flight initiali
 
 On Linux/POSIX, the storage layer opens the target parent directory, verifies device/inode identity and uses an available descriptor path (`/proc/self/fd/<fd>` or `/dev/fd/<fd>`) for subsequent child lookup, temp-file creation, hard-link publication and rename. Reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible final entry, then read bytes from that handle.
 
-This replaces the old `lstat(path)` -> later `readFile/writeFile(path)` check/use pattern for the supported POSIX path and prevents a concurrent parent/final-entry swap from redirecting the actual I/O after validation.
+A read-modify-write critical section does not reopen that parent pathname after taking its lock. `withSafeFileWriterLock()` supplies a `SafeDirectoryScope`, and the complete lock/read/render/write sequence uses that same opened directory identity. The named-topic compound path uses one memory scope for `MEMORY.md.lock`, the nested topic lock, participant snapshots, writes and rollback, plus one separate stable `.dsh/local` scope for its recovery journal. After a successful callback the logical directory pathname is revalidated against the opened inode; a parent replacement therefore cannot silently redirect the operation or still be reported as success.
+
+This replaces the old `lstat(path)` -> later `readFile/writeFile(path)` check/use pattern for the supported POSIX path and prevents a concurrent parent/final-entry swap from redirecting actual RMW I/O after validation.
 
 Windows has no equivalent Node directory-fd/openat surface here. It uses pathname operations plus identity revalidation and remains **NOT TESTED**. The stronger descriptor-anchored TOCTOU guarantee is therefore a POSIX claim only.
 
@@ -148,7 +150,7 @@ These are process-interruption and atomic-namespace guarantees. The storage laye
 
 ### Writer locking and cancellation
 
-Every Project Memory RMW target uses the DSH-compatible `<target>.lock` namespace. The lock covers read/render/commit and whole-file writers honor the same target lock.
+Every Project Memory RMW target uses the DSH-compatible `<target>.lock` namespace. The lock covers read/render/commit and whole-file writers honor the same target lock. Lock ownership and all operations performed under that lock share the same `SafeDirectoryScope`.
 
 Lock acquisition is `AbortSignal`-aware. DSH tool execution and `agent/pre-step` signals are forwarded through root discovery, recovery, initialization, reads, lock waits and commit boundaries. An aborted waiter cannot later acquire the lock and commit a mutation merely because the current holder eventually released it. Model-facing tool wrappers also rethrow the caller's cancellation reason instead of converting cancellation into an ordinary sanitized Project Memory failure.
 
@@ -180,20 +182,20 @@ While both participant locks are held, the transaction owns `.dsh/local/project-
 Protocol:
 
 1. preflight the next canonical Memory-map text while holding `MEMORY.md.lock`;
-2. acquire topic lock;
-3. capture exact participant pre-images;
-4. atomically publish `pending` journal;
+2. acquire topic lock on the same memory-directory scope;
+3. capture exact participant pre-images through that scope;
+4. atomically publish `pending` journal through one stable `.dsh/local` scope;
 5. commit topic participant;
 6. commit Memory-map participant;
 7. atomically replace journal phase with `committed` while both participant locks still belong to this live transaction;
-8. release participant locks;
+8. release participant locks/scopes;
 9. remove committed journal best-effort.
 
 The phase replace in step 7 is the logical commit point. It does not acquire a separate journal lock because any competing Project Memory operation that observes this live PID must wait on the already-held `MEMORY.md.lock`; avoiding a post-marker journal-lock cleanup means a successfully written `committed` marker cannot fall back into rollback because metadata-lock cleanup failed.
 
 Recovery semantics:
 
-- dead `pending` -> claim recovery, restore both exact pre-images under normal Memory/topic locks, remove journal;
+- dead `pending` -> claim recovery, restore both exact pre-images under one stable memory scope with normal Memory/topic locks, remove journal;
 - dead `committed` -> preserve both new participants, clean dead protocol locks and journal only;
 - live recorded owner -> first wait until this process can acquire `MEMORY.md.lock`; if the journal then disappeared, nothing remains to recover; if it is `committed`, preserve participants and clean metadata; if it is still `pending`, the original compound critical section has ended and the abandoned state is rolled back under the normal Memory/topic lock order even though the process itself is still alive;
 - committed journal left after an otherwise successful write -> next Memory-map critical section may remove it idempotently.
@@ -234,10 +236,10 @@ Antigravity suppression remains partly configuration and partly prompt guidance;
 8. Vendor-specific subagent registration/tools are absent.
 9. Project Memory root selection and filesystem confinement are provider-independent.
 10. Explicit symlinked workspace roots are allowed; package-owned `.dsh` canonical final components are not symlinks/junctions.
-11. On the POSIX path, Project Memory I/O uses opened directory/file identities rather than separate validation/use pathname lookups.
+11. On the POSIX path, Project Memory lock/read/write composition stays on one opened directory scope; separate validation/use pathname reopens are not used inside an RMW critical section.
 12. All model-facing memory work forwards the caller cancellation signal through lock/commit boundaries and preserves the cancellation reason at the tool boundary.
 13. Every writer that can race an RMW cycle honors the same per-target lock namespace.
-14. Named-topic model-facing writes hold `MEMORY.md` then topic lock in that order.
+14. Named-topic model-facing writes hold `MEMORY.md` then topic lock in that order on the same memory scope.
 15. A `pending` journal is rollback state; a `committed` journal is preserve-and-clean state.
 16. Credential backend failure is not represented as ordinary account absence, and failed durable logout is not reported as success.
 17. Core and Project Memory production DSH peers accept only `0.1.1-rc.2` and `0.1.2-alpha.1` until another generation passes its own gate.
