@@ -122,7 +122,7 @@ test('model-facing memory_write reports sanitized failure without creating a top
   })
 })
 
-test('cancelled model-facing memory_write never commits after waiting on the Memory map lock', async () => {
+test('cancelled model-facing memory_write preserves the caller cancellation and never commits after lock wait', async () => {
   await withTempProject(async (projectRoot) => {
     const paths = resolveProjectMemoryPaths(projectRoot)
     await writeProjectMemoryBootstrap(projectRoot, '# Project Memory\n\n## Memory map\nNo topic memories yet.\n')
@@ -132,15 +132,19 @@ test('cancelled model-facing memory_write never commits after waiting on the Mem
 
     const held = await holdWriterLock(paths.memoryMd)
     const controller = new AbortController()
+    const reason = new Error('cancel memory write')
     const pending = writeTool.execute(
       { topic: 'architecture', content: 'must-never-commit\n' },
       execution(projectRoot, controller.signal),
     )
 
-    controller.abort(new Error('cancel memory write'))
+    controller.abort(reason)
     const releaseTimer = setTimeout(() => held.release(), 200)
     try {
-      await assert.rejects(pending, /Project memory write failed/)
+      await assert.rejects(pending, (error: unknown) => {
+        assert.equal(error, reason)
+        return true
+      })
     } finally {
       clearTimeout(releaseTimer)
       held.release()
