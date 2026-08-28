@@ -115,8 +115,6 @@ async function ensureBootstrapFile(memoryMd: string): Promise<boolean> {
     await writeFile(memoryMd, INITIAL_MEMORY_MD_CONTENT, { encoding: 'utf8', flag: 'wx' })
     return true
   } catch (err: any) {
-    // A non-cooperating external creator may still race the lock. Preserve its
-    // file instead of overwriting it, then validate the winner.
     if (err?.code === 'EEXIST') {
       const stats = await lstat(memoryMd)
       if (stats.isSymbolicLink() || !stats.isFile()) {
@@ -130,6 +128,22 @@ async function ensureBootstrapFile(memoryMd: string): Promise<boolean> {
   }
 }
 
+/** Read existing bootstrap under its lock, or model the approved initial file without creating it yet. */
+async function readBootstrapOrInitial(memoryMd: string): Promise<string> {
+  try {
+    const stats = await lstat(memoryMd)
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw new Error(
+        `Project memory at "${memoryMd}" must be a regular file, not a symbolic link or non-regular entry`,
+      )
+    }
+    return readFile(memoryMd, 'utf8')
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return INITIAL_MEMORY_MD_CONTENT
+    throw err
+  }
+}
+
 export async function ensureProjectMemoryBootstrap(
   projectRoot: string,
 ): Promise<EnsureProjectMemoryResult> {
@@ -139,7 +153,6 @@ export async function ensureProjectMemoryBootstrap(
   const memoryMd = paths.memoryMd
   await ensureCanonicalDirectory(dshDir)
   await ensureCanonicalDirectory(memoryDir)
-
   const created = await withSafeFileWriterLock(memoryDir, memoryMd, () => ensureBootstrapFile(memoryMd))
   return { created, memoryPath: memoryMd }
 }
@@ -336,10 +349,10 @@ export function insertTopicIntoMemoryMapContent(content: string, topic: string):
 
 /**
  * Hold the MEMORY.md writer lock while preflighting one canonical map entry.
- * The supplied operation may acquire the corresponding topic lock, but the
- * lock order is always MEMORY.md -> topic.md. The operation must call the
- * supplied commit callback before returning successfully; this lets the topic
- * mutation keep its lock through the Memory-map commit and any rollback.
+ * Missing MEMORY.md is represented by the approved initial content in memory
+ * and is not created until the supplied commit succeeds. The nested operation
+ * may acquire the corresponding topic lock; lock order is always
+ * MEMORY.md -> topic.md.
  */
 export async function withMemoryMapEntryTransaction<T>(
   projectRoot: string,
@@ -356,14 +369,13 @@ export async function withMemoryMapEntryTransaction<T>(
   await ensureCanonicalDirectory(memoryDir)
 
   return withSafeFileWriterLock(memoryDir, memoryMd, async () => {
-    await ensureBootstrapFile(memoryMd)
-    const currentContent = await readFile(memoryMd, 'utf8')
+    const currentContent = await readBootstrapOrInitial(memoryMd)
     const updatedContent = insertTopicIntoMemoryMapContent(currentContent, topic)
     assertBootstrapBounds(updatedContent)
     let committed = false
     const commitMap: CommitMemoryMapEntry = async () => {
       if (committed) return
-      if (updatedContent !== currentContent) {
+      if (updatedContent !== currentContent || currentContent === INITIAL_MEMORY_MD_CONTENT) {
         await writeSafeFileAtomically(memoryDir, memoryMd, Buffer.from(updatedContent, 'utf8'))
       }
       committed = true
