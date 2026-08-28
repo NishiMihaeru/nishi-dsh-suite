@@ -12,7 +12,6 @@ import {
   writeTopicMemoryWithMap,
   editTopicMemoryWithMap,
 } from './topics.js'
-import { recoverPendingProjectMemoryTransaction } from './transaction.js'
 
 interface SessionHeaderHolder {
   session?: {
@@ -85,7 +84,6 @@ const memoryReadTool = defineTool({
     exec.signal.throwIfAborted()
     try {
       const projectRoot = await projectRootFromToolExecution(exec)
-      await recoverPendingProjectMemoryTransaction(projectRoot, exec.signal)
       exec.signal.throwIfAborted()
       if (isBootstrapTopic(args.topic)) {
         const res = await readProjectMemoryBootstrap(projectRoot, exec.signal)
@@ -144,7 +142,6 @@ const memoryWriteTool = defineTool({
     exec.signal.throwIfAborted()
     try {
       const projectRoot = await projectRootFromToolExecution(exec)
-      await recoverPendingProjectMemoryTransaction(projectRoot, exec.signal)
       exec.signal.throwIfAborted()
       if (isBootstrapTopic(args.topic)) {
         const res = await writeProjectMemoryBootstrap(projectRoot, args.content, exec.signal)
@@ -208,7 +205,6 @@ const memoryEditTool = defineTool({
     exec.signal.throwIfAborted()
     try {
       const projectRoot = await projectRootFromToolExecution(exec)
-      await recoverPendingProjectMemoryTransaction(projectRoot, exec.signal)
       exec.signal.throwIfAborted()
       if (isBootstrapTopic(args.topic)) {
         const res = await editProjectMemoryBootstrap(projectRoot, args.old_text, args.new_text, exec.signal)
