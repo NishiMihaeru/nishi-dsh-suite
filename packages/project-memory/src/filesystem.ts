@@ -1,6 +1,16 @@
 import { randomBytes } from 'node:crypto'
 import { constants, type Stats } from 'node:fs'
-import { link, lstat, mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  rename,
+  rm,
+  stat,
+  writeFile,
+  type FileHandle,
+} from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -12,6 +22,14 @@ interface DirectoryAnchor {
   readonly path: string
   readonly identity: Stats
   readonly descriptorAnchored: boolean
+}
+
+interface DirectoryAnchorOptions {
+  readonly allowDirectorySymlink?: boolean
+}
+
+interface ParentDirectoryOptions {
+  readonly allowParentDirectorySymlink?: boolean
 }
 
 export interface ExclusiveAtomicWriteOptions {
@@ -26,18 +44,23 @@ function sameIdentity(left: Stats, right: Stats): boolean {
   return left.dev === right.dev && left.ino === right.ino
 }
 
-function assertRealDirectory(stats: Stats, dirPath: string): void {
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+function assertDirectory(stats: Stats, dirPath: string, allowDirectorySymlink: boolean): void {
+  if (!stats.isDirectory() || (!allowDirectorySymlink && stats.isSymbolicLink())) {
     throw new Error(
-      `Canonical path component at "${dirPath}" must be a real directory, not a symbolic link or non-directory entry`,
+      allowDirectorySymlink
+        ? `Directory at "${dirPath}" must resolve to a directory`
+        : `Canonical path component at "${dirPath}" must be a real directory, not a symbolic link or non-directory entry`,
     )
   }
 }
 
-async function canonicalDirectoryStats(dirPath: string): Promise<Stats | undefined> {
+async function directoryStats(
+  dirPath: string,
+  allowDirectorySymlink: boolean,
+): Promise<Stats | undefined> {
   try {
-    const stats = await lstat(dirPath)
-    assertRealDirectory(stats, dirPath)
+    const stats = allowDirectorySymlink ? await stat(dirPath) : await lstat(dirPath)
+    assertDirectory(stats, dirPath, allowDirectorySymlink)
     return stats
   } catch (err: any) {
     if (err?.code === 'ENOENT') return undefined
@@ -45,11 +68,19 @@ async function canonicalDirectoryStats(dirPath: string): Promise<Stats | undefin
   }
 }
 
-async function assertDirectoryPathIdentity(dirPath: string, expected: Stats): Promise<void> {
-  const current = await lstat(dirPath)
-  assertRealDirectory(current, dirPath)
+async function canonicalDirectoryStats(dirPath: string): Promise<Stats | undefined> {
+  return directoryStats(dirPath, false)
+}
+
+async function assertDirectoryPathIdentity(
+  dirPath: string,
+  expected: Stats,
+  allowDirectorySymlink: boolean,
+): Promise<void> {
+  const current = allowDirectorySymlink ? await stat(dirPath) : await lstat(dirPath)
+  assertDirectory(current, dirPath, allowDirectorySymlink)
   if (!sameIdentity(current, expected)) {
-    throw new Error(`Canonical directory at "${dirPath}" changed during the filesystem operation`)
+    throw new Error(`Directory at "${dirPath}" changed during the filesystem operation`)
   }
 }
 
@@ -70,17 +101,19 @@ async function withDirectoryAnchor<T>(
   dirPath: string,
   operation: (anchor: DirectoryAnchor) => Promise<T>,
   signal?: AbortSignal,
+  options: DirectoryAnchorOptions = {},
 ): Promise<T> {
   throwIfAborted(signal)
-  const before = await canonicalDirectoryStats(dirPath)
+  const allowDirectorySymlink = options.allowDirectorySymlink === true
+  const before = await directoryStats(dirPath, allowDirectorySymlink)
   if (before === undefined) {
-    throw new Error(`Canonical target directory at "${dirPath}" does not exist`)
+    throw new Error(`Target directory at "${dirPath}" does not exist`)
   }
   throwIfAborted(signal)
 
   if (process.platform === 'win32') {
     const result = await operation({ path: dirPath, identity: before, descriptorAnchored: false })
-    await assertDirectoryPathIdentity(dirPath, before)
+    await assertDirectoryPathIdentity(dirPath, before, allowDirectorySymlink)
     return result
   }
 
@@ -88,9 +121,9 @@ async function withDirectoryAnchor<T>(
   try {
     const opened = await directory.stat()
     if (!opened.isDirectory() || !sameIdentity(before, opened)) {
-      throw new Error(`Canonical directory at "${dirPath}" changed while it was being opened`)
+      throw new Error(`Directory at "${dirPath}" changed while it was being opened`)
     }
-    await assertDirectoryPathIdentity(dirPath, opened)
+    await assertDirectoryPathIdentity(dirPath, opened, allowDirectorySymlink)
     throwIfAborted(signal)
 
     const descriptorPath = await descriptorAnchorPath(directory.fd, opened)
@@ -100,7 +133,9 @@ async function withDirectoryAnchor<T>(
       descriptorAnchored: descriptorPath !== undefined,
     }
     const result = await operation(anchor)
-    if (!anchor.descriptorAnchored) await assertDirectoryPathIdentity(dirPath, opened)
+    if (!anchor.descriptorAnchored) {
+      await assertDirectoryPathIdentity(dirPath, opened, allowDirectorySymlink)
+    }
     return result
   } finally {
     await directory.close()
@@ -134,7 +169,6 @@ async function assertRegularTargetIfPresent(targetPath: string, logicalPath: str
 /**
  * Asserts that a canonical directory component, if present, is a real directory
  * and not a symbolic link, junction, or non-directory entry.
- * Returns true if directory exists and is valid, false if absent (ENOENT).
  */
 export async function validateCanonicalDirectory(dirPath: string, signal?: AbortSignal): Promise<boolean> {
   throwIfAborted(signal)
@@ -144,12 +178,15 @@ export async function validateCanonicalDirectory(dirPath: string, signal?: Abort
 }
 
 /**
- * Ensures a canonical directory exists as a real directory. Creation is
- * anchored through the already-opened real parent directory on platforms that
- * expose descriptor paths, so replacing the parent pathname cannot redirect
- * the mkdir into a symlink/junction target.
+ * Ensures a canonical directory exists as a real final component. The caller
+ * may explicitly allow only its parent directory to be a symlink-resolved
+ * workspace root; the newly created canonical component itself remains real.
  */
-export async function ensureCanonicalDirectory(dirPath: string, signal?: AbortSignal): Promise<void> {
+export async function ensureCanonicalDirectory(
+  dirPath: string,
+  signal?: AbortSignal,
+  options: ParentDirectoryOptions = {},
+): Promise<void> {
   throwIfAborted(signal)
   const exists = await canonicalDirectoryStats(dirPath)
   if (exists !== undefined) return
@@ -163,7 +200,7 @@ export async function ensureCanonicalDirectory(dirPath: string, signal?: AbortSi
     } catch (err: any) {
       if (err?.code !== 'EEXIST') throw err
     }
-  }, signal)
+  }, signal, { allowDirectorySymlink: options.allowParentDirectorySymlink === true })
 
   throwIfAborted(signal)
   const created = await canonicalDirectoryStats(dirPath)
@@ -197,19 +234,19 @@ async function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> 
 
 /**
  * Run one complete writer operation while holding the exact same `<target>.lock`
- * namespace used by DSH atomic-write. Acquisition is cooperative with an
- * AbortSignal: cancellation while waiting stops before the lock is acquired and
- * therefore before any caller mutation can run.
+ * namespace used by DSH atomic-write. Acquisition is AbortSignal-aware.
  */
 export async function withSafeFileWriterLock<T>(
   dirPath: string,
   targetFilePath: string,
   operation: () => Promise<T>,
   signal?: AbortSignal,
+  options: DirectoryAnchorOptions = {},
 ): Promise<T> {
   throwIfAborted(signal)
-  if (!(await validateCanonicalDirectory(dirPath, signal))) {
-    throw new Error(`Canonical target directory at "${dirPath}" does not exist`)
+  const allowDirectorySymlink = options.allowDirectorySymlink === true
+  if ((await directoryStats(dirPath, allowDirectorySymlink)) === undefined) {
+    throw new Error(`Target directory at "${dirPath}" does not exist`)
   }
   const targetName = directChildName(dirPath, targetFilePath)
 
@@ -245,30 +282,37 @@ export async function withSafeFileWriterLock<T>(
     } finally {
       if (acquired) await rm(lockPath, { force: true })
     }
-  }, signal)
+  }, signal, options)
 }
 
 /**
  * Read a regular file through an opened file handle. The final component is
- * opened with O_NOFOLLOW where the platform provides it and the opened inode is
- * matched back to the canonical pathname before its bytes are exposed. On
- * POSIX the parent is descriptor-anchored, closing the parent-directory
- * validation/use race as well.
+ * opened with O_NOFOLLOW where supported and inode identity is checked before
+ * bytes are exposed. `allowDirectorySymlink` is reserved for an explicit
+ * workspace root such as projectRoot/dshHome; canonical `.dsh` components keep
+ * the default strict real-directory policy.
  */
 export async function readSafeRegularFile(
   dirPath: string,
   targetFilePath: string,
-  options: { readonly signal?: AbortSignal; readonly maxBytes?: number } = {},
+  options: {
+    readonly signal?: AbortSignal
+    readonly maxBytes?: number
+    readonly allowDirectorySymlink?: boolean
+  } = {},
 ): Promise<Buffer | null> {
   const { signal, maxBytes } = options
   throwIfAborted(signal)
   const targetName = directChildName(dirPath, targetFilePath)
+  const anchorOptions: DirectoryAnchorOptions = {
+    allowDirectorySymlink: options.allowDirectorySymlink === true,
+  }
 
   return withDirectoryAnchor(dirPath, async (anchor) => {
     throwIfAborted(signal)
     const anchoredTarget = resolve(anchor.path, targetName)
     const noFollow = typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
-    let file
+    let file: FileHandle
     try {
       file = await open(anchoredTarget, constants.O_RDONLY | noFollow)
     } catch (err: any) {
@@ -297,7 +341,13 @@ export async function readSafeRegularFile(
       if (visible.isSymbolicLink() || !visible.isFile() || !sameIdentity(opened, visible)) {
         throw new Error(`Canonical target at "${targetFilePath}" changed while it was being opened`)
       }
-      if (!anchor.descriptorAnchored) await assertDirectoryPathIdentity(dirPath, anchor.identity)
+      if (!anchor.descriptorAnchored) {
+        await assertDirectoryPathIdentity(
+          dirPath,
+          anchor.identity,
+          anchorOptions.allowDirectorySymlink === true,
+        )
+      }
       throwIfAborted(signal)
 
       const buffer = await file.readFile()
@@ -309,21 +359,16 @@ export async function readSafeRegularFile(
     } finally {
       await file.close()
     }
-  }, signal)
+  }, signal, anchorOptions)
 }
 
-/**
- * Atomically replaces one project-owned text file. The temporary inode and the
- * final rename are resolved through an opened canonical parent directory on
- * POSIX, so a concurrent pathname replacement cannot redirect the commit.
- * Cancellation is checked after the complete temp write and immediately before
- * the rename commit.
- */
+/** Atomically replace one regular file through the anchored parent directory. */
 export async function writeSafeFileAtomically(
   dirPath: string,
   targetFilePath: string,
   buffer: Buffer,
   signal?: AbortSignal,
+  options: DirectoryAnchorOptions = {},
 ): Promise<void> {
   throwIfAborted(signal)
   const targetName = directChildName(dirPath, targetFilePath)
@@ -342,14 +387,13 @@ export async function writeSafeFileAtomically(
       await rm(tempPath, { force: true })
       throw error
     }
-  }, signal)
+  }, signal, options)
 }
 
 /**
- * Publish a complete new file without ever overwriting a concurrent external
- * creator. The content is fully written to a sibling temp inode first; a hard
- * link is then used as the atomic no-clobber publication point. Returns false
- * when another regular-file winner already owns the canonical pathname.
+ * Publish a complete new file without overwriting a concurrent external
+ * creator. A hard-link commit occurs only after the sibling temp inode is fully
+ * written.
  */
 export async function writeFileExclusiveAtomic(
   dirPath: string,
@@ -357,6 +401,7 @@ export async function writeFileExclusiveAtomic(
   content: string | Buffer,
   options: ExclusiveAtomicWriteOptions,
   signal?: AbortSignal,
+  directoryOptions: DirectoryAnchorOptions = {},
 ): Promise<boolean> {
   throwIfAborted(signal)
   const targetName = directChildName(dirPath, targetFilePath)
@@ -383,7 +428,7 @@ export async function writeFileExclusiveAtomic(
     } finally {
       await rm(tempPath, { force: true })
     }
-  }, signal)
+  }, signal, directoryOptions)
 }
 
 /** Remove an existing regular canonical file without following a symlink. */
@@ -391,6 +436,7 @@ export async function removeSafeRegularFile(
   dirPath: string,
   targetFilePath: string,
   signal?: AbortSignal,
+  options: DirectoryAnchorOptions = {},
 ): Promise<boolean> {
   throwIfAborted(signal)
   const targetName = directChildName(dirPath, targetFilePath)
@@ -401,5 +447,5 @@ export async function removeSafeRegularFile(
     throwIfAborted(signal)
     await rm(anchoredTarget)
     return true
-  }, signal)
+  }, signal, options)
 }
