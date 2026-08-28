@@ -1,7 +1,6 @@
 import { join } from 'node:path'
 import {
   ensureCanonicalDirectory,
-  readSafeRegularFile,
   validateCanonicalDirectory,
   withSafeDirectoryScope,
   withSafeFileWriterLock,
@@ -213,13 +212,14 @@ export async function readTopicMemory(
   const memoryDirExists = await validateCanonicalDirectory(memoryDir, signal)
   if (!memoryDirExists) return { exists: false, content: null, path: topicPath, topic }
 
-  const content = await readSafeRegularFile(memoryDir, topicPath, {
+  const snapshot = await withSafeDirectoryScope(
+    memoryDir,
+    (scope) => readTopicSnapshotLocked(scope, topicPath, topic, signal),
     signal,
-    maxBytes: MAX_TOPIC_BYTES,
-  })
+  )
   return {
-    exists: content !== null,
-    content: content?.toString('utf8') ?? null,
+    exists: snapshot.exists,
+    content: snapshot.content?.toString('utf8') ?? null,
     path: topicPath,
     topic,
   }
