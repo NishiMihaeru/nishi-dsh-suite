@@ -21,17 +21,6 @@ export function ModelsSignInCard({
   const isOpenAiApiKeyOnly = flow.providerId === 'openai'
   const hasLegacyGrant = flow.credentialKind === 'grant'
 
-  const handleLegacyLogout = async () => {
-    setIsSubmitting(true)
-    try {
-      await controller.logout(flow.providerId)
-    } catch {
-      // Controller owns the visible error state.
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
   const handleRefresh = async () => {
     setIsSubmitting(true)
     try {
@@ -84,16 +73,6 @@ export function ModelsSignInCard({
       {hasLegacyGrant && (
         <div className={styles.instructionBox}>
           <div className={styles.description}>{t('legacyGrantNotice')}</div>
-          <div className={styles.buttonRow}>
-            <button
-              type="button"
-              className={styles.dangerButton}
-              onClick={handleLegacyLogout}
-              disabled={isSubmitting}
-            >
-              {t('signOut')}
-            </button>
-          </div>
         </div>
       )}
 
