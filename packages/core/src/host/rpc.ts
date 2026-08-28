@@ -1,5 +1,4 @@
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
-import type { RpcResult, RpcError } from '@deepseek-ai/dsh-host-apiproxy'
 import type { ProviderPresentation } from '../registry/descriptor.js'
 import { canonicalProviderId } from '../registry/identity.js'
 import {
@@ -15,6 +14,15 @@ export const USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT = 'refresh-provider'
 
 export type GetRosterRpcRequest = Record<string, never>
 export type GetProvidersRpcRequest = Record<string, never>
+
+/**
+ * Keep the handler result shape tied to whichever Connection generation is
+ * installed. rc.2 routed this through host-apiproxy while alpha.1 owns it in
+ * client-connection directly; Core needs only the carrier-neutral handler
+ * contract and must not depend on either implementation package.
+ */
+type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
+type ConnectionRpcError = Extract<ConnectionRpcResult, { ok: false }>['error']
 
 /**
  * One row of the roster the browser renders from. It answers "which providers
@@ -74,8 +82,8 @@ function requestProviderId(value: unknown): string | undefined {
   }
 }
 
-function createBadRequestResult(): RpcResult<never> {
-  const error: RpcError = {
+function createBadRequestResult(): ConnectionRpcResult {
+  const error: ConnectionRpcError = {
     code: 'bad-request',
     message: GENERIC_BAD_REQUEST_MESSAGE,
     details: { issues: [{ message: GENERIC_BAD_REQUEST_MESSAGE } as any] },
@@ -83,7 +91,7 @@ function createBadRequestResult(): RpcResult<never> {
   return { ok: false, error }
 }
 
-function createInternalErrorResult(): RpcResult<never> {
+function createInternalErrorResult(): ConnectionRpcResult {
   return {
     ok: false,
     error: { code: 'internal', message: GENERIC_INTERNAL_ERROR_MESSAGE, details: {} },
@@ -91,7 +99,7 @@ function createInternalErrorResult(): RpcResult<never> {
 }
 
 export function createUsageLimitsRpcHandler(host: UsageLimitsRpcHost): ConnectionRpcHandler {
-  return async (endpoint: string, payload: unknown, _signal: AbortSignal): Promise<RpcResult<unknown>> => {
+  return async (endpoint: string, payload: unknown, _signal: AbortSignal): Promise<ConnectionRpcResult> => {
     try {
       switch (endpoint) {
         case USAGE_LIMITS_GET_ROSTER_ENDPOINT: {
