@@ -90,15 +90,17 @@ test('authorization rpc converts host failures to generic errors', async () => {
   assert.ok(!JSON.stringify(result).includes(secret))
 })
 
-test('legacy logout reports an internal failure when deleting the grant fails', async () => {
-  const secret = 'credential-store-delete-secret'
+test('legacy logout rpc rejects the unsafe destructive path before touching credential storage', async () => {
+  let describeCalls = 0
   let deleteCalls = 0
   const controller = new AuthorizationHostController({
     credentials: {
-      describeRecord: async () => ({ configured: true, kind: 'grant' }),
+      describeRecord: async () => {
+        describeCalls += 1
+        return { configured: true, kind: 'grant' }
+      },
       deleteRecord: async () => {
         deleteCalls += 1
-        throw new Error(secret)
       },
     },
   } as any)
@@ -110,10 +112,10 @@ test('legacy logout reports an internal failure when deleting the grant fails', 
     signal,
   )
 
-  assert.equal(deleteCalls, 1)
+  assert.equal(describeCalls, 0)
+  assert.equal(deleteCalls, 0)
   assert.equal(result.ok, false)
   if (result.ok) return
-  assert.equal(result.error.code, 'internal')
-  assert.equal(result.error.message, 'Authorization operation failed.')
-  assert.ok(!JSON.stringify(result).includes(secret))
+  assert.equal(result.error.code, 'bad-request')
+  assert.equal(result.error.message, 'Invalid authorization request.')
 })
