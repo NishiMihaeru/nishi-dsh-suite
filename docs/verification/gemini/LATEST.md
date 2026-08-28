@@ -1,91 +1,63 @@
 # Latest Gemini validation
 
-Validation: documentation consolidation rerun
-Tested commit: efabdf0f10fc4851a2446bab8678417fa9b3af88
-Branch: feat/core-provider-plugins-rc3
-Node: v24.19.0
-Node path: /home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node
-pnpm: 11.21.0
+- Result: PASS
+- Branch: feat/core-provider-plugins-rc3
+- Tested commit: 4c75129a7f766d415182441d91ed1e8e1ca8a50d
+- Environment:
+  - Node: v24.19.0 (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
+  - pnpm: 11.21.0
+  - DSH Protocol / Suite Baseline: 0.1.1-rc.2 (package family `0.1.0-rc.3`)
 
-## Stale references
+## Scope
 
-Audit of fixed stale references and wide repository scan:
-- `rg -n "docs/release/2026-08-28-rc3-prerelease\.md|docs/release/market-submission\.md|docs/superpowers/specs/provider-bridge-design\.md" README.md docs packages scripts package.json` -> 0 active references.
-- `rg -n "docs/superpowers|docs/acceptance|docs/release/|SESSION-SUMMARY|core-[0-9]{2}-|project-memory-0[12]" README.md docs packages scripts package.json` -> Only intentional git-history retrieval examples in `docs/verification/README.md:112, 114` (`git log -- docs/acceptance`, `git show <commit>:docs/acceptance/...`).
-- Verified all 4 prior stale references resolved:
-  1. `packages/suite/README.md:112` -> `docs/RELEASE.md`
-  2. `docs/market/awesome-dsh-plugin-entry.yml:1` -> `docs/RELEASE.md`
-  3. `packages/core/src/runtime/index.ts:5` -> `docs/ARCHITECTURE.md`
-  4. `packages/core/src/runtime/registration.ts:12` -> `docs/ARCHITECTURE.md`
+Verification of commit `4c75129a7f766d415182441d91ed1e8e1ca8a50d` (`test(codex): align primary live probe with rc3 contract`).
+- Modified files: strictly `packages/codex/test-live/primary-live.test.ts` (+44 / -73 lines).
+- Core (`packages/core`), Project Memory (`packages/project-memory`), and canonical docs (`docs/`) are untouched.
 
-## Registration integrity
+## Review Findings
 
-Inspected `packages/core/src/runtime/registration.ts`:
-- All required runtime symbols and functions are intact:
-  - `resolveSharedProviderConfig`
-  - `rollbackRegistration`
-  - `registerProvider`
-  - Canonical provider ID / route validation
-  - Capability construction (`webSearch`, `usage`)
-  - `registry.record`
-  - `ctx.effect` rollback binding
-  - `ctx.llm.registerAdapter`
-  - `descriptor.install`
-  - `rollbackRegistration` catch path with `AggregateError`
-- Functional comparison against `7c0857f478ce40ad6fa162b3820c9ca461fa69cf` confirms the change is strictly comment-only (JSDoc reference to `docs/ARCHITECTURE.md`).
+1. **Alignment with rc.3 Provider Architecture**:
+   - `createLiveContext()` mounts the plugin with `nishiProviders` (`record`, `invalidate`), `subprocess`, `llm` (`adapters`, `registerAdapter`), `sessions`, `attachments`, `on`, `effect`, and `logger`.
+   - `subagents` service is omitted from the mock context and explicitly asserted via `assert.equal('subagents' in ctx, false, ...)`, ensuring Codex primary does not require a vendor delegation/subagent runtime.
+   - Provider registration occurs via `nishiProviders.record` and records `id: 'codex'` with route `'codex-app-server'`.
 
-## Core gate
+2. **Elimination of Stale Delegation / Subagent Fixture**:
+   - The legacy `LIVE PROBE: Codex subagent runs and returns CODEX_SUBAGENT_OK` test case and associated `ctx.subagents` fixture were completely removed.
+   - Existing unit test `Codex package registers the codex-app-server primary and no subagent provider` in `packages/codex/test/registration.test.ts` passes and validates that no subagent provider is registered.
 
-Executed focused checks on `nishi-dsh-core`:
-- `pnpm --filter nishi-dsh-core test` -> PASS (165 tests passed, exit code 0)
-- `pnpm --filter nishi-dsh-core check` -> PASS (tsc --noEmit, exit code 0)
-- `pnpm --filter nishi-dsh-core build` -> PASS (tsdown build, exit code 0)
+3. **Executable Configuration and Override**:
+   - The probe passes the external executable path using `env: { DSH_CODEX_EXECUTABLE: resolved.executable }` via `codex.apply(ctx, ...)`.
+   - Conforms to the `Config` schema in `packages/codex/src/index.ts` and `externalCodexCommand(config.env)`, avoiding the removed `config.executable` field.
 
-## Repository gate
+4. **Lifecycle and Subprocess Teardown**:
+   - Process group tracking in `liveChildren` with cascading `killTree` (`SIGTERM` -> `SIGKILL`) in the test `after` hook.
+   - Primary probe stream consumption is wrapped in a `try ... finally` block ensuring `await adapter.dispose()` is executed unconditionally, guaranteeing clean process termination.
 
-Executed `pnpm verify:local`:
-- Node: `v24.19.0`
-- pnpm: `11.21.0`
-- Result: PASS (exit code: 0)
-- Verified all workspace typechecks, unit tests, tsdown builds, and 6 tarball packaging artifacts (`.artifacts/packs/*.tgz`).
+5. **Discipline & Guardrails**:
+   - No out-of-scope modifications.
+   - No changes to implementation, canonical docs, or credentials.
 
-## Documentation structure
+## Executed Commands and Results
 
-Executed `find docs -type f | sort`:
+| Command | Exit Code | Result | Details |
+|---|---|---|---|
+| `pnpm --filter nishi-dsh-codex test` | `0` | PASS | 31/31 unit tests passed (duration: ~178ms) |
+| `pnpm --filter nishi-dsh-codex check` | `0` | PASS | Typecheck clean (`tsc -p tsconfig.json --noEmit`) |
+| `pnpm --filter nishi-dsh-codex build` | `0` | PASS | Build clean (`tsc -p tsconfig.json`) |
+| `pnpm --filter nishi-dsh-codex test:live:primary` | `0` | PASS | Live probe completed and exited cleanly |
 
-```text
-docs/ARCHITECTURE.md
-docs/HANDOFF.md
-docs/market/awesome-dsh-plugin-entry.yml
-docs/README.md
-docs/RELEASE.md
-docs/ROADMAP.md
-docs/verification/gemini/LATEST.md
-docs/verification/README.md
-```
+## Live Primary Probe Telemetry
 
-Inventory verification:
-- Exactly 8 canonical files.
-- No legacy directories (`superpowers/`, `acceptance/`, `release/`), dated plans, dated reports, or session summaries present.
-
-## Source-of-truth consistency
-
-Verified alignment across canonical documents:
-- `docs/README.md`: Entry points, read sequence, agent change discipline.
-- `docs/ARCHITECTURE.md`: Technical contracts, provider descriptor, Core lifecycle, Project Memory boundary, invariants.
-- `docs/ROADMAP.md`: Core and Project Memory marked DONE / FROZEN; sequential provider tasks starting with Codex.
-- `docs/HANDOFF.md`: Operational handoff, active next task Codex, assistant -> Gemini validation workflow, hard constraints (no CI, no publish).
-- `docs/RELEASE.md`: 6-package family at `0.1.0-rc.3`, status IN REPOSITORY / UNPUBLISHED / PROVIDER-LIVE ACCEPTANCE OPEN.
-- `docs/verification/README.md`: Compact durable validation ledger.
-
-## Findings
-
-NO BLOCKING ISSUES FOUND.
-
-## Working tree
-
-Clean before report modification (`git status --short` was empty).
+- External Codex CLI resolution: **RESOLVED** (`resolveCodexExecutable()`)
+- Registered Provider: **`codex`** (verified via `registeredProviders` keys `['codex']`)
+- Registered Route: **`codex-app-server`** (verified via `adapters.get('codex-app-server')`)
+- Probe context: Executed without `subagents` service (`'subagents' in ctx === false`)
+- Selected Codex Model: **`gpt-5.6-sol`**
+- Primary response marker: **`CODEX_PRIMARY_OK`** (response: `"CODEX_PRIMARY_OK"`)
+- Process lifecycle: Clean termination, `adapter.dispose()` executed in `finally`, no lingering or hanging background child processes.
 
 ## Verdict
 
-PASS
+**PASS**
+
+The stale rc.2/early-rc.3 live-test contract (requiring vendor-specific subagents service and expecting `CODEX_SUBAGENT_OK`) has been eliminated. The Codex primary live probe is fully compliant with the 0.1.0-rc.3 provider architecture and passes all unit, typecheck, build, and live acceptance gates.
