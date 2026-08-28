@@ -2,6 +2,7 @@ import { dirname, isAbsolute, join, normalize } from 'node:path'
 import { MAX_BOOTSTRAP_BYTES, MAX_BOOTSTRAP_LINES } from './bootstrap.js'
 import { readSafeRegularFile, validateCanonicalDirectory } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
+import { recoverPendingProjectMemoryTransaction } from './transaction.js'
 
 export const MAX_ALWAYS_CONTEXT_INSTRUCTION_BYTES = 64 * 1024 // 64 KiB (65,536 bytes)
 
@@ -155,9 +156,11 @@ export async function readCanonicalProjectContext(
 
   const projectRoot = normalize(options.projectRoot)
   const dshHome = normalize(options.dshHome)
+  await recoverPendingProjectMemoryTransaction(projectRoot, signal)
+  signal?.throwIfAborted()
+
   const agentsPath = join(dshHome, 'AGENTS.md')
   const dshPath = join(projectRoot, 'DSH.md')
-
   const agentsResult = await readInstructionFile(agentsPath, 'global instructions', signal)
   const dshResult = await readInstructionFile(dshPath, 'project contract', signal)
 
@@ -203,6 +206,9 @@ export async function readDshProjectContext(
   signal?.throwIfAborted()
 
   const projectRoot = normalize(options.projectRoot)
+  await recoverPendingProjectMemoryTransaction(projectRoot, signal)
+  signal?.throwIfAborted()
+
   const dshPath = join(projectRoot, 'DSH.md')
   const dshResult = await readInstructionFile(dshPath, 'project contract', signal)
 
