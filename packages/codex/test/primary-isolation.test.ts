@@ -22,6 +22,9 @@ test('primary App Server isolation uses current feature gates and disables user-
       return {
         config: {
           features: {
+            shell_snapshot: true,
+            code_mode_host: true,
+            memories: true,
             hooks: true,
             multi_agent_v2: true,
             code_mode: true,
@@ -53,9 +56,12 @@ test('primary App Server isolation uses current feature gates and disables user-
     features: {
       shell_tool: false,
       unified_exec: false,
+      shell_snapshot: false,
       multi_agent: false,
       multi_agent_v2: false,
       code_mode: false,
+      code_mode_host: false,
+      memories: false,
       view_image: false,
       hooks: false,
       apps: false,
