@@ -48,10 +48,8 @@ The current Codex manifest still declares provider-specific DSH peers at `0.1.1-
 
 The Foundation's accepted `0.1.2-alpha.1` compatibility does **not** extend this provider package automatically. Any change to Codex DSH generation support must come from the active provider-specific audit and executable validation against the exact claimed upstream contracts.
 
-## Validation status — ACTIVE / NOT FROZEN
+## Validation status — FROZEN
 
-Core and Project Memory are frozen. Codex is the current active provider stage and must be independently audited from its current source, tests and manifest before final rc.3 freeze acceptance.
+Core, Project Memory, and Codex provider are frozen. `nishi-dsh-codex` has passed independent validation, focused test gates, and live acceptance against official `codex-cli 0.150.0`.
 
-Historical Codex evidence, including the earlier `31/31` focused-test checkpoint and a live primary fixture recorded in `docs/verification/README.md`, is starting evidence only. It is not proof for the final Codex provider tree and must not be promoted across later provider changes.
-
-The authoritative task order and acceptance requirements live in `docs/HANDOFF.md` and `docs/ROADMAP.md`; this README intentionally does not maintain a second checklist of expected findings.
+Accepted evidence and verification history live in `docs/verification/README.md` and `docs/verification/gemini/LATEST.md`.

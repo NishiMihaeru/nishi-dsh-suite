@@ -94,6 +94,8 @@ export class CodexAppServerConnection {
     if (child.stdout === undefined || child.stdin === undefined) {
       throw new Error('codex-plugin-dsh: App Server subprocess requires piped stdin and stdout')
     }
+    child.stdin.on?.('error', () => {})
+    child.stdout.on?.('error', () => {})
     this.transport = new JsonRpcLineTransport(child.stdout, child.stdin)
     this.transport.onRequest(requestHandler)
     this.transport.onNotification((method, params) => {

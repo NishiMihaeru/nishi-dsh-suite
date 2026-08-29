@@ -72,27 +72,30 @@ The main devDependency graph remains rc.2; the alpha.1 compatibility claim is su
 
 Do not perform aesthetic Foundation refactors during provider work.
 
-## 2. Codex — ACTIVE
+## 2. Codex — FROZEN
+
+Independent from-scratch audit, remediation, and live acceptance testing completed:
+
+- [x] independently audit current Codex source/runtime seams against official Codex 0.150.0 and DSH 0.1.1-rc.2;
+- [x] reconcile provider-specific DSH dependencies/peers to proven generations;
+- [x] remove deprecated feature flags and redundant code-mode-host flags;
+- [x] fix stream error on concurrent connection close in App Server connection lifecycle;
+- [x] preserve vendor protocol translation and the reviewed Codex App Server adapter boundary inside the provider package;
+- [x] preserve registry-first provider registration and canonical `codex-app-server` route;
+- [x] preserve absence of vendor-specific subagent registrations/tools;
+- [x] focused test/check/build PASS (48/48 tests);
+- [x] live primary turn PASS (`test:live:primary`);
+- [x] routed native `web_search` PASS (`test:live:web-search`, `test:live:web-search-routed`);
+- [x] full 15-scenario live acceptance test suite PASS (`test:live:acceptance`);
+- [x] prove vendor-native persistent memory/project-doc injection is suppressed;
+- [x] prove adversarial isolation against forbidden host capabilities;
+- [x] prove zero process residue;
+- [x] fresh accepted Codex validation evidence folded into `docs/verification/README.md`;
+- [x] freeze Codex.
+
+## 3. Antigravity — ACTIVE
 
 Next stage:
-
-- [ ] independently audit current Codex source/runtime seams against the DSH generations it actually claims/supports;
-- [ ] reconcile provider-specific DSH dependencies/peers only to proven generations;
-- [ ] remove genuinely provider-neutral failure/helper duplication where Core now owns the contract;
-- [ ] preserve vendor protocol translation and the reviewed Codex App Server adapter boundary inside the provider package;
-- [ ] preserve registry-first provider registration and canonical `codex-app-server` route;
-- [ ] preserve absence of vendor-specific subagent registrations/tools;
-- [ ] focused test/check/build PASS on the final Codex tree;
-- [ ] live primary turn PASS;
-- [ ] routed native `web_search` PASS;
-- [ ] prove vendor-native persistent memory/project-doc injection is suppressed on primary invocation where required by the current contract;
-- [ ] independent provider-specific lifecycle/security/complexity review;
-- [ ] fresh accepted Codex validation evidence;
-- [ ] freeze Codex.
-
-Historical Codex pre-work evidence is a starting point only, not the final freeze for this stage.
-
-## 3. Antigravity
 
 - [ ] provider-specific DSH compatibility audit;
 - [ ] remove genuinely provider-neutral duplication;

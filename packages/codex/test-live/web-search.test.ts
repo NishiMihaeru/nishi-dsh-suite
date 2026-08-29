@@ -22,11 +22,12 @@ function liveCtx(): any {
       async resolveExecutable(name: string) { return findOnPath(name) ?? name },
       spawn(spec: any) {
         const [command, ...args] = spec.argv
+        const stdinMode = spec.stdio?.stdin === 'ignore' ? 'ignore' : 'pipe'
         const child = spawn(command, args, {
           cwd: spec.cwd,
           env: { ...process.env, ...spec.env },
           windowsHide: true,
-          stdio: ['pipe', 'pipe', 'pipe'],
+          stdio: [stdinMode, 'pipe', 'pipe'],
         })
         let stderr = ''
         child.stderr?.setEncoding('utf8')

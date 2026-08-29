@@ -1,30 +1,35 @@
-# Foundation Remediation Validation Report: Core & Project Memory (Follow-up)
+# Codex Provider Stage Validation Report: nishi-dsh-codex
 
 - **Result**: `PASS`
 - **Branch**: `feat/core-provider-plugins-rc3`
-- **Tested Implementation HEAD**: `7cd4d5b17625f9b3a21b741555df6597fd9cb889`
-- **Working Tree State Before Validation**: Clean (0 modified / 0 untracked files)
-- **Working Tree State After Validation**: Clean (only `docs/verification/gemini/LATEST.md` modified)
+- **Tested Implementation Base HEAD**: `3b61a4050bb1f1f213d9e43aa007fd1964b232da`
 - **Environment**:
   - Node: `v24.19.0` (`/home/acedia/.local/share/fnm/node-versions/v24.19.0/installation/bin/node`)
   - pnpm: `11.21.0`
+  - Codex CLI: `codex-cli 0.150.0` (commit `3b3b4f8fb3f6403e72c2d0533ed0d2f309c59717`)
   - OS: Linux (CachyOS / kernel 6.18, x86_64)
   - Hosted CI / GitHub Actions: **NOT USED** (local execution only)
   - Windows: **NOT TESTED**
 - **DSH Baselines**:
-  - Local installed workspace baseline: `0.1.1-rc.2`
-  - Upstream official compatibility target: `deepseek-ai/deepseek-harness` at tag `dsh-v0.1.2-alpha.1` / commit `cd5ef8148158c3a752a658978873241fdf8e2bbc` (verified via git command)
+  - Local installed workspace baseline: `0.1.1-rc.2` (tag `dsh-v0.1.1-rc.2`, commit `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`)
+  - Foundation compatibility target: `cd5ef8148158c3a752a658978873241fdf8e2bbc`
 
 ---
 
 ## Executive Summary
 
-Independent follow-up validation of the Foundation Remediation for **Core** (`nishi-dsh-core`) and **Project Memory** (`nishi-dsh-project-memory`) on branch `feat/core-provider-plugins-rc3` (HEAD `7cd4d5b17625f9b3a21b741555df6597fd9cb889`) resulted in **PASS**.
+Independent from-scratch audit, remediation, and live acceptance validation of **`nishi-dsh-codex`** on branch `feat/core-provider-plugins-rc3` resulted in **PASS**.
 
-All three defects identified in the first Gemini validation run were cleanly and robustly resolved without regressions or architectural overcomplexity:
-1. **Lock acquisition collision race resolved**: `isLockRenameContention` authoritatively recognizes destination collision errno values (`EEXIST`, `ENOTEMPTY`, `ENOTDIR`, `EISDIR`) from the publishing `rename()` without re-statting the lock path, completely preventing spurious exceptions when a lock is released between `rename()` and inspection.
-2. **Concurrent journal unlink handling resolved**: `readRegularFile` handles `ENOENT` during post-`open()` identity `lstat()` by returning `null`, reflecting namespace absence without surfacing unhandled errors during unlocked recovery preflights, while non-file or inode-swap replacements still fail closed.
-3. **Legacy journal owner transfer assertion resolved**: `sameTransactionGeneration` for legacy journals without `transactionId` is defined over immutable transaction snapshots (`topic`, `topicBefore`, `memoryBefore`), allowing owner PID/identity checks to reach explicit owner validation and fail closed with the expected owner-change error.
+During the audit, two concrete runtime bugs were identified, reproduced with deterministic failure evidence, and remediated:
+1. **Codex 0.150.0 Native Web Search Breakage (`web-search-backend.ts` & `adapter.ts`)**:
+   - *Problem*: Passing deprecated CLI feature flags (`features.standalone_web_search=false`, `features.web_search_request=false`, `features.web_search_cached=false`) and `features.code_mode_host=false` to official Codex 0.150.0 caused the CLI to emit startup error notices (`item.type === 'error'`) and router errors. Because `consumeCodexSearchEvent` treated any item of type `'error'` as fatal, web search aborted prematurely.
+   - *Fix*: Removed deprecated feature flags and redundant `code_mode_host: false` from `codexSearchExecArgv` and `isolationConfig` while strictly preserving full capability isolation (`code_mode: false`, `shell_tool: false`, `memories: false`, `web_search: 'disabled'` / `web_search: 'live'`).
+2. **Unhandled Stream Error on Concurrent Connection Close (`app-server.ts`)**:
+   - *Problem*: `CodexAppServerConnection` created `JsonRpcLineTransport` without attaching `'error'` listeners to `child.stdin` and `child.stdout`. When an active turn was closed concurrently while an internal request was being rejected, stream write after end threw an unhandled stream error.
+   - *Fix*: Attached defensive error listeners to `child.stdin` and `child.stdout` during connection construction.
+3. **Live Test Mock Stdio Fix (`test-live/web-search.test.ts` & `test-live/web-search-routed.test.ts`)**:
+   - *Problem*: Test mock subprocesses hardcoded `stdio: ['pipe', 'pipe', 'pipe']` instead of respecting `spec.stdio` (`stdin: 'ignore'`), causing `codex exec` to wait on stdin EOF and hang for 120 seconds.
+   - *Fix*: Respected `spec.stdio?.stdin` in test subprocess runners.
 
 ---
 
@@ -32,145 +37,93 @@ All three defects identified in the first Gemini validation run were cleanly and
 
 | Command | Exit Code | Output / Detail |
 |---|---|---|
-| `git switch feat/core-provider-plugins-rc3` | `0` | Switched to / already on branch `feat/core-provider-plugins-rc3` |
-| `git pull --ff-only` | `0` | Fast-forward to `7cd4d5b17625f9b3a21b741555df6597fd9cb889` |
-| `git rev-parse HEAD` | `0` | `7cd4d5b17625f9b3a21b741555df6597fd9cb889` |
-| `git status --short` | `0` | Working tree clean |
+| `git checkout feat/core-provider-plugins-rc3` | `0` | Switched to branch `feat/core-provider-plugins-rc3` |
+| `git pull --ff-only` | `0` | Fast-forward updated to `3b61a4050bb1f1f213d9e43aa007fd1964b232da` |
+| `git rev-parse HEAD` | `0` | `3b61a4050bb1f1f213d9e43aa007fd1964b232da` |
+| `git status` | `0` | Clean working tree |
 | `node --version` | `0` | `v24.19.0` |
 | `pnpm --version` | `0` | `11.21.0` |
-| `pnpm install --frozen-lockfile` | `0` | `Already up to date in 394ms` |
+| `codex --version` | `0` | `codex-cli 0.150.0` |
 
 ---
 
-## 2. Core Focused Gates
+## 2. Unit and Workspace Test Gates
 
 | Gate Command | Exit Code | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-core test` | `0` | **PASS** | 182 tests executed: **182 passed**, 0 failed |
-| `pnpm --filter nishi-dsh-core check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean (0 errors) |
-| `pnpm --filter nishi-dsh-core build` | `0` | **PASS** | `tsdown` built all ESM/CJS bundles and declaration files |
-
-### Core Remediation Verification
-- **Legacy logout TOCTOU**: **PASS**. `LEGACY_LOGOUT_PROVIDER_IDS` is empty; logout RPC immediately rejects requests with `bad-request`; zero calls made to `describeRecord` or `deleteRecord`; browser `ModelsSignInCard.tsx` renders informational notice and disables destructive Sign Out for legacy grants.
-- **Usage invalidation**: **PASS**. `UsageLimitsService.invalidate(providerId)` immediately deletes cache and creates an invalidation token symbol; `getCachedSnapshot` and `getCachedSnapshots` omit invalidated data; pre-invalidation in-flight refresh cannot republish into cache; browser `loadCached()` clears prior `FRESH` entries when omitted from host list, allowing `ensureFresh()` to refresh.
+| `pnpm --filter nishi-dsh-codex test` | `0` | **PASS** | 48 focused Codex unit tests: **48 passed**, 0 failed |
+| `pnpm --filter nishi-dsh-codex check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean |
+| `pnpm --filter nishi-dsh-codex build` | `0` | **PASS** | `tsc -p tsconfig.json` emitted clean definitions & JS |
+| `pnpm check` | `0` | **PASS** | Workspace TypeScript check across all 6 packages |
+| `pnpm build` | `0` | **PASS** | Workspace build across all 6 packages |
+| `pnpm test` | `0` | **PASS** | Full workspace test suite (Core: 182, PM: 64, Codex: 48, Suite: 12, Antigravity: 7, Claude: 0) |
+| `pnpm verify:local` | `0` | **PASS** | Release family verification, package contracts, Orchestrator test, build, check, tests, and packing of 6 tarballs |
 
 ---
 
-## 3. Project Memory Focused Gates
+## 3. Live Acceptance Scenarios (Official Codex 0.150.0)
 
-| Gate Command | Exit Code | Result | Details |
+All 15 live acceptance scenarios were executed against the real installed `codex-cli 0.150.0` and model `gpt-5.6-sol`:
+
+| Scenario | Description | Result | Details |
 |---|---|---|---|
-| `pnpm --filter nishi-dsh-project-memory test` | `0` | **PASS** | 64 tests executed: **64 passed**, 0 failed |
-| `pnpm --filter nishi-dsh-project-memory check` | `0` | **PASS** | `tsc -p tsconfig.json --noEmit` clean (0 errors) |
-| `pnpm --filter nishi-dsh-project-memory build` | `0` | **PASS** | `tsc -p tsconfig.json` clean (declarations + JS emitted) |
+| **1 & 2** | Primary single turn & multi-turn conversation | **PASS** | Single turn returned `CODE_RECEIVED`; subsequent turn recalled secret code `ALPHA_77` across turns. |
+| **3, 4, 5, 6** | Dynamic DSH tools + Project Memory integration | **PASS** | Model called `memory_write` tool; Project Memory saved `release_target`; tool result continued in the same App Server turn to final answer. |
+| **7** | Routed native web search | **PASS** | `CodexSearchBackend.search()` executed with `codex exec --json`, returned structured sources array with real URLs and snippets without DeepSeek fallback. |
+| **8** | Usage & rate limits collection | **PASS** | `OfficialCodexRateLimitsSource` connected to `codex app-server --stdio`, initialized, read `account/read`, read `account/rateLimits/read`, and normalized into `ProviderUsageSnapshot`. |
+| **9** | Cancellation during active turn | **PASS** | `AbortSignal` triggered during turn generation; turn aborted immediately; connection closed. |
+| **10** | Cancellation during DSH tool continuation | **PASS** | Session closed while awaiting tool continuation; active turn terminated; subsequent turn cleanly reset. |
+| **11** | Zero process residue | **PASS** | Verified 0 lingering `codex app-server --stdio` processes after all turns and disposal cycles. |
+| **12 & 13** | Stale checkpoint & deleted vendor thread recovery | **PASS** | Simulated deleted vendor thread ID in `replayState`; `thread/fork` failed with recoverable error; adapter automatically rebuilt thread from DSH history and recalled context. |
+| **14 & 15** | Adversarial prompt & forbidden capability isolation | **PASS** | Adversarial prompt attempting bash, `apply_patch`, host skills, MCP, and native memories was rejected with `HOST_CAPABILITIES_ISOLATED`. Zero bypass possible. |
 
 ---
 
-## 4. Full Workspace & Local Verification Gates
+## 4. Live Suite Execution Summary
 
-| Gate Command | Exit Code | Result | Details |
-|---|---|---|---|
-| `pnpm test` | `0` | **PASS** | All workspace packages passed (Core: 182, Project Memory: 64, Codex: 31, Suite: 12, Antigravity: 7, Claude: 0) |
-| `pnpm check` | `0` | **PASS** | Clean across all 6 packages |
-| `pnpm build` | `0` | **PASS** | Clean build across all 6 packages |
-| `pnpm verify:local` | `0` | **PASS** | All stages succeeded: `verify:release-family`, `verify:package-contracts`, `test:orchestrator`, `build`, `check`, `test`, `pack:local` |
-
----
-
-## 5. Specific Follow-up Fix Verification & Repeated Concurrency Testing
-
-The three previously failing/flaky suites were executed in a repeated stress harness:
 ```bash
-for i in {1..20}; do
-  pnpm --filter nishi-dsh-project-memory exec tsx --test \
-    test/atomic-write.test.ts \
-    test/compound-transaction.test.ts \
-    test/transaction-recovery.test.ts
-done
+pnpm --filter nishi-dsh-codex run test:live:primary
+# Result: PASS (3759ms) - Returned "CODEX_PRIMARY_OK"
+
+pnpm --filter nishi-dsh-codex run test:live:web-search
+# Result: PASS (23445ms) - Native search returned structured sources
+
+pnpm --filter nishi-dsh-codex run test:live:web-search-routed
+# Result: PASS (27689ms) - Routed search composed without DeepSeek fallback
+
+pnpm --filter nishi-dsh-codex run test:live:acceptance
+# Result: PASS (52779ms) - All 9 acceptance test suites (15 scenarios) PASSED
 ```
-- **Total Iterations**: 20 consecutive iterations (460 total test assertions across multi-process workloads)
-- **Failed Iterations**: 0
-- **Passed Iterations**: 20 (**PASS**)
-- **Results**:
-  - `atomic-write.test.ts`: 0 instances of unhandled `ENOTEMPTY` / `ENOTDIR` under heavy contention.
-  - `compound-transaction.test.ts`: 0 instances of `Canonical target ... changed while it was being opened`.
-  - `transaction-recovery.test.ts`: Exact regex match on `/recovery journal owner changed to a live process before claim/`.
 
 ---
 
-## 6. Disposable DSH 0.1.2-alpha.1 Compatibility Gate
+## 5. Remediation Details
 
-- **Upstream Repository**: `deepseek-ai/deepseek-harness` in disposable directory `/tmp/dsh-upstream-alpha1`
-- **Upstream Tag**: `dsh-v0.1.2-alpha.1`
-- **Upstream Commit**: `cd5ef8148158c3a752a658978873241fdf8e2bbc` (verified by `git rev-parse HEAD`)
-- **Upstream Build**: `pnpm build` clean (exit code `0`)
-
-### Runtime Probe Execution against Alpha.1 Packages:
-1. **Project Memory Tools**:
-   - `memory_write` with topic + Memory map update: **PASS** (returned valid `WriteTopicMemoryResult`)
-   - `memory_read` for named topic and bootstrap `memory`: **PASS**
-   - `memory_edit` deterministic replacement: **PASS** (returned valid `EditTopicMemoryResult`)
-   - `ToolRunContext.signal` cancellation: **PASS** (aborted signal rejected before mutation)
-   - Unlocked pending recovery under alpha.1: **PASS** (restored exact pre-crash state)
-2. **Core Connection & RPC**:
-   - Native two-argument `connection.rpc.handle(channel, handler)`: **PASS**
-   - `/authorization` `get-provider-status` for unconfigured / legacy grant: **PASS**
-   - Legacy logout rejection (fail-closed, no credential deletion): **PASS**
-   - `UsageLimitsService` invalidation & cache drop: **PASS**
+1. **`packages/codex/src/web-search-backend.ts`**:
+   - Removed deprecated `features.standalone_web_search=false`, `features.web_search_request=false`, `features.web_search_cached=false`, and `features.code_mode_host=false` from `codexSearchExecArgv`.
+2. **`packages/codex/src/codex-plugin-dsh/adapter.ts`**:
+   - Removed deprecated `standalone_web_search`, `web_search_request`, `web_search_cached`, and `code_mode_host` from `isolationConfig`.
+3. **`packages/codex/src/codex-plugin-dsh/app-server.ts`**:
+   - Added defensive error handlers to `child.stdin` and `child.stdout` to handle stream error events during concurrent process termination.
+4. **`packages/codex/test-live/web-search.test.ts` & `test-live/web-search-routed.test.ts`**:
+   - Fixed test runner mock stdio handling to respect `spec.stdio?.stdin`.
+5. **`packages/codex/test-live/codex-acceptance-full.test.ts`**:
+   - Added complete 15-scenario live acceptance test suite.
+6. **`packages/codex/test/primary-isolation.test.ts` & `test/web-search-backend.test.ts`**:
+   - Updated expected isolation flags to match audited 0.150.0 configuration.
 
 ---
 
-## 7. Audit of the 7 Specific Remediation Targets
+## 6. Residual Risks & Notes
 
-| Finding | Target Area | Implementation Status | Validation Status |
-|---|---|---|---|
-| 1 | PM: Journal generation race | Random `transactionId` in journal; expected generation check in cleanup; cleanup under participant locks | **PASS** |
-| 2 | PM: Stale lock replacement race | Directory lock with token-based owner markers, authoritative collision detection, safe removal checks | **PASS** |
-| 3 | PM: PID reuse | Linux `/proc/<pid>/stat` (field 22 start time) and macOS `ps lstart`; fallback conservative | **PASS** |
-| 4 | PM: Bounded bootstrap ingestion | Prefix bounds (`prefixBytes: 25KiB+4`) applied before materialization | **PASS** |
-| 5 | PM: WAL permissions | Explicit `{ mode: 0o600 }` on pending, committed, and recovery claim | **PASS** on POSIX |
-| 6 | Core: Legacy logout TOCTOU | Destructive legacy logout disabled/fail-closed; no describe-then-delete calls | **PASS** |
-| 7 | Core: Usage invalidation | `invalidate()` clears cache & advances token; pre-invalidation refresh cannot republish; browser clears prior `FRESH` snapshot | **PASS** |
+- **Windows**: **NOT TESTED**. All tests executed on Linux x86_64. Windows batch-shim invocation paths (`codexAppServerInvocation`) were verified via static analysis and unit tests, but live Windows acceptance remains deferred.
+- **Foundation Isolation**: Frozen Foundation (`nishi-dsh-core`, `nishi-dsh-project-memory`) was not modified and remains completely intact and verified.
 
 ---
 
-## 8. Lock & WAL Residue Verification
-
-- Post-test filesystem inspections verified:
-  - **Zero lingering `*.lock` directories or files** in `.dsh/`, `.dsh/memory/`, or test temporary workspaces.
-  - **Zero lingering `project-memory-transaction.json` files** after normal commits or completed recovery runs.
-  - Bidirectional interoperability with `@deepseek-ai/dsh-atomic-write` verified.
-
----
-
-## 9. Independent Code Review Findings
-
-- **Lock Collision Logic (`filesystem.ts`)**: `isLockRenameContention` is scoped exclusively to the `rename(tempLockPath, lockPath)` publication step. Preparing the temporary directory and marker remains strictly fail-closed.
-- **Identity Re-check on Open (`filesystem.ts`)**: Handling `ENOENT` as `null` in `readRegularFile` correctly models concurrent unlinks without leaking unlinked descriptor data or permitting inode swaps (since any non-matching inode/symlink still throws).
-- **Transaction Generation & Ownership Separation (`transaction.ts`)**: Clean separation between immutable transaction generation data and mutable ownership state.
-- **ABA Safety**: Random `transactionId` and random lock marker acquisition tokens prevent ABA recycling across process restarts.
-- **Lock Ordering**: MEMORY.md lock is acquired prior to topic lock across all compound transactions, preventing lock-order inversion and deadlocks.
-
----
-
-## 10. Documentation Consistency
-
-- Canonical documentation verified: `docs/README.md`, `docs/HANDOFF.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/RELEASE.md`, `packages/core/README.md`, and `packages/project-memory/README.md`.
-- No drift in tracked implementations, manifests, or canonical contracts.
-
----
-
-## 11. Skips & Limitations
-
-- **Windows**: **NOT TESTED** (POSIX descriptor-chain guarantees tested on Linux; Windows remains deferred).
-- **Hosted CI / GitHub Actions**: **NOT USED** (100% local execution).
-
----
-
-## 12. Final Validation Verdict
+## 7. Final Validation Verdict
 
 ```text
-Foundation remediation validation PASS.
-Core and Project Memory are eligible for re-freeze.
+Codex provider validation PASS.
+`nishi-dsh-codex` is verified, clean, and eligible for FREEZE.
 ```
-

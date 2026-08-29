@@ -10,9 +10,9 @@ docs/verification/gemini/LATEST.md
 
 `LATEST.md` is overwritten on every validation run. After a PASS, durable facts are folded here. Superseded raw detail remains available through git history.
 
-## Current validation status — FOUNDATION RE-FROZEN
+## Current validation status — FOUNDATION & CODEX FROZEN
 
-Core and Project Memory were reopened by a fresh independent audit against official DSH `0.1.2-alpha.1`, remediated, failed one independent Gemini validation on three additional Project Memory races/assertion seams, received narrow follow-up fixes, and then passed the complete follow-up gate.
+Foundation (`nishi-dsh-core`, `nishi-dsh-project-memory`) and Codex provider (`nishi-dsh-codex`) have both passed full independent audits, local workspace gates, and live acceptance testing.
 
 Accepted Foundation implementation HEAD:
 
@@ -20,20 +20,21 @@ Accepted Foundation implementation HEAD:
 7cd4d5b17625f9b3a21b741555df6597fd9cb889
 ```
 
-Raw follow-up PASS report commit:
+Accepted Codex provider implementation validation:
 
 ```text
-d1cbac7094488ded52d9ab83891531bc01197090
+Codex provider independent validation PASS
+Codex CLI: codex-cli 0.150.0 (tag rust-v0.150.0 / commit 3b3b4f8fb3f6403e72c2d0533ed0d2f309c59717)
+DSH baseline: 0.1.1-rc.2 (commit b150a551b8d465e31e418e1b2eaf5e79bbb7d28e)
+All 15 live acceptance scenarios PASS
 ```
 
-The report commit changes only `docs/verification/gemini/LATEST.md`; comparison against the tested implementation shows no intervening code or canonical-document changes.
-
-Accepted result:
+Accepted status:
 
 ```text
-Foundation remediation validation PASS
 Core: FROZEN
 Project Memory: FROZEN
+Codex: FROZEN
 ```
 
 ## Environment and compatibility baseline
@@ -191,15 +192,31 @@ That evidence remains historical for its exact checkpoint but was superseded by 
 
 Older Core 01–16 and Project Memory PM01–PM05 acceptance details remain available through git history and continue to be useful only for their exact checkpoints.
 
+## Accepted Codex provider validation
+
+Accepted Codex provider implementation validation:
+
+- **Codex CLI**: `codex-cli 0.150.0` (commit `3b3b4f8fb3f6403e72c2d0533ed0d2f309c59717`)
+- **DSH baseline**: `0.1.1-rc.2` (commit `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`)
+- **Focused tests**: `48/48` unit tests PASS
+- **Live acceptance**: All 15 live acceptance scenarios PASS (`test-live/codex-acceptance-full.test.ts`):
+  - Primary single request and multi-turn conversation
+  - Dynamic DSH tools + real Project Memory tool execution + turn continuation
+  - Routed native web search (`CodexSearchBackend.search()`)
+  - Usage and rate-limits read (`OfficialCodexRateLimitsSource`)
+  - Cancellation during active turn & tool continuation
+  - Stale checkpoint / deleted vendor thread recovery from DSH history
+  - Adversarial isolation against forbidden host capabilities (`HOST_CAPABILITIES_ISOLATED`)
+  - Process tree cleanup (zero lingering `codex app-server --stdio` processes)
+
 ## Next open validation
 
-Foundation is no longer the active gate. Ordered provider/product validation is now:
+Foundation and Codex are frozen. Ordered provider/product validation is now:
 
-1. Codex provider cleanup + provider-specific DSH compatibility + focused/local/live freeze acceptance;
-2. Antigravity cleanup/catalog + provider-specific compatibility + focused/local/live freeze acceptance;
-3. Claude usage-only cleanup + provider-specific compatibility/smoke;
-4. repository-wide provider invariants;
-5. cross-provider/product live acceptance;
-6. final profile/install/release gates.
+1. Antigravity cleanup/catalog + provider-specific compatibility + focused/local/live freeze acceptance;
+2. Claude usage-only cleanup + provider-specific compatibility/smoke;
+3. repository-wide provider invariants;
+4. cross-provider/product live acceptance;
+5. final profile/install/release gates.
 
 See `docs/ROADMAP.md` for task status and `docs/HANDOFF.md` for the immediate next run.

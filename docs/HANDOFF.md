@@ -83,29 +83,32 @@ Accepted remediation includes:
 
 Project Memory focused tests `64/64`, check/build, full workspace gates and `verify:local` were recorded PASS. The three previously failing concurrency/recovery suites were repeated 20 times with zero failed iterations. The accepted report also records zero unexpected lock/WAL residue and bidirectional `@deepseek-ai/dsh-atomic-write` interoperability.
 
-See `docs/verification/README.md` for durable evidence and the exact checkpoint history.
+### Codex — FROZEN
 
-## Immediate task — Codex provider stage
+Independent from-scratch audit, remediation, and live acceptance testing completed:
 
-Do not reopen or refactor Foundation unless Codex work exposes a concrete Foundation defect with reproduction/evidence.
+- official Codex `0.150.0` runtime compatibility validated;
+- deprecated web search and code-mode feature flags removed;
+- stream error on concurrent connection close resolved;
+- all 15 live acceptance scenarios passed;
+- focused tests `48/48`, check/build, full workspace gates and `verify:local` PASS;
+- zero process residue verified.
 
-For `packages/codex`, independently inspect current source/tests and the exact DSH/provider runtime seams it actually uses. Do not assume historical Codex acceptance is sufficient for the current rc.3 branch.
+## Immediate task — Antigravity provider stage
+
+Do not reopen or refactor Foundation or Codex unless Antigravity work exposes a concrete defect with reproduction/evidence.
+
+For `packages/antigravity`, independently inspect current source/tests and the exact DSH/provider runtime seams it actually uses.
 
 Required direction:
 
-1. establish the current Codex package/runtime baseline from source, tests and package manifest;
-2. identify the DSH generations Codex actually claims/supports and verify those contracts from official upstream source/runtime rather than inheriting Foundation evidence;
-3. remove only genuinely provider-neutral duplication that now belongs to Core;
-4. keep Codex App Server/vendor protocol translation inside the provider package;
-5. preserve registry-first provider registration and the canonical `codex-app-server` route;
-6. preserve absence of vendor-specific subagent registrations/tools;
-7. verify primary model turn behavior and routed native `web_search`;
-8. verify vendor-native persistent memory/project-doc injection remains suppressed on the primary invocation where that is part of the current contract;
-9. run focused test/check/build and required live acceptance;
-10. independently review for lifecycle leaks, stale processes, route mismatches, credential/session boundary violations, provider-specific dependency drift and unnecessary complexity;
-11. only after fresh provider-specific PASS evidence, mark Codex frozen.
-
-Historical Codex pre-work evidence exists in `docs/verification/README.md`, including a `31/31` test checkpoint and live primary turn, but it is only a starting point and is **not** the final Codex freeze for this stage.
+1. establish the current Antigravity package/runtime baseline from source, tests and package manifest;
+2. audit DSH compatibility for Antigravity primary and subagent providers;
+3. remove hardcoded model-family catalog filtering while preserving malformed-entry rejection;
+4. verify model-list parser and catalog coverage;
+5. verify native web search backend and usage source;
+6. run focused test/check/build and live acceptance (primary turn, model switch, routed search);
+7. after fresh PASS evidence, mark Antigravity frozen.
 
 ## Architectural simplification boundary
 
