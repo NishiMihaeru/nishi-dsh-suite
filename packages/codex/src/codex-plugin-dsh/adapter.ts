@@ -344,6 +344,32 @@ function catalogModel(value: unknown): CatalogModel | undefined {
   }
 }
 
+function disabledCodexSkills(value: unknown): readonly { readonly path: string; readonly enabled: false }[] {
+  const result = object(value, 'skills/list response')
+  if (!Array.isArray(result.data)) throw new Error('codex-plugin-dsh: App Server returned invalid skills/list data')
+  const paths = new Set<string>()
+  const failures: string[] = []
+  for (const rawEntry of result.data) {
+    const entry = object(rawEntry, 'skills/list entry')
+    if (!Array.isArray(entry.skills) || !Array.isArray(entry.errors)) {
+      throw new Error('codex-plugin-dsh: App Server returned invalid skills/list entry')
+    }
+    for (const rawError of entry.errors) {
+      const error = object(rawError, 'skills/list error')
+      const path = typeof error.path === 'string' ? `${error.path}: ` : ''
+      failures.push(`${path}${messageText(error)}`)
+    }
+    for (const rawSkill of entry.skills) {
+      const skill = object(rawSkill, 'skills/list skill')
+      paths.add(string(skill.path, 'skill path'))
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`codex-plugin-dsh: Codex skill discovery failed; refusing to start primary thread: ${failures.join('; ')}`)
+  }
+  return [...paths].map(path => ({ path, enabled: false as const }))
+}
+
 /** Local Codex App Server route with session-aware history, permissions, and process ownership. */
 export class CodexAppServerAdapter extends LlmAdapter {
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
@@ -775,6 +801,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
   ): Promise<Record<string, unknown>> {
     const result = await connection.request('config/read', { includeLayers: false }, signal)
     const current = recordValue(result.config)
+    const skills = disabledCodexSkills(await connection.request('skills/list', { forceReload: true }, signal))
     const disabledMcpServers = Object.fromEntries(
       Object.keys(recordValue(current.mcp_servers)).map(name => [name, { enabled: false }]),
     )
@@ -787,16 +814,69 @@ export class CodexAppServerAdapter extends LlmAdapter {
       features: {
         shell_tool: false,
         unified_exec: false,
+        shell_snapshot: false,
+        shell_snapshot_v2: false,
         multi_agent: false,
         multi_agent_v2: false,
         code_mode: false,
+        code_mode_host: false,
+        memories: false,
+        external_agent_memory_import: false,
+        chronicle: false,
         view_image: false,
         hooks: false,
+        goals: false,
+        token_budget: false,
+        rollout_budget: false,
+        current_time_reminder: false,
+        standalone_web_search: false,
+        web_search_request: false,
+        web_search_cached: false,
+        skill_search: false,
+        deferred_executor: false,
+        executor_capability_discovery: false,
         apps: false,
+        enable_mcp_apps: false,
         plugins: false,
+        recommended_plugins: false,
+        tool_suggest: false,
+        remote_plugin: false,
+        plugin_sharing: false,
+        browser_use: false,
+        browser_use_full_cdp_access: false,
+        browser_use_external: false,
+        computer_use: false,
+        in_app_browser: false,
+        in_app_chat: false,
+        in_app_dictation: false,
+        in_app_local_automation: false,
+        in_app_updates: false,
+        network_proxy: false,
+        guardian_approval: false,
+        guardianv2: false,
+        guardian_ext: false,
+        artifact: false,
+        workspace_dependencies: false,
+        prevent_idle_sleep: false,
       },
       agents: { enabled: false },
       web_search: 'disabled',
+      notify: [],
+      model_instructions_file: null,
+      include_permissions_instructions: false,
+      include_apps_instructions: false,
+      include_collaboration_mode_instructions: false,
+      include_environment_context: false,
+      allow_login_shell: false,
+      orchestrator: {
+        skills: { enabled: false },
+        mcp: { enabled: false },
+      },
+      skills: {
+        bundled: { enabled: false },
+        include_instructions: false,
+        config: skills,
+      },
       apps: { _default: { enabled: false }, ...disabledApps },
       mcp_servers: disabledMcpServers,
     }
