@@ -789,7 +789,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
       sandbox: 'read-only',
       config: isolationConfig,
       ephemeral: false,
-      ...options.system === undefined ? {} : { baseInstructions: options.system },
+      baseInstructions: options.system ?? '',
       developerInstructions: CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS,
       ...dynamicTools === undefined ? {} : { dynamicTools },
     }
@@ -862,7 +862,6 @@ export class CodexAppServerAdapter extends LlmAdapter {
       agents: { enabled: false },
       web_search: 'disabled',
       notify: [],
-      model_instructions_file: null,
       include_permissions_instructions: false,
       include_apps_instructions: false,
       include_collaboration_mode_instructions: false,
