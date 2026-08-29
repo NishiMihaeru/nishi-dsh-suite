@@ -1,8 +1,8 @@
 # Handoff
 
-Updated for `0.1.0-rc.3` after the independent Core + Project Memory audit/remediation and successful re-freeze validation.
+Updated for `0.1.0-rc.3` after the fresh independent Core + Project Memory audit and implementation remediation. Foundation is **REOPENED / PENDING VERIFICATION**.
 
-This is the **only session handoff file**. Update it in place when the active task changes. Do not create dated session-summary, plan or handoff documents.
+This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
 ## Current branch/state
 
@@ -12,28 +12,28 @@ Development branch:
 feat/core-provider-plugins-rc3
 ```
 
-Current family: six packages at `0.1.0-rc.3`.
+Current family: six packages at `0.1.0-rc.3`, unpublished.
 
-`0.1.0-rc.3` is in-repo and unpublished. Published `0.1.0-rc.1` remains the public npm family. No publish, merge, tag or release is authorized by this handoff.
-
-Local validation baseline:
+Implementation/test checkpoint produced by the remediation before documentation-only status updates:
 
 ```text
-Node: 24.19.0
-pnpm: 11.21.0
-DSH: 0.1.1-rc.2
-OS: Linux/CachyOS
-Windows: NOT TESTED
+511ef1c2771c8629abb3ae7ba5297208b318f9fe
 ```
 
-Official compatibility source target used for foundation validation:
+Validation must still run from the **actual current branch head**, not by checking out that checkpoint, because current canonical documentation is intentionally ahead of it. Confirm the exact head SHA at the start of the run and record it in the raw report.
+
+No publish, merge, tag or release is authorized.
+
+Authoritative DSH compatibility target for this Foundation work:
 
 ```text
 dsh-v0.1.2-alpha.1
 cd5ef8148158c3a752a658978873241fdf8e2bbc
 ```
 
-For DSH compatibility questions, actual upstream source/runtime contracts at the exact target being audited are primary truth. Documentation may lag implementation.
+Local package devDependencies remain rc.2; they are not alpha.1 compatibility evidence.
+
+Windows: **NOT TESTED**.
 
 ## Read before editing
 
@@ -44,152 +44,131 @@ For DSH compatibility questions, actual upstream source/runtime contracts at the
 5. target package README
 6. target package source/tests
 
-Use `docs/verification/README.md` only to confirm already accepted evidence. `docs/verification/gemini/LATEST.md` is the rolling raw Gemini report, not the durable project state.
+Use `docs/verification/README.md` only for evidence already accepted for its exact historical checkpoint. `docs/verification/gemini/LATEST.md` is the rolling raw Gemini report.
 
-## Foundation status — FROZEN
+## Foundation audit remediation implemented
 
-Core and Project Memory were reopened by an independent audit from branch HEAD:
+The new independent audit found seven confirmed issues and reopened the previous freeze.
 
-```text
-42203ca50ea2555cfcc675d9c73e52bb86a48324
-```
+### Project Memory
 
-strictly against official DSH `0.1.2-alpha.1`. The audit found one Core correctness defect and four Project Memory filesystem/cancellation/durability defects. Follow-up implementation review also found additional parent/intermediate-path, cancellation-settlement and recovery ownership races, which were remediated before final validation.
+1. **Journal generation race**: delayed cleanup of committed transaction A could delete pending transaction B at the fixed journal pathname.
+   - Current journals carry random `transactionId` generations.
+   - committed cleanup checks the expected generation;
+   - normal successful cleanup now runs while `MEMORY.md` + topic locks are still held;
+   - cleanup failure after logical commit is preserve-and-clean, not rollback.
 
-Accepted foundation implementation checkpoint:
+2. **Stale lock replacement race**: stale recovery/finalizer could delete a replacement live owner's lock.
+   - Current writers publish populated directory locks containing PID + random token + optional process-birth identity;
+   - release/removal is conditional on the exact observed generation and directory identity;
+   - delayed removal cannot remove a replacement populated directory;
+   - legacy numeric PID regular lock files remain recovery-compatible but are no longer created.
 
-```text
-eb95ef6425c788f63339befd0c2437f78bc8dde1
-```
+3. **PID reuse**: unrelated live process reusing a dead owner's PID could wedge recovery.
+   - Linux process identity uses `/proc/<pid>/stat` start time;
+   - macOS uses `ps` process start time;
+   - mismatched birth identity means stale owner;
+   - unsupported identity seams fail closed and do not guess that a live PID is stale.
 
-Raw PASS report commit:
+4. **Bootstrap ingestion**: 25 KiB bound was previously applied after full file materialization.
+   - read-only bootstrap reads bounded prefix only;
+   - existence checks read zero bytes;
+   - RMW paths reject oversized persisted bootstrap from metadata before whole-file read.
 
-```text
-f491d681390924a171211a5c0dd0c8991f6a7faf
-```
+5. **Journal permissions**: committed transition widened `0600` journal to generic `0644`.
+   - atomic write accepts explicit mode;
+   - pending, claimed and committed journal replacement remains `0600`.
 
-Accepted final evidence:
+Architectural simplification accepted during this work:
 
-- `pnpm install --frozen-lockfile` PASS;
-- Core focused tests `178/178` PASS;
-- Core check/build PASS;
-- Project Memory focused tests `57/57` PASS;
-- Project Memory check/build PASS;
-- full workspace test/check/build PASS;
-- `pnpm verify:local` PASS;
-- disposable official `dsh-v0.1.2-alpha.1` runtime compatibility PASS for changed Core and Project Memory seams;
-- real alpha.1 `memory_read`, `memory_write`, `memory_edit` PASS;
-- changed descriptor-chain, cancellation, mandatory-settlement, WAL and recovery fail-closed regressions PASS;
-- working-tree integrity PASS during the validation run;
-- GitHub Actions/hosted CI NOT USED;
-- Windows NOT TESTED.
+- redundant tool-layer recovery was removed; domain operations own recovery.
+- explicit transaction/lock generations are retained even though they add fields, because they remove ambiguous PID/pathname states that caused the HIGH races.
 
-Core and Project Memory are therefore **FROZEN** again. Do not change their contracts or implementation during provider cleanup unless a new concrete defect or compatibility failure proves the foundation must be reopened.
+### Core
 
-Their production DSH peer family remains:
+6. **Legacy logout TOCTOU**: `describeRecord()` kind check followed by unconditional `deleteRecord()` could erase a replacement API-key credential.
+   - exact alpha.1 CredentialProvider has no atomic compare-and-delete seam;
+   - destructive legacy-grant logout is therefore disabled/fail-closed;
+   - logout RPC rejects the unsafe mutation;
+   - browser no longer renders legacy Sign Out; legacy grant remains informational state.
 
-```text
-0.1.1-rc.2 || 0.1.2-alpha.1
-```
+7. **Usage invalidation**: invalidate token previously did not actually drop cache; cached APIs/browser could keep superseded `FRESH` state.
+   - invalidation deletes host cache immediately and advances observation generation;
+   - cached read APIs omit invalidated provider;
+   - a pre-invalidation refresh cannot republish after invalidation;
+   - post-invalidation refresh need not join superseded in-flight work;
+   - authoritative browser cached-read omission clears prior local `FRESH` usage before `ensureFresh`.
 
-Provider packages do not inherit that support automatically.
+Architectural items deliberately **not** simplified before verification:
 
-## Frozen Core contract to preserve
+- exported authorization client begin/submit/cancel/polling state machine — possible public compatibility surface;
+- Connection `Function.length` rc2/alpha shim — retained while rc2 is a declared peer;
+- usage invalidation generation token — now has a real correctness role;
+- fixed Project Memory journal pathname — generation identity + lock order close the audited race without a larger migration.
 
-- credential-store failure is distinct from ordinary account absence;
-- failed durable legacy-grant deletion is not reported as successful logout;
-- browser/RPC projections do not expose credential/backend secret material;
-- providers register through shared `registerProvider()`;
-- registry observers are non-vetoing;
-- routed web search follows the exact current route with no vendor fallback;
-- Core remains provider-independent.
+## Regression coverage added
 
-## Frozen Project Memory contract to preserve
+Core audit regressions cover:
 
-- one provider-independent root policy for context and tools;
-- POSIX package-owned descendants use the pinned `projectRoot -> .dsh -> memory/local` descriptor chain;
-- RMW lock/read/render/write uses one stable `SafeDirectoryScope`;
-- named-topic participant locks use `MEMORY.md -> topic.md` order;
-- named-topic + Memory-map mutation uses the `pending`/`committed` WAL with exact pre-images;
-- cancellation propagates through ordinary work and preserves caller cancellation reason;
-- mandatory settlement may ignore an already-fired caller signal only to restore already-durable partial state;
-- recovery is fail-closed when ownership/WAL state becomes ambiguous after recovery protocol begins;
-- Windows remains NOT TESTED and must not inherit the stronger POSIX TOCTOU guarantee.
+- immediate invalidation removal from every cached read path;
+- invalidation racing an in-flight refresh;
+- browser authoritative cache omission causing refresh;
+- fail-closed legacy logout with zero credential read/delete calls.
 
-## Immediate task — Codex provider audit / cleanup / freeze
+Project Memory audit regressions cover:
 
-Target package:
+- delayed old journal cleanup vs next transaction generation;
+- writer finalizer vs replacement lock;
+- stale cleanup vs replacement lock generation;
+- bounded prefix ingestion seam;
+- journal `0600` after committed transition;
+- PID-reuse recovery on Linux/macOS;
+- upstream `@deepseek-ai/dsh-atomic-write` treating current directory lock as contention.
 
-```text
-packages/codex
-```
+Existing compound/multi-process/cancellation/recovery tests remain relevant and must all be rerun.
 
-Start independently from the current code and actual upstream DSH contracts. Do not assume that earlier provider findings are exhaustive and do not inherit Core/Project Memory alpha.1 compatibility by association.
+## Immediate task — independent Gemini validation
 
-Required direction:
+Do **not** implement more cleanup before this gate unless validation exposes a concrete problem.
 
-1. inspect current Codex README, source and tests after canonical project docs;
-2. independently determine the Codex package's actual compatibility with installed DSH `0.1.1-rc.2` and official `0.1.2-alpha.1`;
-3. reconcile Codex DSH dependencies/peers only to generations proven by that provider-specific audit;
-4. move genuinely provider-neutral failure/helper logic onto the already-frozen Core contracts where appropriate, without moving Codex protocol translation into Core;
-5. preserve the reviewed Codex App Server adapter boundary;
-6. keep vendor-specific subagent integrations absent;
-7. prove vendor-native memory/project-doc suppression for primary Codex invocation;
-8. run focused test/check/build, then required local/live Codex acceptance;
-9. freeze Codex only after its own validation evidence is accepted.
+Gemini should validate, not repair, unless explicitly authorized.
 
-Historical Codex pre-work evidence exists in `docs/verification/README.md`, including a prior `31/31` focused PASS and live primary `CODEX_PRIMARY_OK`, but it is only a starting point and not a current Codex freeze.
+Required run:
 
-## Invariants to preserve
+1. fetch/pull current `feat/core-provider-plugins-rc3` and record exact head SHA;
+2. verify working tree clean before tests;
+3. use Node `24.19.0` / pnpm `11.21.0` environment where available;
+4. `pnpm install --frozen-lockfile`;
+5. run Core focused tests including `packages/core/test/audit-regressions.test.ts` and existing lifecycle/RPC suites;
+6. Core `check` and `build`;
+7. run Project Memory focused tests including `audit-regressions`, compound transaction, filesystem/symlink, cancellation and multi-process suites;
+8. Project Memory `check` and `build`;
+9. full workspace test/check/build;
+10. `pnpm verify:local`;
+11. run adversarial/repeated Project Memory race tests, especially lock replacement, concurrent transaction generations, stale recovery and cancellation/settlement;
+12. verify no successful/recovered exercised path leaves unexpected `.lock` or `project-memory-transaction.json` protocol state;
+13. explicitly validate both lock interoperability directions with `@deepseek-ai/dsh-atomic-write`;
+14. create/use a disposable dependency environment against official exact DSH alpha.1 commit `cd5ef8148158c3a752a658978873241fdf8e2bbc` rather than treating rc.2 devDependencies as compatibility proof;
+15. execute real alpha.1 `memory_read`, `memory_write`, `memory_edit` and changed recovery/cancellation paths;
+16. exercise Core authorization status/fail-closed legacy logout and Usage Limits invalidation through the real alpha.1 Connection host/client seam where practical;
+17. independently review the changed code for new races, deadlocks, type/API mismatches, security regressions and unnecessary complexity; do not assume the implementation strategy is correct merely because tests pass;
+18. confirm current canonical docs match actual behavior;
+19. confirm GitHub Actions/hosted CI were not used and `.github/workflows` was not inspected/edited;
+20. Windows remains NOT TESTED;
+21. overwrite only `docs/verification/gemini/LATEST.md` with the raw PASS/FAIL report and commit/push that report even on FAIL.
 
-- Core and Project Memory remain frozen unless a concrete new failure requires reopening them;
-- providers register only through shared `registerProvider()`;
-- Core remains provider-independent;
-- Project Memory remains provider-independent;
-- model capability implies at least one canonical route;
-- capability absence is legal;
-- web search follows the exact current route with no vendor fallback;
-- registry observers are non-vetoing;
-- vendor-specific subagent registrations/tools remain absent;
-- provider-native persistent memory/project-doc injection must not replace DSH Project Memory;
-- no vendor credential/session/token stores are copied, parsed, migrated or deleted;
-- `@openai/codex*` and `@anthropic-ai/*` remain absent from the Suite runtime lock graph unless a separately reviewed design explicitly changes that boundary.
+A PASS must include actual command exit codes, exact branch head tested, exact upstream alpha.1 commit used, focused/full test counts, and any skipped/platform-specific cases. Do not reuse historical counts.
 
-## Development workflow
+## After Gemini
 
-The assistant edits GitHub; Gemini validates on the maintainer's local machine.
-
-For each narrow issue:
-
-1. fetch the current target file + SHA immediately before editing;
-2. make one logically complete change;
-3. provide one complete Gemini validation prompt;
-4. Gemini uses:
-
-   ```bash
-   export PATH="$HOME/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH"
-   ```
-
-5. Gemini validates but does not repair implementation unless explicitly authorized;
-6. Gemini overwrites only `docs/verification/gemini/LATEST.md`;
-7. Gemini commits/pushes `LATEST.md` even on FAIL;
-8. maintainer replies `готово`;
-9. assistant reads fresh `LATEST.md`; FAIL -> fix the exact cause, PASS -> fold durable evidence into `docs/verification/README.md` and continue.
+- FAIL -> read fresh `docs/verification/gemini/LATEST.md`, fix only proven causes, add regression coverage, rerun the necessary gates.
+- PASS -> independently inspect the fresh report, fold accepted durable evidence into `docs/verification/README.md`, update Foundation status to FROZEN in canonical docs, then resume Codex provider work.
 
 ## Hard constraints
 
 - GitHub Actions/hosted CI are not used. Do not inspect or edit `.github/workflows/*`.
 - No publish / merge / tag / release without explicit maintainer approval.
 - Do not copy, parse, migrate or delete vendor credential/session/token stores.
-- Windows remains **NOT TESTED**.
+- Do not add destructive legacy credential deletion until the credential contract offers a reviewed atomic-safe mutation.
 - Read command exit codes directly; avoid pipelines that mask failures.
-
-## Remaining sequence
-
-1. Codex cleanup/compatibility/freeze
-2. Antigravity cleanup/compatibility/freeze
-3. Claude usage-only cleanup/compatibility/freeze
-4. repository-wide provider invariants
-5. cross-provider/product live acceptance
-6. install/profile lifecycle
-7. final release gate
+- Windows remains **NOT TESTED**.
