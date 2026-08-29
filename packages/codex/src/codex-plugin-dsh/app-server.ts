@@ -70,7 +70,7 @@ class NotificationQueue implements AsyncIterable<AppServerNotification> {
 export class CodexAppServerConnection {
   private readonly transport: JsonRpcLineTransport
   private readonly queue = new NotificationQueue()
-  private closing = false
+  private closePromise: Promise<void> | undefined
 
   constructor(
     private readonly child: SubprocessHandle,
@@ -89,7 +89,7 @@ export class CodexAppServerConnection {
     })
     void child.done.then(
       outcome => {
-        if (this.closing) return
+        if (this.closePromise !== undefined) return
         const error = new Error(
           `codex-plugin-dsh: App Server exited unexpectedly (code ${String(outcome.exitCode)}, signal ${String(outcome.signal)})${this.stderrSuffix()}`,
         )
@@ -97,7 +97,7 @@ export class CodexAppServerConnection {
         else this.observer.failure(error)
       },
       error => {
-        if (this.closing) return
+        if (this.closePromise !== undefined) return
         const failure = thrown(error)
         if (this.observer === undefined) this.queue.fail(failure)
         else this.observer.failure(failure)
@@ -130,7 +130,7 @@ export class CodexAppServerConnection {
 
   /** Send a best-effort interrupt for an active turn. */
   interrupt(threadId: string, turnId: string): void {
-    if (this.closing) return
+    if (this.closePromise !== undefined) return
     void this.transport.request('turn/interrupt', { threadId, turnId }).catch(() => {})
   }
 
@@ -139,10 +139,15 @@ export class CodexAppServerConnection {
     return this.queue
   }
 
-  /** Terminate the managed process tree and wait until it is gone. Idempotent. */
-  async close(): Promise<void> {
-    if (this.closing) return
-    this.closing = true
+  /** Terminate the managed process tree and make every caller wait until it is gone. */
+  close(): Promise<void> {
+    if (this.closePromise !== undefined) return this.closePromise
+    const closing = this.finishClose()
+    this.closePromise = closing
+    return closing
+  }
+
+  private async finishClose(): Promise<void> {
     this.queue.end()
     this.transport.close()
     try {
