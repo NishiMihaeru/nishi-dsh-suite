@@ -13,6 +13,10 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
+import {
+  SUPPORTED_CODEX_APP_SERVER_VERSION,
+  codexAppServerVersionFromUserAgent,
+} from './codex-plugin-dsh/app-server.js'
 import { CodexRateLimitsSourceError } from './usage.js'
 
 const DEFAULT_DISPOSE_GRACE_MS = 3_000
@@ -222,8 +226,15 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
           if (frame.error) {
             throw new Error(`codex-usage: initialize failed: ${jsonRpcErrorDetail(frame.error)}`)
           }
-          if (frame.result === undefined || frame.result === null || typeof frame.result !== 'object') {
+          const initialized = plainObject(frame.result)
+          if (initialized === undefined) {
             throw new Error('codex-usage: initialize response result is invalid')
+          }
+          const version = codexAppServerVersionFromUserAgent(initialized.userAgent)
+          if (version !== SUPPORTED_CODEX_APP_SERVER_VERSION) {
+            throw new Error(
+              `codex-usage: unsupported Codex App Server version ${JSON.stringify(version ?? initialized.userAgent)}; expected ${SUPPORTED_CODEX_APP_SERVER_VERSION}`,
+            )
           }
           initCompleted = true
           stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized' })}\n`)
