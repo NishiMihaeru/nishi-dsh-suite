@@ -14,11 +14,11 @@ Under the discovered project root the package owns:
 - `.dsh/memory/<topic>.md` — durable topic memories;
 - `.dsh/local/` — transient local state, kept out of version control by the initializer.
 
-For Git workspaces, session `cwd` is walked upward to the nearest `.git` marker. A `.git` directory and a worktree-style `.git` file are both accepted. Context injection and all memory tools use the same root resolver, so starting a session in a nested directory cannot create a second nested `.dsh/memory` tree.
+For Git workspaces, session `cwd` is walked upward to the nearest `.git` marker. A `.git` directory and worktree-style `.git` file are both accepted. For a non-Git workspace, normalized absolute session `cwd` is the project root. Context injection and all memory tools use the same resolver.
 
-For a non-Git workspace, the normalized absolute session `cwd` is the project root. An explicit workspace root may itself be represented by a symlink path; the package binds operations to the resolved directory inode while keeping the owned `.dsh`, `.dsh/memory`, and `.dsh/local` final components as real directories.
+An explicit workspace root may itself be represented by a symlink path. Package-owned canonical `.dsh`, `.dsh/memory`, and `.dsh/local` final components must remain real directories.
 
-## Tools
+## Tools and bounds
 
 The package registers:
 
@@ -26,119 +26,122 @@ The package registers:
 - `memory_write` — create/replace a topic or bootstrap;
 - `memory_edit` — deterministic exact-text replacement requiring exactly one match.
 
-For named topics, `memory_write` and `memory_edit` use a journaled compound transaction that keeps the topic file and its canonical `MEMORY.md` map entry consistent across ordinary errors and process death. Bootstrap topic `memory` remains a single-file operation.
+Named-topic model-facing writes/edits use a journaled compound transaction so topic content and the canonical `MEMORY.md` map entry move together across ordinary errors and process death.
 
-Topic ids are flat lowercase ASCII identifiers containing letters, digits and hyphens, at most 64 characters. `memory` and Windows reserved device names are rejected, which keeps topic paths inside `.dsh/memory`.
+Topic ids are flat lowercase ASCII identifiers containing letters, digits and hyphens, at most 64 characters. `memory` and Windows reserved device names are rejected.
 
 Limits:
 
 - bootstrap: at most 25 KiB and 200 lines;
 - topic file: at most 256 KiB.
 
+The bootstrap limit is also an ingestion bound. Read-only bootstrap retrieval reads only a small bounded prefix needed to construct the 25 KiB/200-line projection. Read-modify-write bootstrap paths reject an oversized persisted `MEMORY.md` from file metadata before materializing it. Existence-only paths read zero content bytes.
+
 Reads do not silently create missing memory files.
 
-Every model-facing memory operation forwards the DSH `ToolRunContext.signal` through project-root discovery, recovery, lock acquisition, reads and commit boundaries. Cancellation while waiting for a writer lock rejects before the mutation runs; cancellation is checked again immediately before atomic commit points. If cancellation is the cause of failure, the tool rethrows the caller's cancellation reason rather than sanitizing it into an ordinary Project Memory error.
+## Context injection and cancellation
 
-If cancellation or another failure happens after the first participant has already been durably replaced, rollback is mandatory settlement rather than new user work. Settlement reuses the already-opened directory identities and writer locks but deliberately stops consulting the caller's already-fired `AbortSignal` until exact pre-images and WAL state are restored. This prevents a cancelled compound mutation from leaving a known partial state merely because the cancellation itself would otherwise abort rollback.
+On `agent/pre-step` the runtime lazily initializes the project, reads `DSH.md` plus bounded `MEMORY.md`, and adds deterministic plugin context when the same project context is not already visible. Topic files are read on demand.
 
-## Context injection
+Successfully initialized roots are cached in-process. Concurrent first-use initialization is not represented by one shared promise because one caller's cancellation must not cancel another caller's initialization; the filesystem protocol is idempotent and cross-process serialized instead.
 
-On `agent/pre-step` the runtime lazily initializes the project, reads `DSH.md` plus the bounded `MEMORY.md`, and adds a deterministic plugin instruction message when context is not already visible.
+Model-facing operations forward the DSH `ToolRunContext.signal` through root discovery, recovery, lock acquisition, reads and ordinary commit boundaries. Once a partial compound mutation has already crossed a durable participant replacement boundary, rollback becomes mandatory settlement and deliberately stops consulting the already-fired caller signal until exact pre-images/WAL state are restored.
 
-Topic files are never concatenated automatically. The bootstrap Memory map is the discovery surface; detailed topics are read on demand with `memory_read`.
+## Filesystem safety
 
-Successfully initialized roots are cached in-process. Concurrent first-use initialization is intentionally not represented by one shared promise because one agent's cancellation must not cancel another agent's initialization. The filesystem protocol is idempotent and cross-process serialized instead, and each pre-step owns its own `AbortSignal`.
-
-## Maintenance commands
-
-When both DSH `commands` and `llm` services are available, the package registers:
+On POSIX, package-owned descendants are opened through one pinned descriptor chain:
 
 ```text
-/memory <provider>/<model>
-/consolidate <provider>/<model>
+projectRoot -> .dsh -> memory/local
 ```
 
-Registration uses Cordis `ctx.inject(['commands', 'llm'], ...)`, so command handlers have authorized access to both services.
+Each level validates device/inode identity and uses `/proc/self/fd/<fd>` or `/dev/fd/<fd>` when available. Reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible entry, and then read from that handle. Replacement writes, first-publication temp files, hard-link publication and rename operate relative to the same opened parent-directory identity.
 
-The exact steered maintenance message activates the temporary provider/model selection on `agent/inbox/claimed`, before DSH prompt assembly snapshots model selection for the step. This guarantees that the first maintenance request uses the requested route. Selection is scoped to the maintenance turn and cleaned on idle, matching stop/error or steering failure. A second maintenance command on the same agent is rejected while one is pending/active.
+Windows has no equivalent Node directory-fd/openat surface in this implementation; it uses fallback path operations plus identity revalidation and remains **NOT TESTED**. Strong descriptor-chain TOCTOU claims are POSIX-only.
 
-Maintenance directives permit only durable project facts. They explicitly reject secrets, credentials, quota/usage snapshots, raw chain-of-thought, transient logs and personal facts about the operator because project memory is committed and shared with the repository.
+The implementation does not `fsync` file contents or parent directories, so sudden power-loss/storage-durability guarantees are explicitly out of scope.
 
-There is currently no `memory_delete` tool; consolidation is rewrite/edit based, and the directives explicitly forbid substituting shell deletion for a missing memory operation.
+## Writer locking
 
-## Filesystem safety and transactions
+Project Memory uses the DSH-compatible `<target>.lock` **namespace** for RMW serialization. Current Project Memory writers publish a generation-safe populated lock directory at that path. The directory contains one owner marker with:
 
-Canonical `.dsh`, `.dsh/memory`, and `.dsh/local` final path components must be real directories, not symlinks/junctions. Existing canonical file targets must be regular files. The explicit project root or DSH home may be a symlink path, but that allowance does not extend to package-owned canonical components.
+- format version;
+- owner PID;
+- a random per-acquisition owner token;
+- an OS process-birth identity when available.
 
-On POSIX, Project Memory does not reopen package-owned descendants from a complete replaceable pathname. The storage layer opens the explicit project root first, then opens `.dsh` as a direct real child of that root, then opens `memory` and `local` as direct real children of the already-opened `.dsh`. Each level verifies device/inode identity and uses `/proc/self/fd/<fd>` or `/dev/fd/<fd>` when available. As a result, replacing an intermediate `.dsh` pathname with a symlink cannot redirect a later `.dsh/memory` or `.dsh/local` operation outside the directory generation that was actually opened.
+The canonical lock directory is published atomically only after its owner marker exists. Release/removal verifies the exact observed owner generation. After the marker is removed, `rmdir` can succeed only if the canonical pathname still points to that same now-empty directory; a replacement owner publishes a populated directory, so a delayed old finalizer cannot remove it.
 
-File reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible final entry, then read bytes from that handle. Replacement writes, temp-file creation, hard-link publication and rename all occur relative to the same opened parent-directory identity.
+Legacy numeric-PID regular `<target>.lock` files remain readable/removable only for recovery compatibility with pre-change state. Current Project Memory writers no longer create them.
 
-Read-modify-write operations go further: lock acquisition and every read/write performed by that critical section share one `SafeDirectoryScope` backed by the same opened parent directory. Named-topic compound mutations open `memory` and `local` as siblings of one pinned `.dsh` scope; `MEMORY.md.lock`, the nested topic lock, participant snapshots, participant commits and rollback stay on the same memory scope, while WAL publication/phase change/cleanup stay on the paired local scope. Successful scopes are post-validated against their logical pathnames, so namespace replacement cannot silently redirect I/O and still be reported as success.
+The namespace remains interoperable with `@deepseek-ai/dsh-atomic-write`: an upstream regular-file lock blocks current Project Memory acquisition, while upstream exclusive creation observes the current populated directory lock as contention. Regression coverage exists for both directions; executable confirmation is pending the new validation run.
 
-Windows has no equivalent Node directory-fd/openat surface in this implementation; it uses the fallback path plus identity revalidation and remains **NOT TESTED** for rc.3. No strong Windows TOCTOU claim is made.
+A numeric PID alone is not accepted as current-generation ownership when persisted state carries a process identity. Linux uses `/proc/<pid>/stat` process start time; macOS uses `ps` process start time. This prevents PID reuse by an unrelated live process from indefinitely preserving a dead transaction/lock. When no reliable process-birth identity can be obtained, recovery fails closed and treats a live PID as live rather than guessing stale ownership.
 
-Replacement writes create a complete sibling temp inode and rename it through the anchored parent. First publication of `DSH.md`, `.dsh/project.json`, `MEMORY.md`, and a newly created `.gitignore` entry is also complete-before-visible: the package writes a sibling temp inode first, then publishes it with a no-clobber hard-link commit. A concurrent external creator is preserved rather than overwritten, and a process death cannot leave a canonical zero/partial file merely because the pathname was opened with `wx` before its content finished writing.
+## Named-topic crash transaction
 
-These guarantees cover process-level interruption and atomic namespace publication. The implementation does not `fsync` file contents and parent directories, so sudden power-loss/storage-durability guarantees are explicitly out of scope.
-
-Every Project Memory read-modify-write target uses the same `<target>.lock` namespace as `@deepseek-ai/dsh-atomic-write`. Lock acquisition is cross-process and `AbortSignal`-aware, and the lock covers the complete read/render/atomic-commit cycle. Whole-file writers of the same target honor that same namespace.
-
-Current serialized shared writers are:
-
-- `.dsh/memory/MEMORY.md`: bootstrap create/write/edit and Memory-map updates;
-- `.dsh/memory/<topic>.md`: whole-file writes and exact edits;
-- root `.gitignore`: initializer create/update of the `.dsh/local/` rule.
-
-Named-topic tool mutations additionally use a fixed lock order:
+Named-topic mutations use fixed participant lock order:
 
 ```text
 MEMORY.md -> <topic>.md
 ```
 
-Before either participant changes, the transaction writes `.dsh/local/project-memory-transaction.json` with the exact pre-images of the topic and `MEMORY.md`. The journal has two phases:
+Before either participant changes, `.dsh/local/project-memory-transaction.json` stores exact pre-images plus transaction metadata. Current journals contain:
 
-- `pending` — the transaction is not committed; recovery restores both exact pre-images (or removes a file that did not previously exist);
-- `committed` — both participant writes completed and the journal itself was atomically changed to `committed` while both participant locks were still held; recovery preserves the new participants and only removes stale protocol locks/journal metadata.
+- journal version;
+- `pending` / `committed` phase;
+- owner PID;
+- optional process-birth identity;
+- random transaction-generation id;
+- topic id;
+- exact pre-images for topic and `MEMORY.md`.
 
-The journal phase change is the logical commit point. Cleanup after lock release is best-effort and idempotent: a surviving committed journal is safe and is settled by the next Memory-map critical section or crash recovery. A dead owner is never inferred from file age; recovery checks the recorded PID and only removes lock files whose recorded owner is no longer alive. If the recorded owner process is still alive, recovery first waits until it can acquire `MEMORY.md.lock`; a `pending` journal that still exists after that lock barrier is no longer an active compound transaction and is rolled back under the normal `MEMORY.md -> topic.md` lock order.
+Older journals without the new generation/identity fields remain readable for one-way recovery compatibility.
 
-Recovery is fail-closed after unresolved WAL state has been observed. If a journal changes from the expected dead owner to another live owner before recovery can claim it, recovery rejects instead of returning an ordinary "nothing recovered" result. Likewise, disappearance or incompatible mutation of the journal after the recovery protocol has begun is treated as an error because coherent participant state can no longer be proven from the captured pre-images.
+Protocol:
 
-The Memory-map render is preflighted while `MEMORY.md.lock` is held, before topic mutation. Ordinary pre-commit failures restore both exact pre-images before the locks are released. A missing `MEMORY.md` is modeled using the approved initial bootstrap during preflight and is not published as a side effect of a failed topic operation.
+1. open one pinned `projectRoot -> .dsh -> {memory, local}` generation;
+2. hold `MEMORY.md` then topic lock;
+3. capture bounded participant pre-images;
+4. publish the `pending` journal mode `0600`;
+5. replace topic participant;
+6. replace Memory-map participant;
+7. atomically replace the journal with `committed`, preserving mode `0600`;
+8. while the participant locks are **still held**, best-effort remove only that exact committed journal generation;
+9. release locks/scopes.
 
-Readers remain lock-free because replacement publication is atomic and reads are handle-based. Project memory never owns vendor credentials or authentication state.
+The committed phase transition is the logical commit point. Cleanup is deliberately outside rollback semantics: cleanup failure after commit leaves preserve-and-clean recovery metadata rather than rolling participants back.
+
+Generation checking prevents delayed cleanup from an earlier transaction from deleting a later transaction that happens to reuse the one fixed journal pathname.
+
+Recovery semantics:
+
+- dead `pending` -> claim, restore exact pre-images, remove that journal generation;
+- dead `committed` -> preserve new participants, remove stale protocol metadata only;
+- live matching owner -> cross the `MEMORY.md` writer barrier before deciding whether anything remains to settle;
+- recycled PID with mismatched process identity -> owner is stale, not live;
+- ownership/WAL mutation that makes coherent state unprovable after recovery has begun -> fail closed.
+
+## Architectural simplification
+
+Recovery is owned by the domain operations that require it. Tool wrappers no longer perform a redundant pre-dispatch recovery and then call domain functions that recover again. This reduces I/O and recovery interleavings without changing the tool contract.
+
+The transaction/lock generation fields are intentional complexity: they replace unsafe pathname/PID guesses with explicit ownership invariants and are retained because they directly close durability races found by the audit.
 
 ## Supported DSH peer family
 
-The production DSH peers are restricted to the two generations with direct source/runtime validation:
+Production DSH peers remain restricted to:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The explicit union deliberately avoids claiming untested intermediate or future prereleases. Local `devDependencies` remain pinned to the reproducible installed `0.1.1-rc.2` baseline. Official `dsh-v0.1.2-alpha.1` compatibility was exercised in the accepted disposable validation environment at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
+The package devDependency graph remains pinned to rc.2, so normal local tests alone are not proof of alpha.1 compatibility. The changed tree must be explicitly exercised against official `dsh-v0.1.2-alpha.1` at commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
 
-## Acceptance status — FROZEN
+## Current status — REOPENED / PENDING VERIFICATION
 
-The historical PM01-PM05 acceptance records remain useful history, but the independent `dsh-v0.1.2-alpha.1` audit reopened Project Memory after finding filesystem TOCTOU, first-publication crash safety, cooperative cancellation, and cross-file crash-consistency defects.
+The fresh independent alpha.1 audit reopened Project Memory and found journal-generation cleanup, stale-lock replacement, PID-reuse recovery, unbounded bootstrap ingestion and journal permission defects. The current branch implements generation-safe journal/lock ownership, process-birth identity where supported, bounded bootstrap ingestion and owner-only journal phase replacement, with targeted regression tests for the concrete interleavings.
 
-The remediation addresses those findings with the full POSIX descriptor chain `projectRoot -> .dsh -> memory/local`, stable lock/RMW scopes, complete-before-visible first publication, end-to-end `AbortSignal` propagation, mandatory settlement after a durable partial commit, and the `pending`/`committed` recovery journal described above. Regression coverage includes static symlinks, symlinked explicit roots, replacement of the locked parent directory, replacement of intermediate `.dsh` with an external symlink, cancellation while waiting for locks, settlement after cancellation, multi-process serialization, pending/committed crash recovery, abandoned live-PID recovery, recovery ownership transfer, and idempotent concurrent cleanup.
+The changed code has been statically reviewed against the exact upstream alpha.1 filesystem/atomic-write contracts, but it has **not yet received the new executable Gemini/local validation run**. Earlier PASS counts apply only to their earlier implementation checkpoint and must not be treated as validation of this head.
 
-The final remediation validation accepted Project Memory at implementation checkpoint:
-
-```text
-eb95ef6425c788f63339befd0c2437f78bc8dde1
-```
-
-with raw PASS report commit:
-
-```text
-f491d681390924a171211a5c0dd0c8991f6a7faf
-```
-
-Accepted evidence includes `57/57` focused tests, Project Memory check/build PASS, full workspace test/check/build PASS, `pnpm verify:local` PASS, and disposable official alpha.1 runtime PASS. The alpha.1 run executed real `memory_read`, `memory_write`, and `memory_edit`; verified lock-contention cancellation, mandatory settlement, descriptor-chain parent replacement, intermediate `.dsh` symlink replacement, pending/committed WAL recovery, fail-closed ownership transfer, and zero lingering lock/WAL protocol files in the exercised paths.
-
-Project Memory is therefore **FROZEN** for the current rc.3 provider work. Reopen it only for a new concrete defect or compatibility failure.
-
-Windows remains **NOT TESTED** for rc.3.
+Windows remains **NOT TESTED**.
