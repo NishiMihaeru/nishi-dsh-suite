@@ -2,7 +2,20 @@
 
 `nishi-dsh-suite` is the single Market-facing bundle for the modular Nishi integrations for DeepSeek Harness.
 
-Compatibility target: **DeepSeek Harness 0.1.1-rc.2**, Node.js 24. The current Suite family is **`0.1.0-rc.3`** and remains unpublished while provider-level acceptance is completed.
+The current Suite family is `0.1.0-rc.3`, Node.js 24, and remains unpublished while provider-level acceptance is completed.
+
+## Compatibility status
+
+The current bundle/provider dependency graph remains based on DeepSeek Harness `0.1.1-rc.2`. In particular, the Suite still carries `@deepseek-ai/dsh-authorization@0.1.1-rc.2`, and the Codex, Antigravity and Claude provider manifests currently declare provider-specific DSH peers at rc.2.
+
+The provider-independent Foundation packages are broader:
+
+```text
+nishi-dsh-core:           0.1.1-rc.2 || 0.1.2-alpha.1
+nishi-dsh-project-memory: 0.1.1-rc.2 || 0.1.2-alpha.1
+```
+
+Their alpha.1 support was independently validated against official `dsh-v0.1.2-alpha.1` at exact commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`. That evidence does **not** make the complete Suite/provider graph alpha.1-compatible; each provider owns its own compatibility gate.
 
 ## Installed rc.3 family
 
@@ -16,7 +29,7 @@ The bundle installs five Nishi leaf packages at the same rc.3 version:
 
 Together with this bundle package, the release family contains six packages.
 
-Provider packages inject the core registry and call the shared registration path. A provider may declare model, web-search and/or usage capabilities; capability absence is legal. A new provider should require no core, project-memory or browser edit, but it does require the normal declarative Suite packaging change: dependency/bundle row plus release-family metadata.
+Provider packages inject the Core registry and call the shared registration path. A provider may declare model, web-search and/or usage capabilities; capability absence is legal. A new provider should require no Core, Project Memory or browser identity edit, but it does require normal declarative Suite packaging metadata.
 
 ## Host-plane composition
 
@@ -27,15 +40,15 @@ Provider packages inject the core registry and call the shared registration path
 - Codex, Antigravity and Claude provider plugins;
 - `nishi-dsh-core`.
 
-Provider rows may appear before the core row because they declare `inject: ['nishiProviders', ...]`; Cordis defers them until the registry exists.
+Provider rows may appear before the Core row because they inject `nishiProviders`; Cordis defers them until the registry exists.
 
-The core's final host lifecycle is registry-first:
+The Core host lifecycle is registry-first:
 
-1. outer `nishi-core` has no external injections and publishes `NishiProvidersService`;
+1. outer `nishi-core` publishes `NishiProvidersService`;
 2. internal `nishi-core-host` waits for `nishiProviders`, `connection` and `credentials`;
 3. provider plugins become eligible when their own dependencies plus `nishiProviders` are present.
 
-The Suite still carries `@deepseek-ai/dsh-authorization@0.1.1-rc.2` as a surrounding-profile compatibility seam. **The core itself no longer imports or injects the authorization service.** Its Model Accounts host reads the DSH credentials service directly.
+The Core itself no longer imports or injects the authorization service. Its Model Accounts host reads the DSH credentials service directly, and destructive legacy-grant logout is disabled unless a future credential contract offers an atomic-safe removal operation.
 
 ## Agent-plane Orchestrator preset
 
@@ -45,13 +58,13 @@ The routed search tool is not a host bundle row. The packaged Orchestrator prese
 nishi-dsh-core/web-search
 ```
 
-on the agent plane, along with shared project-memory tools and DSH-native `subagent` / `subagent_fork` delegation.
+on the agent plane, along with shared Project Memory tools and DSH-native `subagent` / `subagent_fork` delegation.
 
-Vendor-specific delegation tools were removed in rc.3. Delegated DSH child agents now follow the primary route instead of creating separate vendor-specific tool/memory environments.
+Vendor-specific delegation tools were removed in rc.3. Delegated DSH child agents follow the active primary route instead of creating separate vendor-specific tool/memory environments.
 
 ## Managed preset bridge
 
-DSH `0.1.1-rc.2` supports `$DSH_HOME/.agent-presets`, but its launcher overwrites third-party contributed preset roots. Until that upstream limitation changes, use the installed Suite command:
+DSH `0.1.1-rc.2` supports `$DSH_HOME/.agent-presets`, but its launcher does not reliably preserve third-party contributed preset roots. Until that upstream limitation changes, use the installed Suite command:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install
@@ -87,28 +100,24 @@ The installed Suite dependency closure must remain free of `@openai/codex*` and 
 
 ## Current verification status
 
-Core and Project Memory are **DONE / FROZEN** after separate final acceptance passes.
+Core and Project Memory are **FROZEN** on accepted Foundation implementation:
 
-The rc.3 family has already passed:
+```text
+7cd4d5b17625f9b3a21b741555df6597fd9cb889
+```
 
-- `pnpm verify:local` with six tarballs;
-- provider protocol smoke against installed Codex/Antigravity/Claude CLIs;
-- disposable Suite bundle install/reinstall closure;
-- installed `nishi-dsh-core` subpath resolution including `/web-search`;
-- real disposable DSH host boot and HTTP readiness;
-- agent-plane `nishi-dsh-core/web-search` mount;
-- Project Memory root-consistency, atomic-write and maintenance-command Cordis probes.
+Raw independent follow-up PASS report commit:
 
-Still required before claiming rc.3 product-level completion:
+```text
+d1cbac7094488ded52d9ab83891531bc01197090
+```
 
-- provider-specific cleanup that remains in Codex/Antigravity/Claude;
-- Antigravity model-catalog honesty/tests;
-- live Codex primary/search/vendor-memory suppression acceptance;
-- live Antigravity primary/model-switch/search acceptance;
-- Codex → Antigravity route switch in one session with project-memory continuity;
-- live Usage & Limits dynamic-roster/browser cases;
-- network/release gates and an explicitly approved publish decision.
+Accepted Foundation evidence includes Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, bidirectional atomic-write lock interoperability, and disposable exact-commit alpha.1 runtime probes.
 
-See `docs/HANDOFF.md`, `docs/ROADMAP.md`, and `docs/RELEASE.md` for current status.
+Provider packages are **not yet frozen** for the current rc.3 provider stage. Codex is active; Antigravity and Claude follow. Historical provider tests, CLI smoke runs, disposable bundle installs and earlier live fixtures remain useful checkpoint evidence, but they must not be presented as final acceptance for a later changed provider tree.
+
+The final Suite/product gate still requires fresh provider freezes, repository-wide invariants, cross-provider live acceptance, install/profile lifecycle acceptance and the release commands defined in `docs/RELEASE.md`.
+
+See `docs/HANDOFF.md` for the immediate task, `docs/ROADMAP.md` for task order, and `docs/verification/README.md` for exact accepted checkpoint evidence.
 
 Windows remains **NOT TESTED** for rc.3.
