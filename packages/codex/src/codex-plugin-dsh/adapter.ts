@@ -233,6 +233,19 @@ function abortError(signal: AbortSignal): Error {
     : new Error(`codex-plugin-dsh: operation aborted: ${String(signal.reason)}`)
 }
 
+async function waitForPromise<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (signal === undefined) return promise
+  signal.throwIfAborted()
+  const aborted = Promise.withResolvers<never>()
+  const onAbort = (): void => { aborted.reject(abortError(signal)) }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    return await Promise.race([promise, aborted.promise])
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
+}
+
 function phaseOf(value: unknown): ActiveBlock['phase'] {
   if (value === undefined || value === null) return null
   if (value === 'commentary' || value === 'final_answer') return value
@@ -599,10 +612,21 @@ export class CodexAppServerAdapter extends LlmAdapter {
       imageUrls.set(key, pending)
       return pending
     }
-    let history = await prepareCodexHistory(options.messages, CODEX_APP_SERVER_PROVIDER, resolveImageUrl)
+    let history = await prepareCodexHistory(
+      options.messages,
+      CODEX_APP_SERVER_PROVIDER,
+      resolveImageUrl,
+      sessionId,
+    )
     const toolSignature = codexToolSignature(options.tools)
     if (history.checkpoint !== undefined && history.checkpoint.toolSignature !== toolSignature) {
-      history = await prepareCodexHistory(options.messages, CODEX_APP_SERVER_PROVIDER, resolveImageUrl, true)
+      history = await prepareCodexHistory(
+        options.messages,
+        CODEX_APP_SERVER_PROVIDER,
+        resolveImageUrl,
+        sessionId,
+        true,
+      )
     }
     const availableTools = new Set((options.tools ?? []).map(tool => tool.name))
     const events = new ActiveTurnQueue()
@@ -779,17 +803,26 @@ export class CodexAppServerAdapter extends LlmAdapter {
 
   private async models(parentSignal?: AbortSignal): Promise<readonly CatalogModel[]> {
     if (this.cachedModels !== undefined && this.cachedModels.expiresAt > Date.now()) return this.cachedModels.models
-    if (this.pendingModels !== undefined) return this.pendingModels
-    const signal = combinedSignal(parentSignal, this.config.catalogTimeoutMs)
-    const pending = this.loadModels(signal)
-    this.pendingModels = pending
-    try {
-      const models = await pending
-      this.cachedModels = { expiresAt: Date.now() + this.config.modelCacheMs, models }
-      return models
-    } finally {
-      if (this.pendingModels === pending) this.pendingModels = undefined
+    parentSignal?.throwIfAborted()
+
+    let pending = this.pendingModels
+    if (pending === undefined) {
+      const signal = AbortSignal.timeout(this.config.catalogTimeoutMs)
+      let created!: Promise<readonly CatalogModel[]>
+      created = (async (): Promise<readonly CatalogModel[]> => {
+        try {
+          const models = await this.loadModels(signal)
+          this.cachedModels = { expiresAt: Date.now() + this.config.modelCacheMs, models }
+          return models
+        } finally {
+          if (this.pendingModels === created) this.pendingModels = undefined
+        }
+      })()
+      pending = created
+      this.pendingModels = created
+      void created.catch(() => {})
     }
+    return waitForPromise(pending, parentSignal)
   }
 
   private async loadModels(signal: AbortSignal): Promise<readonly CatalogModel[]> {
