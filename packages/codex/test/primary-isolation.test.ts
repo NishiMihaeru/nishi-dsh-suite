@@ -13,7 +13,7 @@ const config = {
   modelPageSize: 100,
 }
 
-test('primary App Server isolation disables vendor host capabilities and every discovered Codex skill', async () => {
+test('primary App Server isolation reads the session project layers and disables every discovered host capability', async () => {
   const requests: Array<{ method: string; params: object; signal: AbortSignal }> = []
   const signal = AbortSignal.timeout(5_000)
   const connection = {
@@ -53,9 +53,11 @@ test('primary App Server isolation disables vendor host capabilities and every d
           apps: {
             _default: { enabled: true },
             calendar: { enabled: true },
+            projectOnly: { enabled: true },
           },
           mcp_servers: {
             local: { command: 'ignored-by-test' },
+            projectOnly: { command: 'project-only-command' },
           },
         },
       }
@@ -63,17 +65,17 @@ test('primary App Server isolation disables vendor host capabilities and every d
   }
 
   const adapter = new CodexAppServerAdapter({} as any, config)
-  const isolation = await (adapter as any).isolationConfig(connection, signal)
+  const isolation = await (adapter as any).isolationConfig(connection, '/workspace', signal)
 
   assert.deepEqual(requests, [
     {
       method: 'config/read',
-      params: { includeLayers: false },
+      params: { includeLayers: false, cwd: '/workspace' },
       signal,
     },
     {
       method: 'skills/list',
-      params: { forceReload: true },
+      params: { cwds: ['/workspace'], forceReload: true },
       signal,
     },
   ])
@@ -160,9 +162,11 @@ test('primary App Server isolation disables vendor host capabilities and every d
     apps: {
       _default: { enabled: false },
       calendar: { enabled: false },
+      projectOnly: { enabled: false },
     },
     mcp_servers: {
       local: { enabled: false },
+      projectOnly: { enabled: false },
     },
   })
   assert.equal(Object.hasOwn((isolation as any).features, 'image_generation'), false, 'native image generation is the one intentional Codex host capability')
@@ -207,7 +211,7 @@ test('primary App Server isolation fails closed when Codex skill discovery repor
 
   const adapter = new CodexAppServerAdapter({} as any, config)
   await assert.rejects(
-    (adapter as any).isolationConfig(connection, signal),
+    (adapter as any).isolationConfig(connection, '/workspace', signal),
     /Codex skill discovery failed.*invalid frontmatter/,
   )
 })
