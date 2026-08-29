@@ -23,6 +23,15 @@ Users can edit this file after initialization.
 
 export const INITIAL_PROJECT_JSON_CONTENT = `{\n  "schemaVersion": 1\n}\n`
 
+// `.dsh/project.json` only ever holds a tiny `{"schemaVersion":1}` payload;
+// 64 KiB is generous headroom while still rejecting an unbounded read of a
+// file anyone with repository access could otherwise replace.
+export const MAX_PROJECT_JSON_BYTES = 64 * 1024
+// `.gitignore` is user-owned free-form content outside package control, so it
+// can legitimately grow much larger than project.json, but this read-modify-
+// write path still must not materialize an unbounded file.
+export const MAX_GITIGNORE_BYTES = 1024 * 1024
+
 export interface ProjectInitCreated {
   dshMd: boolean
   projectJson: boolean
@@ -90,7 +99,7 @@ async function ensureProjectJson(
   signal?: AbortSignal,
 ): Promise<boolean> {
   signal?.throwIfAborted()
-  const existing = await dshScope.readRegularFile(projectJsonPath)
+  const existing = await dshScope.readRegularFile(projectJsonPath, { maxBytes: MAX_PROJECT_JSON_BYTES })
   if (existing !== null) {
     validateProjectJsonBuffer(existing)
     return false
@@ -103,7 +112,7 @@ async function ensureProjectJson(
   )
   if (created) return true
 
-  const winner = await dshScope.readRegularFile(projectJsonPath)
+  const winner = await dshScope.readRegularFile(projectJsonPath, { maxBytes: MAX_PROJECT_JSON_BYTES })
   if (winner === null) throw new Error('Canonical ".dsh/project.json" disappeared during initialization')
   validateProjectJsonBuffer(winner)
   return false
@@ -117,7 +126,7 @@ async function ensureGitignoreEntry(
   const rootOptions = { allowDirectorySymlink: true } as const
   return withSafeFileWriterLock(projectRoot, gitignorePath, async (scope) => {
     signal?.throwIfAborted()
-    let raw = await scope.readRegularFile(gitignorePath)
+    let raw = await scope.readRegularFile(gitignorePath, { maxBytes: MAX_GITIGNORE_BYTES })
     if (raw === null) {
       const created = await scope.writeFileExclusiveAtomic(
         gitignorePath,
@@ -125,7 +134,7 @@ async function ensureGitignoreEntry(
         { mode: 0o644 },
       )
       if (created) return true
-      raw = await scope.readRegularFile(gitignorePath)
+      raw = await scope.readRegularFile(gitignorePath, { maxBytes: MAX_GITIGNORE_BYTES })
       if (raw === null) throw new Error('Canonical .gitignore disappeared during initialization')
     }
 

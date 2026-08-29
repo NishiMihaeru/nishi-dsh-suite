@@ -57,7 +57,7 @@ export function renderDshProjectContext(context: DshProjectContext): string | nu
   return `# DSH Project Context\n\n${sections.join('\n\n')}`
 }
 
-function isTask7ProjectContextMessage(msg: any): boolean {
+function isProjectContextMessage(msg: any): boolean {
   if (!msg || typeof msg !== 'object') return false
   const source = msg.source
   return (
@@ -75,7 +75,7 @@ function hasVisibleProjectContext(agent: any): boolean {
     const event = events[seq]
     if (
       event?.type === 'user/message' &&
-      isTask7ProjectContextMessage(event.data)
+      isProjectContextMessage(event.data)
     ) {
       return true
     }
@@ -85,6 +85,11 @@ function hasVisibleProjectContext(agent: any): boolean {
 
 /** Internal runtime registration for project-memory context injection at agent/pre-step. */
 export function registerProjectContextRuntime(ctx: Context): void {
+  // Bounded by construction: this grows only up to the number of distinct
+  // project roots this plugin instance has ever seen `agent/pre-step` for,
+  // which is a small number in practice. No eviction is added deliberately --
+  // evicting an entry would force a spurious re-initialization the next time
+  // that same root is seen.
   const initializedRoots = new Set<string>()
 
   async function ensureProjectInitialized(projectRoot: string, signal?: AbortSignal): Promise<void> {
@@ -107,7 +112,7 @@ export function registerProjectContextRuntime(ctx: Context): void {
       payload.signal?.throwIfAborted()
       if (payload.step === 1 && decision.messages.length === 0) return decision
       if (hasVisibleProjectContext(payload.agent)) return decision
-      if (decision.messages.some(isTask7ProjectContextMessage)) return decision
+      if (decision.messages.some(isProjectContextMessage)) return decision
 
       const rawCwd = payload.agent?.session?.header?.cwd
       if (typeof rawCwd !== 'string' || rawCwd.trim().length === 0 || !isAbsolute(rawCwd)) {

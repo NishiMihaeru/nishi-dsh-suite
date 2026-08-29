@@ -19,7 +19,14 @@ import { currentProcessIdentity } from './process-identity.js'
 
 const LOCK_RETRY_INITIAL_MS = 20
 const LOCK_RETRY_MAX_MS = 200
-const DEFAULT_LOCK_WAIT_MS = 2_000
+// One `memory_write`/`memory_edit` compound transaction holds the MEMORY.md
+// lock for the whole operation while it also does a WAL journal publish plus
+// two atomic participant writes (topic file, then Memory-map file) under that
+// same lock. On a slow disk, or with several agents contending for the same
+// project, that held critical section can comfortably exceed a couple of
+// seconds, so the default wait budget for a *different* caller queued behind
+// it needs enough headroom to not spuriously time out.
+const DEFAULT_LOCK_WAIT_MS = 10_000
 const WRITER_LOCK_VERSION = 1
 const MAX_LOCK_OWNER_BYTES = 1024
 
@@ -30,6 +37,8 @@ interface DirectoryAnchor {
 
 interface DirectoryAnchorOptions {
   readonly allowDirectorySymlink?: boolean
+  /** Overrides DEFAULT_LOCK_WAIT_MS for writer-lock waits opened through this scope. */
+  readonly lockWaitMs?: number
 }
 
 interface ParentDirectoryOptions {
@@ -317,10 +326,14 @@ async function waitForRetry(delay: number, signal?: AbortSignal): Promise<void> 
   throwIfAborted(signal)
 }
 
-function assertBound(value: number | undefined, name: string): void {
+function assertBound(value: number | undefined, name: string, minimum = 0): void {
   if (value === undefined) return
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new TypeError(`${name} must be a non-negative safe integer`)
+  if (!Number.isSafeInteger(value) || value < minimum) {
+    throw new TypeError(
+      minimum > 0
+        ? `${name} must be a positive safe integer`
+        : `${name} must be a non-negative safe integer`,
+    )
   }
 }
 
@@ -384,6 +397,7 @@ function createDirectoryScope(
   dirPath: string,
   anchor: DirectoryAnchor,
   signal?: AbortSignal,
+  lockWaitMs?: number,
 ): SafeDirectoryScope {
   const anchoredPath = (targetFilePath: string): string => {
     const targetName = directChildName(dirPath, targetFilePath)
@@ -398,7 +412,7 @@ function createDirectoryScope(
     const child = await openChildAnchor(dirPath, anchor, childDirPath, create, signal)
     if (child === undefined) return undefined
     try {
-      const result = await operation(createDirectoryScope(childDirPath, child.anchor, signal))
+      const result = await operation(createDirectoryScope(childDirPath, child.anchor, signal, lockWaitMs))
       await assertDirectoryPathIdentity(childDirPath, child.anchor.identity, false)
       return result
     } finally {
@@ -437,7 +451,7 @@ function createDirectoryScope(
         throw new Error(`Malformed project memory writer lock at "${logicalLockPath}"`)
       }
       const markerName = entries[0]
-      const childScope = createDirectoryScope(logicalLockPath, child.anchor, signal)
+      const childScope = createDirectoryScope(logicalLockPath, child.anchor, signal, lockWaitMs)
       const marker = await childScope.readRegularFile(
         join(logicalLockPath, markerName),
         { maxBytes: MAX_LOCK_OWNER_BYTES },
@@ -490,7 +504,7 @@ function createDirectoryScope(
       const entries = await readdir(child.anchor.path)
       if (entries.length !== 1 || !/^owner-[A-Za-z0-9._-]+\.json$/.test(entries[0] ?? '')) return false
       const markerName = entries[0]
-      const childScope = createDirectoryScope(logicalLockPath, child.anchor, signal)
+      const childScope = createDirectoryScope(logicalLockPath, child.anchor, signal, lockWaitMs)
       const markerPath = join(logicalLockPath, markerName)
       const marker = await childScope.readRegularFile(markerPath, { maxBytes: MAX_LOCK_OWNER_BYTES })
       if (marker === null) return false
@@ -672,7 +686,7 @@ function createDirectoryScope(
       const targetPath = anchoredPath(targetFilePath)
       const logicalLockPath = `${targetFilePath}.lock`
       const lockPath = anchoredPath(logicalLockPath)
-      const deadline = Date.now() + DEFAULT_LOCK_WAIT_MS
+      const deadline = Date.now() + (lockWaitMs ?? DEFAULT_LOCK_WAIT_MS)
       let delay = LOCK_RETRY_INITIAL_MS
       const token = randomBytes(16).toString('hex')
       const processIdentity = await currentProcessIdentity()
@@ -760,7 +774,7 @@ function createDirectoryScope(
     },
 
     forSettlement() {
-      return createDirectoryScope(dirPath, anchor)
+      return createDirectoryScope(dirPath, anchor, undefined, lockWaitMs)
     },
   }
 
@@ -778,9 +792,10 @@ export async function withSafeDirectoryScope<T>(
   signal?: AbortSignal,
   options: DirectoryAnchorOptions = {},
 ): Promise<T> {
+  assertBound(options.lockWaitMs, 'lockWaitMs', 1)
   return withDirectoryAnchor(
     dirPath,
-    async (anchor) => operation(createDirectoryScope(dirPath, anchor, signal)),
+    async (anchor) => operation(createDirectoryScope(dirPath, anchor, signal, options.lockWaitMs)),
     signal,
     options,
   )

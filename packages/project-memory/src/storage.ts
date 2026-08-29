@@ -11,10 +11,16 @@ export interface ProjectStorageScopes {
   readonly local: SafeDirectoryScope
 }
 
+export interface ProjectStorageScopeOptions {
+  /** Overrides the default writer-lock wait budget for locks opened through this scope. */
+  readonly lockWaitMs?: number
+}
+
 export async function withExistingProjectDshScope<T>(
   projectRoot: string,
   operation: (dshScope: SafeDirectoryScope) => Promise<T>,
   signal?: AbortSignal,
+  options?: ProjectStorageScopeOptions,
 ): Promise<T | undefined> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
@@ -22,7 +28,7 @@ export async function withExistingProjectDshScope<T>(
     paths.projectRoot,
     (rootScope) => rootScope.withExistingChildDirectory(dshDir, operation),
     signal,
-    { allowDirectorySymlink: true },
+    { allowDirectorySymlink: true, lockWaitMs: options?.lockWaitMs },
   )
 }
 
@@ -30,6 +36,7 @@ export async function withEnsuredProjectDshScope<T>(
   projectRoot: string,
   operation: (dshScope: SafeDirectoryScope) => Promise<T>,
   signal?: AbortSignal,
+  options?: ProjectStorageScopeOptions,
 ): Promise<T> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   const dshDir = join(paths.projectRoot, '.dsh')
@@ -37,7 +44,7 @@ export async function withEnsuredProjectDshScope<T>(
     paths.projectRoot,
     (rootScope) => rootScope.withEnsuredChildDirectory(dshDir, operation),
     signal,
-    { allowDirectorySymlink: true },
+    { allowDirectorySymlink: true, lockWaitMs: options?.lockWaitMs },
   )
 }
 
@@ -45,12 +52,14 @@ export async function withExistingProjectMemoryScope<T>(
   projectRoot: string,
   operation: (memoryScope: SafeDirectoryScope) => Promise<T>,
   signal?: AbortSignal,
+  options?: ProjectStorageScopeOptions,
 ): Promise<T | undefined> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   return withExistingProjectDshScope(
     projectRoot,
     (dshScope) => dshScope.withExistingChildDirectory(paths.memoryDir, operation),
     signal,
+    options,
   )
 }
 
@@ -58,12 +67,14 @@ export async function withEnsuredProjectMemoryScope<T>(
   projectRoot: string,
   operation: (memoryScope: SafeDirectoryScope) => Promise<T>,
   signal?: AbortSignal,
+  options?: ProjectStorageScopeOptions,
 ): Promise<T> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   return withEnsuredProjectDshScope(
     projectRoot,
     (dshScope) => dshScope.withEnsuredChildDirectory(paths.memoryDir, operation),
     signal,
+    options,
   )
 }
 
@@ -71,12 +82,14 @@ export async function withExistingProjectLocalScope<T>(
   projectRoot: string,
   operation: (localScope: SafeDirectoryScope) => Promise<T>,
   signal?: AbortSignal,
+  options?: ProjectStorageScopeOptions,
 ): Promise<T | undefined> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   return withExistingProjectDshScope(
     projectRoot,
     (dshScope) => dshScope.withExistingChildDirectory(paths.localDir, operation),
     signal,
+    options,
   )
 }
 
@@ -84,12 +97,14 @@ export async function withEnsuredProjectLocalScope<T>(
   projectRoot: string,
   operation: (localScope: SafeDirectoryScope) => Promise<T>,
   signal?: AbortSignal,
+  options?: ProjectStorageScopeOptions,
 ): Promise<T> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   return withEnsuredProjectDshScope(
     projectRoot,
     (dshScope) => dshScope.withEnsuredChildDirectory(paths.localDir, operation),
     signal,
+    options,
   )
 }
 
@@ -97,6 +112,7 @@ export async function withEnsuredProjectStorageScopes<T>(
   projectRoot: string,
   operation: (scopes: ProjectStorageScopes) => Promise<T>,
   signal?: AbortSignal,
+  options?: ProjectStorageScopeOptions,
 ): Promise<T> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   return withEnsuredProjectDshScope(projectRoot, async (dshScope) => {
@@ -105,5 +121,5 @@ export async function withEnsuredProjectStorageScopes<T>(
         return operation({ dsh: dshScope, memory: memoryScope, local: localScope })
       })
     })
-  }, signal)
+  }, signal, options)
 }
