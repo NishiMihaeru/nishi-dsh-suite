@@ -1,148 +1,143 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after the independent Core + Project Memory audit/remediation and fresh validation against DSH `0.1.2-alpha.1`.
+Status updated for `0.1.0-rc.3` after a new independent Core + Project Memory audit strictly against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`).
 
-This file owns **task status and order only**. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
+This file owns task status and order only. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
-## Foundation — FROZEN
+## 1. Foundation — REOPENED / IMPLEMENTED / PENDING VERIFICATION
 
-Core and Project Memory were reopened by an independent audit against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`), remediated, and then revalidated from scratch.
+The previous Foundation freeze was reopened by new concrete findings. Earlier PASS evidence remains valid only for the earlier checkpoint and is not evidence for the changed branch head.
 
-Accepted implementation checkpoint:
+Current remediation targets:
 
-```text
-eb95ef6425c788f63339befd0c2437f78bc8dde1
-```
+- [x] Project Memory: prevent delayed committed-journal cleanup from deleting the next transaction generation;
+- [x] Project Memory: prevent stale-lock cleanup/finalizers from deleting a replacement live owner lock;
+- [x] Project Memory: distinguish process ownership from recycled numeric PID on Linux/macOS;
+- [x] Core: remove the unsafe legacy credential read-kind-then-delete mutation; fail closed because alpha.1 has no atomic compare-and-delete seam;
+- [x] Project Memory: bound bootstrap ingestion before whole-file materialization;
+- [x] Core: make usage invalidation authoritative for host cache and browser cached-read reconciliation;
+- [x] Project Memory: keep recovery journal mode `0600` across the committed phase transition;
+- [x] add deterministic regressions for journal generation, stale lock replacement, PID reuse, bounded prefix reads, journal permissions, unsafe logout and usage invalidation;
+- [x] add lock-namespace interoperability regression against `@deepseek-ai/dsh-atomic-write`;
+- [x] remove redundant tool-layer Project Memory recovery while preserving domain-owned recovery;
+- [x] update current package/canonical documentation so the changed tree is not mislabeled frozen.
 
-Raw PASS report commit:
+Pending executable gates:
 
-```text
-f491d681390924a171211a5c0dd0c8991f6a7faf
-```
+- [ ] install/frozen-lockfile validation on the exact final head;
+- [ ] Core focused tests;
+- [ ] Core check/build;
+- [ ] Project Memory focused tests, including new audit regressions and multi-process tests;
+- [ ] Project Memory check/build;
+- [ ] full workspace test/check/build;
+- [ ] `pnpm verify:local`;
+- [ ] official disposable DSH `0.1.2-alpha.1` runtime validation at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`;
+- [ ] adversarial/repeat runs for journal/lock concurrency, cancellation and recovery;
+- [ ] confirm zero lingering lock/WAL protocol files after exercised successful/recovery paths;
+- [ ] Gemini independent code review of the changed Core + Project Memory seams;
+- [ ] overwrite `docs/verification/gemini/LATEST.md` with raw PASS/FAIL evidence;
+- [ ] only after accepted PASS, fold durable evidence into `docs/verification/README.md` and freeze Foundation again.
 
-Accepted remediation and follow-up gates:
+Windows remains **NOT TESTED**. Process-birth PID-reuse hardening is implemented for Linux and macOS; unsupported platforms conservatively treat a live PID as live.
 
-- [x] Core Model Accounts no longer converts credential-store read failures into ordinary `NOT_CONFIGURED` state;
-- [x] failed legacy-grant deletion no longer reports a nominally successful logout;
-- [x] Project Memory POSIX package-owned descendants use a pinned `projectRoot -> .dsh -> memory/local` descriptor chain;
-- [x] explicit symlinked workspace roots remain supported while package-owned `.dsh` components remain real directories;
-- [x] RMW locks and all read/render/write operations use one opened `SafeDirectoryScope`;
-- [x] named-topic `memory` and WAL `local` scopes belong to one pinned `.dsh` generation;
-- [x] first publication of canonical project files is complete-before-visible and no-clobber;
-- [x] model-facing memory operations and lazy initialization propagate `AbortSignal` through ordinary lock waits and commit boundaries;
-- [x] rollback after a durable partial participant commit uses mandatory settlement and cannot be cancelled by the already-fired caller signal;
-- [x] named-topic + Memory-map mutation has a `pending`/`committed` recovery WAL with exact pre-images;
-- [x] recovery cleanup is idempotent and committed state cannot fall back into rollback merely because cleanup metadata remains;
-- [x] dead-owner recovery fails closed if WAL ownership/state changes after recovery protocol begins;
-- [x] targeted regressions cover locked-parent replacement, intermediate `.dsh` replacement, mandatory settlement and recovery ownership transfer;
-- [x] `pnpm install --frozen-lockfile` PASS;
-- [x] Core focused `178/178` tests + check + build PASS;
-- [x] Project Memory focused `57/57` tests + check + build PASS;
-- [x] full workspace test + check + build PASS;
-- [x] `pnpm verify:local` PASS;
-- [x] disposable official `0.1.2-alpha.1` runtime compatibility PASS for the changed Core and Project Memory seams;
-- [x] real alpha.1 `memory_read` / `memory_write` / `memory_edit` PASS;
-- [x] durable PASS evidence folded into `docs/verification/README.md`;
-- [x] Core re-freeze accepted;
-- [x] Project Memory re-freeze accepted.
-
-Windows remains **NOT TESTED**. The stronger descriptor-chain TOCTOU guarantee is a Linux/POSIX claim only.
-
-Core and Project Memory production DSH peers remain intentionally restricted to:
+Foundation production DSH peers remain:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Provider packages do not inherit that compatibility automatically.
+The main devDependency graph remains rc.2, so explicit alpha.1 validation is mandatory.
 
-## Current sequence
+## Architectural overcomplexity decision
 
-### 1. Foundation — COMPLETE / FROZEN
+### Simplify now
 
-Do not reopen Core or Project Memory without a new concrete defect or compatibility failure. Provider work must treat their current public/runtime contracts as fixed foundation interfaces.
+- [x] Remove duplicate Project Memory recovery at the tool wrapper; domain operations remain the single recovery boundary.
+- [x] Replace implicit PID/pathname ownership assumptions with explicit transaction ids, lock tokens and process identities. This adds fields but reduces the number of ambiguous states/races.
 
-### 2. Codex — ACTIVE
+### Keep for now
 
-- [ ] Independently audit current Codex source/runtime seams against installed DSH `0.1.1-rc.2` and official `0.1.2-alpha.1`; actual upstream source is primary truth.
-- [ ] Reconcile Codex DSH dependencies/peers only to generations proven by the provider-specific audit; do not inherit the Core/Memory range automatically.
-- [ ] Replace remaining provider-local failure/string-builder logic with the Core `VendorFailure`/recognizer contract where the behavior is genuinely provider-neutral.
-- [ ] Remove provider-local copies of genuinely provider-neutral helpers where a shared Core contract already exists.
-- [ ] Preserve vendor protocol translation and the reviewed Codex App Server adapter boundary inside the provider package.
-- [ ] Focused package `test` / `check` / `build` PASS.
-- [ ] Live primary turn PASS.
-- [ ] Routed native `web_search` PASS.
-- [ ] Live proof that vendor-native memory/project-doc injection is suppressed on the primary invocation.
-- [ ] Freeze Codex.
+- [ ] Core authorization client begin/submit/cancel/polling state machine: currently broader than the host's read-only/fail-closed behavior, but it is exported client API. Consider removal only as a separately reviewed compatibility cleanup after Foundation verification.
+- [ ] `registerConnectionRpcChannel()` `Function.length` rc2/alpha compatibility probe: brittle, but intentional while the package continues to publish rc2 support. Remove only when the supported peer boundary changes.
+- [ ] Usage invalidation generation token: keep; it now fences in-flight pre-invalidation observations and has a concrete correctness role.
+- [ ] Project Memory fixed journal pathname: keep for now. Generation identity plus participant locking closes the audited cross-generation race without introducing a larger WAL-directory migration.
 
-### 3. Antigravity
+Do not perform aesthetic refactors in the Foundation before the verification gate. Any further simplification needs a concrete invariant/API benefit and its own regression proof.
 
-- [ ] Audit provider-specific DSH compatibility against the actual supported generations before changing its package ranges.
-- [ ] Replace remaining provider-local failure/helper duplication with Core contracts where applicable.
-- [ ] Remove hardcoded model-family catalog filtering while preserving malformed-entry rejection.
-- [ ] Add catalog/model-list parser coverage.
-- [ ] Focused package `test` / `check` / `build` PASS.
-- [ ] Live primary turn PASS.
-- [ ] Mid-conversation model switch PASS.
-- [ ] Routed native `web_search` PASS.
-- [ ] Freeze Antigravity.
+## 2. Codex — BLOCKED ON FOUNDATION RE-FREEZE
 
-### 4. Claude
+After Foundation PASS:
+
+- [ ] independently audit current Codex source/runtime seams against its actually supported DSH generations;
+- [ ] reconcile provider-specific DSH dependencies/peers only to proven generations;
+- [ ] replace genuinely provider-neutral failure/helper duplication with Core contracts where appropriate;
+- [ ] preserve vendor protocol translation and the reviewed Codex App Server adapter boundary inside the provider package;
+- [ ] focused test/check/build PASS;
+- [ ] live primary turn + routed native `web_search` PASS;
+- [ ] prove vendor-native persistent memory/project-doc injection is suppressed on primary invocation;
+- [ ] freeze Codex.
+
+## 3. Antigravity
+
+- [ ] provider-specific DSH compatibility audit;
+- [ ] remove genuinely provider-neutral duplication;
+- [ ] remove hardcoded model-family catalog filtering while preserving malformed-entry rejection;
+- [ ] catalog/model-list parser coverage;
+- [ ] focused test/check/build + live primary/model-switch/search acceptance;
+- [ ] freeze Antigravity.
+
+## 4. Claude
 
 Claude remains usage-only for rc.3.
 
-- [ ] Audit provider-specific DSH compatibility before changing package ranges.
-- [ ] Remove remaining provider-local failure/helper duplication where applicable.
-- [ ] Focused package `test` / `check` / `build` PASS.
-- [ ] Official CLI usage-source smoke PASS.
-- [ ] Confirm descriptor remains model-route/search-free.
-- [ ] Freeze Claude.
+- [ ] provider-specific DSH compatibility audit;
+- [ ] remove genuinely provider-neutral duplication where applicable;
+- [ ] focused test/check/build;
+- [ ] official CLI usage-source smoke;
+- [ ] confirm descriptor remains model-route/search-free;
+- [ ] freeze Claude.
 
-### 5. Repository-wide provider invariants
+## 5. Repository-wide provider invariants
 
-- [ ] Provider packages do not bypass shared `registerProvider()` for LLM adapter registration.
-- [ ] Vendor-specific subagent registrations/tools remain absent.
-- [ ] Core remains independent of provider packages.
-- [ ] Every model capability has at least one canonical route.
-- [ ] Providers without model capability serve no model route.
-- [ ] Capability absence remains supported.
-- [ ] Synthetic fourth-provider extension test remains green.
-- [ ] Whole-family DSH dependency declarations are consistent with provider-specific validation evidence.
+- [ ] provider packages use shared `registerProvider()`;
+- [ ] vendor-specific subagent registrations/tools remain absent;
+- [ ] Core remains independent of provider packages;
+- [ ] model capability always has at least one canonical route;
+- [ ] capability absence remains legal;
+- [ ] synthetic fourth-provider extension remains green;
+- [ ] DSH dependency declarations match package-specific validation evidence.
 
-### 6. Product-level live acceptance
+## 6. Product-level live acceptance
 
-Use one deliberate quota-spending run after provider work is frozen:
+- [ ] Codex primary + Project Memory + routed search;
+- [ ] Antigravity primary + routed search;
+- [ ] Antigravity model switch in one conversation;
+- [ ] Codex -> Antigravity provider switch in one session;
+- [ ] memory written before the switch is readable after it;
+- [ ] Usage & Limits with all providers mounted;
+- [ ] late/absent provider browser behavior;
+- [ ] Model Accounts works without Nishi-managed vendor OAuth.
 
-- [ ] Codex primary + Project Memory + routed search.
-- [ ] Antigravity primary + routed search.
-- [ ] Antigravity model switch inside one conversation.
-- [ ] **Codex -> Antigravity provider switch inside one session.**
-- [ ] Memory written before the switch is readable after it.
-- [ ] Usage & Limits with all providers mounted.
-- [ ] Profile without Antigravity leaves no placeholder.
-- [ ] Late-mounted provider appears in the browser without provider-specific browser changes.
-- [ ] Model Accounts compatibility surface works without Nishi-managed vendor OAuth.
+Automatic failover remains deferred.
 
-Automatic failover remains deferred. Manual route switching ships first.
+## 7. Install/profile lifecycle
 
-### 7. Install/profile lifecycle
+- [ ] fresh disposable rc.3 tarball install;
+- [ ] same-profile reconciliation/update;
+- [ ] preserve unrelated existing links/state;
+- [ ] managed Orchestrator preset install/status/update/remove;
+- [ ] Suite removal preserves unrelated profile/session/project/vendor state.
 
-- [ ] Fresh disposable rc.3 tarball install PASS.
-- [ ] Same-profile reconciliation/update PASS.
-- [ ] Existing `dsh-chatgpt-web` link preserved.
-- [ ] Managed Orchestrator `preset install` / `status` / `update` / `remove` PASS.
-- [ ] Normal Suite removal preserves unrelated profile/session/project/vendor state.
+## 8. Release gate
 
-### 8. Release gate
-
-- [ ] `pnpm install --frozen-lockfile` exit 0 on the final provider-frozen tree.
-- [ ] `pnpm verify:local` exit 0.
-- [ ] `pnpm smoke:vendor-cli` exit 0.
-- [ ] `pnpm verify:bundle-install` exit 0.
-- [ ] `pnpm check:npm-names` exit 0.
-- [ ] `RELEASE.md` updated with final evidence.
-- [ ] Breaking changes reviewed.
-- [ ] Explicit maintainer publication approval obtained.
+- [ ] final `pnpm install --frozen-lockfile`;
+- [ ] `pnpm verify:local`;
+- [ ] `pnpm smoke:vendor-cli`;
+- [ ] `pnpm verify:bundle-install`;
+- [ ] `pnpm check:npm-names`;
+- [ ] `RELEASE.md` updated with final evidence;
+- [ ] breaking changes reviewed;
+- [ ] explicit maintainer publication approval.
 
 Current release state: **NOT READY TO PUBLISH**.
 
