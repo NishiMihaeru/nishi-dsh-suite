@@ -13,6 +13,7 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
+import { CodexRateLimitsSourceError } from './usage.js'
 
 const DEFAULT_DISPOSE_GRACE_MS = 3_000
 const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024
@@ -63,6 +64,12 @@ function jsonRpcErrorDetail(error: unknown): string {
 function configuredCommand(spec: OfficialCodexRateLimitsSourceSpec): string {
   const explicit = spec.executable?.trim()
   return explicit && explicit.length > 0 ? explicit : 'codex'
+}
+
+function plainObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined
 }
 
 export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike {
@@ -120,7 +127,12 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
       executable = await Promise.race([resolution, timeout])
     } catch (resolutionError) {
       if (timer !== undefined) clearTimeout(timer)
-      throw thrown(resolutionError)
+      if (timeoutController.signal.aborted) throw timeoutError
+      throw new CodexRateLimitsSourceError(
+        'Codex CLI is unavailable',
+        'UNAVAILABLE',
+        { cause: thrown(resolutionError) },
+      )
     }
 
     const argv = codexAppServerArgv(executable)
@@ -135,7 +147,11 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
       })
     } catch (spawnError) {
       if (timer !== undefined) clearTimeout(timer)
-      throw thrown(spawnError)
+      throw new CodexRateLimitsSourceError(
+        'Codex App Server is unavailable',
+        'UNAVAILABLE',
+        { cause: thrown(spawnError) },
+      )
     }
     if (!child || typeof child !== 'object') {
       if (timer !== undefined) clearTimeout(timer)
@@ -153,16 +169,22 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
     stdout.on('error', () => {})
 
     const initRequestId = 'req_init'
+    const accountRequestId = 'req_account'
     const readRequestId = 'req_read'
 
     const exited = child.done.then(
       (outcome): never => {
-        throw new Error(
-          `codex-usage: app-server exited before read settled (code ${outcome.exitCode}, signal ${outcome.signal})`,
+        throw new CodexRateLimitsSourceError(
+          `Codex App Server exited before the rate-limit read settled (code ${outcome.exitCode}, signal ${outcome.signal})`,
+          'UNAVAILABLE',
         )
       },
       (processError): never => {
-        throw thrown(processError)
+        throw new CodexRateLimitsSourceError(
+          'Codex App Server process failed',
+          'UNAVAILABLE',
+          { cause: thrown(processError) },
+        )
       },
     )
     void exited.catch(() => {})
@@ -179,6 +201,7 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
       })}\n`)
 
       let initCompleted = false
+      let accountCompleted = false
       for await (const line of outputLines(stdout, MAX_PROTOCOL_LINE_BYTES)) {
         if (line.trim().length === 0) continue
 
@@ -204,13 +227,40 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
           }
           initCompleted = true
           stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized' })}\n`)
+          stdin.write(`${JSON.stringify({
+            jsonrpc: '2.0',
+            id: accountRequestId,
+            method: 'account/read',
+            params: { refreshToken: false },
+          })}\n`)
+          continue
+        }
+
+        if (frame.id === accountRequestId) {
+          if (!initCompleted) {
+            throw new Error('codex-usage: account response received before initialize completed')
+          }
+          if (frame.error) {
+            throw new Error(`codex-usage: account/read failed: ${jsonRpcErrorDetail(frame.error)}`)
+          }
+          const account = plainObject(frame.result)
+          if (account === undefined) {
+            throw new Error('codex-usage: account/read response result is invalid')
+          }
+          if (account.requiresOpenaiAuth === true && account.account == null) {
+            throw new CodexRateLimitsSourceError(
+              'Codex login is required; run `codex login` on the DSH host',
+              'LOGIN_REQUIRED',
+            )
+          }
+          accountCompleted = true
           stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: readRequestId, method: 'account/rateLimits/read' })}\n`)
           continue
         }
 
         if (frame.id === readRequestId) {
-          if (!initCompleted) {
-            throw new Error('codex-usage: read response received before initialize completed')
+          if (!accountCompleted) {
+            throw new Error('codex-usage: read response received before account status completed')
           }
           if (frame.error) {
             throw new Error(`codex-usage: account/rateLimits/read failed: ${jsonRpcErrorDetail(frame.error)}`)
