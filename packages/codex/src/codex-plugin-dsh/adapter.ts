@@ -27,6 +27,7 @@ import {
   type StreamChunk,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
+import { JsonRpcResponseError } from '@deepseek-ai/dsh-sdk-protocol'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import {
   CodexAppServerConnection,
@@ -370,6 +371,16 @@ function disabledCodexSkills(value: unknown): readonly { readonly path: string; 
   return [...paths].map(path => ({ path, enabled: false as const }))
 }
 
+function recoverableCheckpointForkError(error: unknown, checkpoint: CodexReplayState): boolean {
+  if (!(error instanceof JsonRpcResponseError) || error.code !== -32600) return false
+  return error.message === `thread not found: ${checkpoint.threadId}`
+    || error.message === `no rollout found for thread id ${checkpoint.threadId}`
+    || error.message.startsWith(`failed to load thread ${checkpoint.threadId}:`)
+    || error.message === `lastTurnId '${checkpoint.turnId}' was not found in the source thread`
+    || error.message === `lastTurnId '${checkpoint.turnId}' is not a persisted canonical turn in the source thread`
+    || error.message === `lastTurnId '${checkpoint.turnId}' identifies an in-progress turn`
+}
+
 /** Local Codex App Server route with session-aware history, permissions, and process ownership. */
 export class CodexAppServerAdapter extends LlmAdapter {
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
@@ -681,20 +692,41 @@ export class CodexAppServerAdapter extends LlmAdapter {
       )
       await connection.initialize(signal)
       const isolationConfig = await this.isolationConfig(connection, signal)
-      const dynamicTools = history.checkpoint?.toolSignature === toolSignature
+      let dynamicTools = history.checkpoint?.toolSignature === toolSignature
         ? undefined
         : codexDynamicTools(options.tools)
-      const threadResult = history.checkpoint === undefined
-        ? await connection.request(
+      let threadResult: Record<string, unknown>
+      if (history.checkpoint === undefined) {
+        threadResult = await connection.request(
+          'thread/start',
+          this.threadParams(options, cwd, isolationConfig, dynamicTools ?? []),
+          signal,
+        )
+      } else {
+        const checkpoint = history.checkpoint
+        try {
+          threadResult = await connection.request('thread/fork', {
+            ...this.threadParams(options, cwd, isolationConfig),
+            threadId: checkpoint.threadId,
+            lastTurnId: checkpoint.turnId,
+          }, signal)
+        } catch (error) {
+          if (!recoverableCheckpointForkError(error, checkpoint)) throw error
+          history = await prepareCodexHistory(
+            options.messages,
+            CODEX_APP_SERVER_PROVIDER,
+            resolveImageUrl,
+            sessionId,
+            true,
+          )
+          dynamicTools = codexDynamicTools(options.tools)
+          threadResult = await connection.request(
             'thread/start',
-            this.threadParams(options, cwd, isolationConfig, dynamicTools ?? []),
+            this.threadParams(options, cwd, isolationConfig, dynamicTools),
             signal,
           )
-        : await connection.request('thread/fork', {
-          ...this.threadParams(options, cwd, isolationConfig),
-          threadId: history.checkpoint.threadId,
-          lastTurnId: history.checkpoint.turnId,
-        }, signal)
+        }
+      }
       const thread = object(threadResult.thread, 'thread result')
       threadId = string(thread.id, 'thread id')
       if (history.injectItems.length > 0) {
@@ -814,8 +846,11 @@ export class CodexAppServerAdapter extends LlmAdapter {
       features: {
         shell_tool: false,
         unified_exec: false,
+        shell_zsh_fork: false,
         shell_snapshot: false,
         shell_snapshot_v2: false,
+        exec_permission_approvals: false,
+        request_permissions_tool: false,
         multi_agent: false,
         multi_agent_v2: false,
         code_mode: false,
@@ -833,6 +868,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
         web_search_request: false,
         web_search_cached: false,
         skill_search: false,
+        skill_mcp_dependency_install: false,
         deferred_executor: false,
         executor_capability_discovery: false,
         apps: false,
@@ -852,14 +888,21 @@ export class CodexAppServerAdapter extends LlmAdapter {
         in_app_local_automation: false,
         in_app_updates: false,
         network_proxy: false,
+        unbounded_connection_retries: false,
         guardian_approval: false,
         guardianv2: false,
         guardian_ext: false,
+        tool_call_mcp_elicitation: false,
+        auth_elicitation: false,
         artifact: false,
         workspace_dependencies: false,
         prevent_idle_sleep: false,
       },
       agents: { enabled: false },
+      tools: {
+        experimental_request_user_input: { enabled: false },
+        update_plan: { enabled: false },
+      },
       web_search: 'disabled',
       notify: [],
       include_permissions_instructions: false,
