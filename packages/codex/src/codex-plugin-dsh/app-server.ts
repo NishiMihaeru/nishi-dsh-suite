@@ -4,6 +4,20 @@ import { JsonRpcLineTransport } from '@deepseek-ai/dsh-sdk-protocol'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { object, thrown } from './validation.js'
 
+/** Exact external Codex runtime whose App Server contracts this provider is audited against. */
+export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.150.0'
+
+/** Extract the Codex package version from the initialize user-agent prefix. */
+export function codexAppServerVersionFromUserAgent(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const first = value.trim().split(/\s+/, 1)[0]
+  if (first === undefined || first.length === 0) return undefined
+  const slash = first.lastIndexOf('/')
+  if (slash < 0 || slash === first.length - 1) return undefined
+  const version = first.slice(slash + 1)
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version) ? version : undefined
+}
+
 /** One App Server notification in arrival order. */
 export interface AppServerNotification {
   readonly method: string
@@ -105,10 +119,10 @@ export class CodexAppServerConnection {
     )
   }
 
-  /** Attach protocol listeners and perform the required initialize handshake. */
+  /** Attach protocol listeners, validate the audited vendor runtime, and complete initialize. */
   async initialize(signal: AbortSignal): Promise<void> {
     this.transport.start()
-    object(await this.transport.request('initialize', {
+    const initialized = object(await this.transport.request('initialize', {
       clientInfo: {
         name: 'codex-plugin-dsh',
         title: 'Codex Plugin for DeepSeek Harness',
@@ -119,6 +133,12 @@ export class CodexAppServerConnection {
         requestAttestation: false,
       },
     }, signal), 'initialize response')
+    const version = codexAppServerVersionFromUserAgent(initialized.userAgent)
+    if (version !== SUPPORTED_CODEX_APP_SERVER_VERSION) {
+      throw new Error(
+        `codex-plugin-dsh: unsupported Codex App Server version ${JSON.stringify(version ?? initialized.userAgent)}; expected ${SUPPORTED_CODEX_APP_SERVER_VERSION}`,
+      )
+    }
     this.transport.notify('initialized', {})
     await this.transport.flush()
   }
