@@ -124,18 +124,18 @@ const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
   usage: {
     /**
      * A short-lived app-server session that reads rate limits and nothing
-     * else: no thread, no prompt, no credential handling. The app server
-     * also pushes fresh limits during a turn, which is what `invalidate`
-     * is for — the next read then goes to the vendor instead of to a
-     * snapshot the vendor has already superseded.
+     * else: no thread, no prompt, no credential handling. Refresh cadence and
+     * cache invalidation stay in Core; this connection is not the primary-turn
+     * connection and therefore does not claim turn-driven usage notifications.
      */
-    create: (ctx, config, hooks) => new CodexUsageCollector({
+    create: (ctx, config) => new CodexUsageCollector({
       read: () => new OfficialCodexRateLimitsSource({
         cwd: process.cwd(),
+        executable: externalCodexCommand(config.env),
         env: config.env,
         requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+        resolveExecutable: (command, env, signal) => ctx.subprocess.resolveExecutable(command, env, signal),
         spawn: (spec) => ctx.subprocess.spawn(spec),
-        onRateLimitsUpdated: hooks.invalidate,
       }).read(),
     }),
   },
