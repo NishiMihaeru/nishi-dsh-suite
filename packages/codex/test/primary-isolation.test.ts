@@ -81,8 +81,11 @@ test('primary App Server isolation disables vendor host capabilities and every d
     features: {
       shell_tool: false,
       unified_exec: false,
+      shell_zsh_fork: false,
       shell_snapshot: false,
       shell_snapshot_v2: false,
+      exec_permission_approvals: false,
+      request_permissions_tool: false,
       multi_agent: false,
       multi_agent_v2: false,
       code_mode: false,
@@ -100,6 +103,7 @@ test('primary App Server isolation disables vendor host capabilities and every d
       web_search_request: false,
       web_search_cached: false,
       skill_search: false,
+      skill_mcp_dependency_install: false,
       deferred_executor: false,
       executor_capability_discovery: false,
       apps: false,
@@ -119,14 +123,21 @@ test('primary App Server isolation disables vendor host capabilities and every d
       in_app_local_automation: false,
       in_app_updates: false,
       network_proxy: false,
+      unbounded_connection_retries: false,
       guardian_approval: false,
       guardianv2: false,
       guardian_ext: false,
+      tool_call_mcp_elicitation: false,
+      auth_elicitation: false,
       artifact: false,
       workspace_dependencies: false,
       prevent_idle_sleep: false,
     },
     agents: { enabled: false },
+    tools: {
+      experimental_request_user_input: { enabled: false },
+      update_plan: { enabled: false },
+    },
     web_search: 'disabled',
     notify: [],
     include_permissions_instructions: false,
@@ -154,7 +165,6 @@ test('primary App Server isolation disables vendor host capabilities and every d
       local: { enabled: false },
     },
   })
-  assert.equal(Object.hasOwn(isolation, 'tools'), false, 'tools.view_image is not valid in current Codex ConfigToml')
   assert.equal(Object.hasOwn((isolation as any).features, 'image_generation'), false, 'native image generation is the one intentional Codex host capability')
 })
 
