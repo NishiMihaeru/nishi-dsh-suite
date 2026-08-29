@@ -1,9 +1,11 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
+import { codexAppServerInvocation } from './codex-plugin-dsh/adapter.js'
+import { CodexAppServerConnection } from './codex-plugin-dsh/app-server.js'
 
 export type CodexWebSearchBackendErrorCode =
   | 'WEB_SEARCH_PROVIDER_ERROR'
@@ -97,17 +99,29 @@ function effort(value: string | undefined): 'minimal' | 'low' | 'medium' | 'high
   }
 }
 
+/**
+ * Encode a user web query as a JSON string literal while removing literal `$`
+ * sigils from the raw Codex prompt. Codex v0.150 scans raw text for `$name`
+ * before model execution and treats those sequences as explicit host-skill
+ * mentions. JSON `\u0024` decodes back to the exact query for the model while
+ * remaining invisible to that pre-model mention parser.
+ */
+export function codexSearchQueryLiteral(query: string): string {
+  return JSON.stringify(query).replaceAll('$', '\\u0024')
+}
+
 function promptFor(query: string, maxResults: number): string {
   return [
     'Use the native web search tool to search the public web for the query below.',
-    'Do not run shell commands, inspect local files, use MCP, or answer from memory alone.',
+    'Do not run shell commands, inspect local files, use MCP, skills, apps, plugins, image generation, or answer from memory alone.',
     'Return only URLs that were actually observed in native web-search results.',
     `Return at most ${maxResults} sources.`,
     'For each source provide its URL and, when available, title, a short useful snippet, and publication date.',
     'If a field is unavailable return an empty string for that field.',
     'Provide a concise content summary grounded only in those search results; use an empty string if no result supports a summary.',
+    'The query is supplied as a JSON string literal. Decode JSON escapes before searching and preserve the decoded text exactly.',
     '',
-    `Query: ${query}`,
+    `Query JSON string: ${codexSearchQueryLiteral(query)}`,
   ].join('\n')
 }
 
@@ -136,14 +150,71 @@ export function codexSearchExecArgv(spec: CodexSearchExecSpec): string[] {
     '-c', 'approval_policy="never"',
     '-c', 'features.shell_tool=false',
     '-c', 'features.unified_exec=false',
+    '-c', 'features.shell_zsh_fork=false',
+    '-c', 'features.shell_snapshot=false',
+    '-c', 'features.shell_snapshot_v2=false',
+    '-c', 'features.exec_permission_approvals=false',
+    '-c', 'features.request_permissions_tool=false',
     '-c', 'features.multi_agent=false',
     '-c', 'features.multi_agent_v2=false',
     '-c', 'features.code_mode=false',
+    '-c', 'features.code_mode_host=false',
+    '-c', 'features.memories=false',
+    '-c', 'features.external_agent_memory_import=false',
+    '-c', 'features.chronicle=false',
     '-c', 'features.view_image=false',
     '-c', 'features.hooks=false',
+    '-c', 'features.goals=false',
+    '-c', 'features.token_budget=false',
+    '-c', 'features.rollout_budget=false',
+    '-c', 'features.current_time_reminder=false',
+    '-c', 'features.standalone_web_search=false',
+    '-c', 'features.web_search_request=false',
+    '-c', 'features.web_search_cached=false',
+    '-c', 'features.skill_search=false',
+    '-c', 'features.skill_mcp_dependency_install=false',
+    '-c', 'features.deferred_executor=false',
+    '-c', 'features.executor_capability_discovery=false',
     '-c', 'features.apps=false',
+    '-c', 'features.enable_mcp_apps=false',
     '-c', 'features.plugins=false',
+    '-c', 'features.recommended_plugins=false',
+    '-c', 'features.tool_suggest=false',
+    '-c', 'features.remote_plugin=false',
+    '-c', 'features.plugin_sharing=false',
+    '-c', 'features.browser_use=false',
+    '-c', 'features.browser_use_full_cdp_access=false',
+    '-c', 'features.browser_use_external=false',
+    '-c', 'features.computer_use=false',
+    '-c', 'features.in_app_browser=false',
+    '-c', 'features.in_app_chat=false',
+    '-c', 'features.in_app_dictation=false',
+    '-c', 'features.in_app_local_automation=false',
+    '-c', 'features.in_app_updates=false',
+    '-c', 'features.network_proxy=false',
+    '-c', 'features.unbounded_connection_retries=false',
+    '-c', 'features.guardian_approval=false',
+    '-c', 'features.guardianv2=false',
+    '-c', 'features.guardian_ext=false',
+    '-c', 'features.tool_call_mcp_elicitation=false',
+    '-c', 'features.auth_elicitation=false',
+    '-c', 'features.artifact=false',
+    '-c', 'features.image_generation=false',
+    '-c', 'features.workspace_dependencies=false',
+    '-c', 'features.prevent_idle_sleep=false',
     '-c', 'agents.enabled=false',
+    '-c', 'tools.experimental_request_user_input.enabled=false',
+    '-c', 'tools.update_plan.enabled=false',
+    '-c', 'orchestrator.skills.enabled=false',
+    '-c', 'orchestrator.mcp.enabled=false',
+    '-c', 'skills.bundled.enabled=false',
+    '-c', 'skills.include_instructions=false',
+    '-c', 'notify=[]',
+    '-c', 'include_permissions_instructions=false',
+    '-c', 'include_apps_instructions=false',
+    '-c', 'include_collaboration_mode_instructions=false',
+    '-c', 'include_environment_context=false',
+    '-c', 'allow_login_shell=false',
     '-c', 'memories.use_memories=false',
     '-c', 'memories.generate_memories=false',
     '-c', 'project_doc_max_bytes=0',
@@ -185,19 +256,17 @@ function consumeCodexSearchEvent(state: CodexSearchEventState, raw: unknown): bo
     state.finalResponse = item.text
     return false
   }
+  if (itemType === 'reasoning') return false
   if (itemType === 'error') {
     throw new CodexWebSearchBackendError(
       'WEB_SEARCH_PROVIDER_ERROR',
       `Codex native web_search item failed: ${boundedError(item?.message)}`,
     )
   }
-  if (itemType === 'command_execution' || itemType === 'file_change' || itemType === 'mcp_tool_call') {
-    throw new CodexWebSearchBackendError(
-      'WEB_SEARCH_PROTOCOL',
-      `Codex hidden search turn invoked unexpected local tool item ${itemType}`,
-    )
-  }
-  return false
+  throw new CodexWebSearchBackendError(
+    'WEB_SEARCH_PROTOCOL',
+    `Codex hidden search turn emitted unexpected completed item ${String(itemType)}`,
+  )
 }
 
 function finishCodexSearchResult(state: CodexSearchEventState): unknown {
@@ -239,6 +308,44 @@ export function codexSearchResultFromEvents(events: readonly unknown[]): unknown
   return finishCodexSearchResult(state)
 }
 
+async function verifyCodexSearchRuntime(
+  ctx: Context,
+  executable: string,
+  env: Readonly<Record<string, string>>,
+  cwd: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const batchShim = process.platform === 'win32' && ['.cmd', '.bat'].includes(extname(executable).toLowerCase())
+  const commandInterpreter = batchShim
+    ? await ctx.subprocess.resolveExecutable('cmd.exe', env, signal)
+    : undefined
+  const invocation = codexAppServerInvocation(executable, env, process.platform, commandInterpreter)
+  let child: SubprocessHandle | undefined
+  let connection: CodexAppServerConnection | undefined
+  try {
+    child = ctx.subprocess.spawn({
+      argv: [...invocation.argv],
+      cwd,
+      stdio: {
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: { maxBytes: STDERR_MAX_BYTES },
+      },
+      graceMs: DISPOSE_GRACE_MS,
+      signal,
+      env: invocation.env,
+    })
+    connection = new CodexAppServerConnection(
+      child,
+      async method => Promise.reject(new Error(`Codex runtime preflight received unexpected App Server request ${method}`)),
+    )
+    await connection.initialize(signal)
+  } finally {
+    if (connection !== undefined) await connection.close()
+    else if (child !== undefined) await disposeVendorChild(child)
+  }
+}
+
 /** Codex-native web search backend using the already-installed external Codex CLI. */
 export class CodexSearchBackend {
   private readonly config: { readonly executable: string; readonly env: Readonly<Record<string, string>> }
@@ -269,6 +376,19 @@ export class CodexSearchBackend {
         throw new CodexWebSearchBackendError(
           'WEB_SEARCH_PROVIDER_ERROR',
           `Codex CLI is unavailable for native web_search: ${boundedError(error)}`,
+          { cause: error },
+        )
+      }
+
+      try {
+        await verifyCodexSearchRuntime(this.ctx, executable, this.config.env, workdir, signal)
+      } catch (error) {
+        if (signal.aborted) {
+          throw new CodexWebSearchBackendError('WEB_SEARCH_ABORTED', 'Codex web_search was aborted', { cause: error })
+        }
+        throw new CodexWebSearchBackendError(
+          'WEB_SEARCH_PROVIDER_ERROR',
+          `Codex runtime is incompatible with native web_search: ${boundedError(error)}`,
           { cause: error },
         )
       }
