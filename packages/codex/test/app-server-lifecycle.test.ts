@@ -62,3 +62,70 @@ test('concurrent close callers all wait for the same whole-tree shutdown', async
   await Promise.all([first, second])
   assert.equal(secondSettled, true)
 })
+
+test('an unexpected App Server exit never forwards raw vendor stderr into the connection failure', async () => {
+  const SENTINEL_STDERR = 'fatal: could not open /home/testuser/.codex/auth.json SENTINEL_LEAK_MARKER'
+  const stdin = new PassThrough()
+  const stdout = new PassThrough()
+  const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+
+  const child = {
+    pid: 4322,
+    stdin,
+    stdout,
+    stderr: undefined,
+    collected: { stderr: { readFrom() { return { text: SENTINEL_STDERR } } } },
+    done: done.promise,
+    terminate() {},
+    async waitForExit() { return true },
+  } as any
+
+  const connection = new CodexAppServerConnection(
+    child,
+    async () => { throw new Error('request handler must not be reached') },
+  )
+
+  const pending = connection.notifications()[Symbol.asyncIterator]().next()
+  done.resolve({ exitCode: 1, signal: null })
+
+  await assert.rejects(pending, (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.doesNotMatch(error.message, /SENTINEL_LEAK_MARKER/)
+    assert.doesNotMatch(error.message, /auth\.json/)
+    assert.doesNotMatch(error.message, /testuser/)
+    return true
+  })
+})
+
+test('a recognized App Server exit condition reports only its own authored message', async () => {
+  const LOGIN_STDERR = 'you are not logged in — run `codex login` first (config at /home/testuser/.codex)'
+  const stdin = new PassThrough()
+  const stdout = new PassThrough()
+  const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+
+  const child = {
+    pid: 4323,
+    stdin,
+    stdout,
+    stderr: undefined,
+    collected: { stderr: { readFrom() { return { text: LOGIN_STDERR } } } },
+    done: done.promise,
+    terminate() {},
+    async waitForExit() { return true },
+  } as any
+
+  const connection = new CodexAppServerConnection(
+    child,
+    async () => { throw new Error('request handler must not be reached') },
+  )
+
+  const pending = connection.notifications()[Symbol.asyncIterator]().next()
+  done.resolve({ exitCode: 1, signal: null })
+
+  await assert.rejects(pending, (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.match(error.message, /sign-in is required/)
+    assert.doesNotMatch(error.message, /testuser/)
+    return true
+  })
+})

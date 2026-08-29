@@ -190,6 +190,48 @@ export const CODEX_MEMORY_POLICY_OVERRIDES: readonly string[] = Object.freeze([
 ])
 
 /**
+ * One trailing value that must never be spliced directly into a Windows
+ * command tail — e.g. a search prompt — routed through its own environment
+ * variable placeholder instead, the same way the executable path is.
+ */
+export interface CodexWindowsShimTrailingArg {
+  readonly envKey: string
+  readonly value: string
+}
+
+/**
+ * Wrap a resolved executable and a fixed, developer-authored argv tail
+ * behind `cmd.exe /c` indirection for a Windows batch/cmd shim, keeping
+ * every piece of configurable/untrusted text — the executable path, and
+ * optionally one trailing value such as a prompt — out of the command tail
+ * cmd.exe re-parses. Each such value travels through its own environment
+ * variable and is referenced in the tail only as a `%VAR%` placeholder, so
+ * cmd.exe substitutes it as one token rather than scanning its contents for
+ * command syntax.
+ * @param executable - Absolute executable path resolved by the DSH subprocess provider.
+ * @param env - Explicit child environment from plugin configuration.
+ * @param commandInterpreter - Resolved Windows command interpreter.
+ * @param fixedTail - Fixed, developer-authored trailing argv, safe to embed in the command tail literally.
+ * @param trailingArg - One configurable trailing value carried via its own placeholder, if any.
+ * @returns Child argv and environment for the managed subprocess.
+ */
+export function codexWindowsBatchShimInvocation(
+  executable: string,
+  env: Readonly<Record<string, string>>,
+  commandInterpreter: string,
+  fixedTail: readonly string[],
+  trailingArg?: CodexWindowsShimTrailingArg,
+): CodexAppServerInvocation {
+  const shimEnv: Record<string, string> = { ...env, [WINDOWS_EXECUTABLE_ENV]: `"${executable}"` }
+  const argv = [commandInterpreter, '/d', '/v:off', '/s', '/c', `%${WINDOWS_EXECUTABLE_ENV}%`, ...fixedTail]
+  if (trailingArg !== undefined) {
+    shimEnv[trailingArg.envKey] = `"${trailingArg.value}"`
+    argv.push(`%${trailingArg.envKey}%`)
+  }
+  return { argv, env: shimEnv }
+}
+
+/**
  * Build the fixed App Server command without allowing configured text into a Windows command tail.
  * @param executable - Absolute executable path resolved by the DSH subprocess provider.
  * @param env - Explicit child environment from plugin configuration.
@@ -207,20 +249,11 @@ export function codexAppServerInvocation(
   if (platform !== 'win32' || (extension !== '.cmd' && extension !== '.bat')) {
     return { argv: [executable, ...CODEX_MEMORY_POLICY_OVERRIDES, 'app-server', '--stdio'], env }
   }
-  return {
-    argv: [
-      commandInterpreter,
-      '/d',
-      '/v:off',
-      '/s',
-      '/c',
-      `%${WINDOWS_EXECUTABLE_ENV}%`,
-      ...CODEX_MEMORY_POLICY_OVERRIDES,
-      'app-server',
-      '--stdio',
-    ],
-    env: { ...env, [WINDOWS_EXECUTABLE_ENV]: `"${executable}"` },
-  }
+  return codexWindowsBatchShimInvocation(executable, env, commandInterpreter, [
+    ...CODEX_MEMORY_POLICY_OVERRIDES,
+    'app-server',
+    '--stdio',
+  ])
 }
 
 function combinedSignal(parent: AbortSignal | undefined, timeoutMs: number): AbortSignal {
@@ -527,6 +560,17 @@ export class CodexAppServerAdapter extends LlmAdapter {
           return
         }
         const { method, params } = event.notification
+        if (method === 'error') {
+          // A fatal App Server error may arrive without a threadId (or with
+          // one that does not identify any thread), and the generic filter
+          // below would otherwise drop it and leave this turn waiting until
+          // turnTimeoutMs. Treat only a DIFFERENT, non-empty threadId as
+          // belonging to someone else's thread; anything else is ours.
+          const errorThreadId = typeof params.threadId === 'string' ? params.threadId : undefined
+          if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== active.threadId) continue
+          if (params.willRetry !== true) throw new LlmError(messageText(params.error), 'CODEX_APP_SERVER')
+          continue
+        }
         if (params.threadId !== active.threadId) continue
         const notificationTurnId = method === 'turn/completed'
           ? object(params.turn, 'turn/completed turn').id
@@ -609,9 +653,6 @@ export class CodexAppServerAdapter extends LlmAdapter {
         if (method === 'thread/tokenUsage/updated') {
           active.usage = usageFrom(params.tokenUsage)
           continue
-        }
-        if (method === 'error' && params.willRetry !== true) {
-          throw new LlmError(messageText(params.error), 'CODEX_APP_SERVER')
         }
         if (method !== 'turn/completed') continue
         const completedTurn = object(params.turn, 'turn/completed turn')

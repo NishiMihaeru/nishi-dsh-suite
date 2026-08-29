@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
-import { CodexRateLimitsSourceError } from '../src/usage.ts'
+import { CodexRateLimitsSourceError, CodexUsageCollector } from '../src/usage.ts'
 import {
   codexAppServerArgv,
   DEFAULT_REQUEST_TIMEOUT_MS,
@@ -147,6 +147,32 @@ test('usage source rejects a Codex App Server version outside the audited runtim
   })
 
   await assert.rejects(source.read(), /unsupported Codex App Server version.*0\.151\.0.*0\.150\.0/)
+})
+
+test('an unsupported Codex App Server version is UNAVAILABLE, not a bare collection ERROR', async () => {
+  const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    async resolveExecutable() { return '/provider/runtime/codex' },
+    spawn() { return fakeAppServerChild({ version: '0.151.0' }) },
+  })
+
+  await assert.rejects(source.read(), (error: unknown) => {
+    assert.ok(error instanceof CodexRateLimitsSourceError)
+    assert.equal(error.code, 'UNAVAILABLE')
+    return true
+  })
+})
+
+test('the usage collector reports UNAVAILABLE, not ERROR, for an installed-but-unsupported Codex version', async () => {
+  const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    async resolveExecutable() { return '/provider/runtime/codex' },
+    spawn() { return fakeAppServerChild({ version: '0.151.0' }) },
+  })
+
+  const snapshot = await new CodexUsageCollector(source).collect(1234)
+  assert.equal(snapshot.status, 'UNAVAILABLE')
+  assert.deepEqual(snapshot.windows, [])
 })
 
 test('usage source reports missing vendor login as LOGIN_REQUIRED before reading limits', async () => {

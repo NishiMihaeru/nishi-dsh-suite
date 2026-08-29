@@ -3,6 +3,7 @@
 import { JsonRpcLineTransport } from '@deepseek-ai/dsh-sdk-protocol'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { object, thrown } from './validation.js'
+import { codexVendorFailure } from './vendor-stderr.js'
 
 /** Exact external Codex runtime whose App Server contracts this provider is audited against. */
 export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.150.0'
@@ -106,9 +107,13 @@ export class CodexAppServerConnection {
     void child.done.then(
       outcome => {
         if (this.closePromise !== undefined) return
-        const error = new Error(
-          `codex-plugin-dsh: App Server exited unexpectedly (code ${String(outcome.exitCode)}, signal ${String(outcome.signal)})${this.stderrSuffix()}`,
-        )
+        const failure = codexVendorFailure({
+          stage: 'app-server',
+          stderrText: this.collectedStderrText(),
+          exitCode: outcome.exitCode,
+          signal: outcome.signal,
+        })
+        const error = new Error(`codex-plugin-dsh: App Server exited unexpectedly. ${failure.message}`, { cause: failure })
         if (this.observer === undefined) this.queue.fail(error)
         else this.observer.failure(error)
       },
@@ -182,9 +187,7 @@ export class CodexAppServerConnection {
     await this.child.done.catch(() => {})
   }
 
-  private stderrSuffix(): string {
-    const read = this.child.collected.stderr?.readFrom(0)
-    const text = read?.text.trim()
-    return text === undefined || text.length === 0 ? '' : `: ${text}`
+  private collectedStderrText(): string | undefined {
+    return this.child.collected.stderr?.readFrom(0).text
   }
 }

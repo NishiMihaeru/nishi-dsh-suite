@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
-import { codexAppServerInvocation } from './codex-plugin-dsh/adapter.js'
+import { codexAppServerInvocation, codexWindowsBatchShimInvocation } from './codex-plugin-dsh/adapter.js'
 import { CodexAppServerConnection } from './codex-plugin-dsh/app-server.js'
+import { codexVendorFailure } from './codex-plugin-dsh/vendor-stderr.js'
 
 export type CodexWebSearchBackendErrorCode =
   | 'WEB_SEARCH_PROVIDER_ERROR'
@@ -80,10 +81,35 @@ const SEARCH_OUTPUT_SCHEMA = {
 const DISPOSE_GRACE_MS = 2_000
 const STDERR_MAX_BYTES = 64_000
 const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024
+const PREFLIGHT_TIMEOUT_MS = 30_000
+const WINDOWS_EXEC_PROMPT_ENV = 'DSH_CODEX_EXEC_PROMPT'
 
 function boundedError(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error)
   return text.length <= 2_000 ? text : `${text.slice(0, 2_000)}…`
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error(`Codex web_search operation aborted: ${String(signal.reason)}`)
+}
+
+/**
+ * Race a shared, provider-owned promise against one caller's own signal so a
+ * caller's cancellation rejects only that caller and never aborts (or is
+ * mistaken for a failure of) work shared with other concurrent callers.
+ */
+async function waitForPromise<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted()
+  const aborted = Promise.withResolvers<never>()
+  const onAbort = (): void => { aborted.reject(abortError(signal)) }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    return await Promise.race([promise, aborted.promise])
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 function effort(value: string | undefined): 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | undefined {
@@ -131,11 +157,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-/** Build the isolated external `codex exec` invocation used only for native web search. */
-export function codexSearchExecArgv(spec: CodexSearchExecSpec): string[] {
+/** Fixed, developer-authored `codex exec` argv between the executable and the trailing prompt. */
+function codexSearchExecFixedArgs(spec: Omit<CodexSearchExecSpec, 'executable' | 'prompt'>): string[] {
   const inheritedEffort = effort(spec.reasoningEffort)
   return [
-    spec.executable,
     'exec',
     '--ephemeral',
     '--ignore-user-config',
@@ -215,8 +240,34 @@ export function codexSearchExecArgv(spec: CodexSearchExecSpec): string[] {
     '-c', 'memories.generate_memories=false',
     '-c', 'project_doc_max_bytes=0',
     '-c', 'web_search="live"',
-    spec.prompt,
   ]
+}
+
+/** Build the isolated external `codex exec` invocation used only for native web search. */
+export function codexSearchExecArgv(spec: CodexSearchExecSpec): string[] {
+  return [spec.executable, ...codexSearchExecFixedArgs(spec), spec.prompt]
+}
+
+/**
+ * Build the `codex exec` invocation for native web search, routing it
+ * through the same Windows batch-shim indirection as the App Server so a
+ * `.cmd`/`.bat` executable and its long, model-authored prompt tail never
+ * enter a parsed `cmd.exe` command line directly.
+ */
+export function codexSearchExecInvocation(
+  spec: CodexSearchExecSpec,
+  env: Readonly<Record<string, string>>,
+  platform: NodeJS.Platform = process.platform,
+  commandInterpreter = 'cmd.exe',
+): { readonly argv: readonly string[]; readonly env: Readonly<Record<string, string>> } {
+  const extension = extname(spec.executable).toLowerCase()
+  if (platform !== 'win32' || (extension !== '.cmd' && extension !== '.bat')) {
+    return { argv: codexSearchExecArgv(spec), env }
+  }
+  return codexWindowsBatchShimInvocation(spec.executable, env, commandInterpreter, codexSearchExecFixedArgs(spec), {
+    envKey: WINDOWS_EXEC_PROMPT_ENV,
+    value: spec.prompt,
+  })
 }
 
 function consumeCodexSearchEvent(state: CodexSearchEventState, raw: unknown): boolean {
@@ -345,6 +396,8 @@ async function verifyCodexSearchRuntime(
 /** Codex-native web search backend using the already-installed external Codex CLI. */
 export class CodexSearchBackend {
   private readonly config: { readonly executable: string; readonly env: Readonly<Record<string, string>> }
+  private verifiedExecutable: string | undefined
+  private pendingVerification: { readonly executable: string; readonly promise: Promise<void> } | undefined
 
   constructor(
     private readonly ctx: Context,
@@ -354,6 +407,44 @@ export class CodexSearchBackend {
       executable: config.executable?.trim() || 'codex',
       env: { ...config.env },
     }
+  }
+
+  /**
+   * Verify the resolved Codex runtime once per resolved executable path,
+   * sharing one in-flight preflight across concurrent `search()` calls
+   * instead of spawning an App Server per query (a single `web_search` tool
+   * call can run up to 4 concurrent queries). A failed preflight is never
+   * cached as success, so the next call retries it; a resolved executable
+   * path change invalidates the cache. One caller's own cancellation only
+   * rejects that caller and never aborts (or is mistaken for a failure of)
+   * the shared check other concurrent callers are waiting on.
+   */
+  private async ensureVerifiedRuntime(executable: string, signal: AbortSignal): Promise<void> {
+    if (this.verifiedExecutable === executable) return
+    let pending = this.pendingVerification
+    if (pending === undefined || pending.executable !== executable) {
+      let created!: Promise<void>
+      created = (async (): Promise<void> => {
+        const workdir = await mkdtemp(join(tmpdir(), 'dsh-web-search-codex-preflight-'))
+        try {
+          await verifyCodexSearchRuntime(
+            this.ctx,
+            executable,
+            this.config.env,
+            workdir,
+            AbortSignal.timeout(PREFLIGHT_TIMEOUT_MS),
+          )
+          this.verifiedExecutable = executable
+        } finally {
+          await rm(workdir, { recursive: true, force: true }).catch(() => {})
+          if (this.pendingVerification?.promise === created) this.pendingVerification = undefined
+        }
+      })()
+      pending = { executable, promise: created }
+      this.pendingVerification = pending
+      void created.catch(() => {})
+    }
+    return waitForPromise(pending.promise, signal)
   }
 
   async search(route: CodexSearchRoute, request: CodexSearchRequest, signal: AbortSignal): Promise<unknown> {
@@ -377,7 +468,7 @@ export class CodexSearchBackend {
       }
 
       try {
-        await verifyCodexSearchRuntime(this.ctx, executable, this.config.env, workdir, signal)
+        await this.ensureVerifiedRuntime(executable, signal)
       } catch (error) {
         if (signal.aborted) {
           throw new CodexWebSearchBackendError('WEB_SEARCH_ABORTED', 'Codex web_search was aborted', { cause: error })
@@ -389,19 +480,23 @@ export class CodexSearchBackend {
         )
       }
 
-      const argv = codexSearchExecArgv({
+      const batchShim = process.platform === 'win32' && ['.cmd', '.bat'].includes(extname(executable).toLowerCase())
+      const commandInterpreter = batchShim
+        ? await this.ctx.subprocess.resolveExecutable('cmd.exe', this.config.env, signal)
+        : undefined
+      const invocation = codexSearchExecInvocation({
         executable,
         model: route.model,
         reasoningEffort: route.reasoningEffort,
         cwd: workdir,
         schemaPath,
         prompt: promptFor(request.query, request.maxResults),
-      })
+      }, this.config.env, process.platform, commandInterpreter)
 
       let child
       try {
         child = this.ctx.subprocess.spawn({
-          argv,
+          argv: [...invocation.argv],
           cwd: workdir,
           stdio: {
             stdin: 'ignore',
@@ -410,7 +505,7 @@ export class CodexSearchBackend {
           },
           graceMs: DISPOSE_GRACE_MS,
           signal,
-          env: this.config.env,
+          env: invocation.env,
         })
       } catch (error) {
         if (signal.aborted) {
@@ -424,6 +519,8 @@ export class CodexSearchBackend {
       }
 
       child.done.catch(() => {})
+      let opError: unknown
+      let result: unknown
       try {
         const stdout = child.stdout
         if (!stdout) {
@@ -463,38 +560,64 @@ export class CodexSearchBackend {
 
         if (!terminal) {
           const outcome = await child.done
-          const stderr = child.collected.stderr?.readFrom(0).text ?? ''
           if (signal.aborted) {
             throw new CodexWebSearchBackendError('WEB_SEARCH_ABORTED', 'Codex web_search was aborted')
           }
+          const failure = codexVendorFailure({
+            stage: 'web-search',
+            stderrText: child.collected.stderr?.readFrom(0).text,
+            exitCode: outcome.exitCode,
+            signal: outcome.signal,
+          })
           throw new CodexWebSearchBackendError(
             'WEB_SEARCH_PROVIDER_ERROR',
-            `Codex web_search exited before a terminal event (exit ${String(outcome.exitCode)})${stderr ? `: ${boundedError(stderr)}` : ''}`,
+            `Codex web_search exited before a terminal event. ${failure.message}`,
+            { cause: failure },
           )
         }
 
-        return finishCodexSearchResult(state)
+        result = finishCodexSearchResult(state)
       } catch (error) {
-        if (error instanceof CodexWebSearchBackendError) throw error
-        if (signal.aborted) {
-          throw new CodexWebSearchBackendError('WEB_SEARCH_ABORTED', 'Codex web_search was aborted', { cause: error })
-        }
-        throw new CodexWebSearchBackendError(
+        opError = error instanceof CodexWebSearchBackendError
+          ? error
+          : signal.aborted
+            ? new CodexWebSearchBackendError('WEB_SEARCH_ABORTED', 'Codex web_search was aborted', { cause: error })
+            : new CodexWebSearchBackendError(
+              'WEB_SEARCH_PROVIDER_ERROR',
+              `Codex native web_search failed for model ${JSON.stringify(route.model)}: ${boundedError(error)}`,
+              { cause: error },
+            )
+      }
+
+      // Cleanup runs regardless of the outcome above, but a cleanup failure
+      // must never silently replace a real operation failure: report both
+      // (reachable via AggregateError.errors) while keeping the outer error's
+      // taxonomy code the one core routes on.
+      try {
+        await disposeVendorChild(child)
+      } catch (cleanupErrorRaw) {
+        const cleanupError = new CodexWebSearchBackendError(
           'WEB_SEARCH_PROVIDER_ERROR',
-          `Codex native web_search failed for model ${JSON.stringify(route.model)}: ${boundedError(error)}`,
-          { cause: error },
+          `Codex web_search subprocess cleanup failed: ${boundedError(cleanupErrorRaw)}`,
+          { cause: cleanupErrorRaw },
         )
-      } finally {
-        try {
-          await disposeVendorChild(child)
-        } catch (error) {
+        if (opError instanceof CodexWebSearchBackendError) {
           throw new CodexWebSearchBackendError(
-            'WEB_SEARCH_PROVIDER_ERROR',
-            `Codex web_search subprocess cleanup failed: ${boundedError(error)}`,
-            { cause: error },
+            opError.code,
+            `${opError.message} (subprocess cleanup also failed: ${boundedError(cleanupErrorRaw)})`,
+            {
+              cause: new AggregateError(
+                [opError, cleanupError],
+                'Codex web_search failed and subprocess cleanup also failed',
+              ),
+            },
           )
         }
+        throw cleanupError
       }
+
+      if (opError !== undefined) throw opError
+      return result
     } finally {
       await rm(workdir, { recursive: true, force: true }).catch(() => {})
     }

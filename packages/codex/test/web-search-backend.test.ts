@@ -3,10 +3,89 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import {
   CodexSearchBackend,
+  CodexWebSearchBackendError,
   codexSearchExecArgv,
+  codexSearchExecInvocation,
   codexSearchQueryLiteral,
   codexSearchResultFromEvents,
 } from '../src/web-search-backend.ts'
+import { PrimaryWebSearchError } from '../../core/src/web-search/errors.ts'
+import { dispatchPrimarySearch } from '../../core/src/web-search/providers.ts'
+import { codexAppServerInvocation } from '../src/codex-plugin-dsh/adapter.ts'
+
+/** Preflight (app-server) managed child: JSON-RPC-driven, responds to `initialize`. */
+function preflightChild(version = '0.150.0') {
+  const stdin = new PassThrough()
+  const stdout = new PassThrough()
+  let buffer = ''
+  stdin.setEncoding('utf8')
+  stdin.on('data', (chunk: string) => {
+    buffer += chunk
+    for (;;) {
+      const newline = buffer.indexOf('\n')
+      if (newline < 0) break
+      const line = buffer.slice(0, newline).trim()
+      buffer = buffer.slice(newline + 1)
+      if (!line) continue
+      const message = JSON.parse(line) as Record<string, unknown>
+      if (message.method === 'initialize') {
+        stdout.write(`${JSON.stringify({
+          jsonrpc: '2.0',
+          id: message.id,
+          result: { userAgent: `codex-plugin-dsh/${version} (Linux; x86_64) codex-cli` },
+        })}\n`)
+      }
+    }
+  })
+  const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+  let settled = false
+  return {
+    pid: 5000,
+    stdin,
+    stdout,
+    stderr: undefined,
+    collected: { stderr: { readFrom() { return { text: '' } } } },
+    done: done.promise,
+    terminate() {
+      if (settled) return
+      settled = true
+      done.resolve({ exitCode: 0, signal: null })
+    },
+    async waitForExit() { await done.promise; return true },
+  }
+}
+
+/** Exec-search managed child that exits on its own, without emitting any terminal JSONL event. */
+function silentlyExitingSearchChild(stderrText: string, exitCode = 1) {
+  const stdout = new PassThrough()
+  const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+  queueMicrotask(() => {
+    stdout.end()
+    done.resolve({ exitCode, signal: null })
+  })
+  return {
+    pid: 5001,
+    stdin: undefined,
+    stdout,
+    stderr: undefined,
+    collected: { stderr: { readFrom() { return { text: stderrText } } } },
+    done: done.promise,
+    terminate() {},
+    async waitForExit() { await done.promise; return true },
+  }
+}
+
+function fakeSearchCtx(stderrText: string) {
+  return {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/codex' },
+      spawn(spec: any) {
+        if (spec.stdio.stdin === 'pipe') return preflightChild()
+        return silentlyExitingSearchChild(stderrText)
+      },
+    },
+  } as any
+}
 
 test('Codex web search uses external codex exec with live native search and pre-execution isolation', () => {
   const argv = codexSearchExecArgv({
@@ -294,4 +373,221 @@ test('Codex web search verifies runtime, resolves and spawns with provider env, 
   assert.deepEqual(spawned[1].env, providerEnv)
   assert.equal(terminateCalls, 2)
   assert.deepEqual(waitSignals, [undefined, undefined])
+})
+
+test('Codex web search never forwards raw vendor stderr when the process exits before a terminal event', async () => {
+  const SENTINEL_STDERR = 'unexpected failure while reading /home/testuser/.codex/auth.json SENTINEL_LEAK_MARKER'
+  const ctx = fakeSearchCtx(SENTINEL_STDERR)
+
+  await assert.rejects(
+    new CodexSearchBackend(ctx, { executable: 'codex' }).search(
+      { provider: 'codex-app-server', model: 'gpt-5.6-sol' },
+      { query: 'example', maxResults: 3 },
+      AbortSignal.timeout(5_000),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexWebSearchBackendError)
+      assert.equal(error.code, 'WEB_SEARCH_PROVIDER_ERROR', 'the WEB_SEARCH_PROVIDER_ERROR taxonomy must survive sanitization')
+      assert.doesNotMatch(error.message, /SENTINEL_LEAK_MARKER/)
+      assert.doesNotMatch(error.message, /auth\.json/)
+      assert.doesNotMatch(error.message, /testuser/)
+      return true
+    },
+  )
+})
+
+test('a recognized Codex stderr condition reports only its own authored message', async () => {
+  const LOGIN_STDERR = 'fatal: you are not logged in. Run `codex login` and try again. (session at /home/testuser/.codex)'
+  const ctx = fakeSearchCtx(LOGIN_STDERR)
+
+  await assert.rejects(
+    new CodexSearchBackend(ctx, { executable: 'codex' }).search(
+      { provider: 'codex-app-server', model: 'gpt-5.6-sol' },
+      { query: 'example', maxResults: 3 },
+      AbortSignal.timeout(5_000),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexWebSearchBackendError)
+      assert.match(error.message, /sign-in is required/)
+      assert.match(error.message, /codex login/)
+      assert.doesNotMatch(error.message, /testuser/)
+      return true
+    },
+  )
+})
+
+test('a sanitized Codex web_search failure survives core routing without leaking the raw marker', async () => {
+  const SENTINEL_STDERR = '/home/testuser/.codex/auth.json SENTINEL_LEAK_MARKER'
+  const ctx = fakeSearchCtx(SENTINEL_STDERR)
+  const backend = new CodexSearchBackend(ctx, { executable: 'codex' })
+
+  await assert.rejects(
+    dispatchPrimarySearch(
+      { provider: 'codex-app-server', model: 'gpt-5.6-sol' },
+      { query: 'example', maxResults: 3 },
+      AbortSignal.timeout(5_000),
+      () => backend,
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof PrimaryWebSearchError)
+      assert.equal(error.code, 'WEB_SEARCH_PROVIDER_ERROR')
+      assert.doesNotMatch(error.message, /SENTINEL_LEAK_MARKER/)
+      assert.doesNotMatch(error.message, /auth\.json/)
+      assert.doesNotMatch(error.message, /testuser/)
+      return true
+    },
+  )
+})
+
+test('concurrent runtime preflights share one in-flight spawn, and a failed preflight is retried, never cached as success', async () => {
+  // Drives the backend's private preflight cache directly (mirroring
+  // packages/codex/test/model-catalog-race.test.ts's `subject.models()`
+  // pattern) rather than through the full public search(), which would
+  // additionally race each call's own per-call mkdtemp() against the
+  // preflight's completion and make the spawn count non-deterministic.
+  let preflightSpawns = 0
+  let preflightShouldFail = true
+
+  const ctx = {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/codex' },
+      spawn() {
+        preflightSpawns += 1
+        if (preflightShouldFail) {
+          // A preflight whose stdout closes without ever answering `initialize`.
+          const stdout = new PassThrough()
+          const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+          queueMicrotask(() => { stdout.end(); done.resolve({ exitCode: 1, signal: null }) })
+          return {
+            pid: 6000 + preflightSpawns,
+            stdin: new PassThrough(),
+            stdout,
+            stderr: undefined,
+            collected: { stderr: { readFrom() { return { text: '' } } } },
+            done: done.promise,
+            terminate() {},
+            async waitForExit() { await done.promise; return true },
+          }
+        }
+        return preflightChild()
+      },
+    },
+  } as any
+
+  const backend = new CodexSearchBackend(ctx, { executable: 'codex' }) as any
+
+  // Three concurrent callers while the preflight is set up to fail.
+  const firstRound = await Promise.allSettled([
+    backend.ensureVerifiedRuntime('/resolved/codex', AbortSignal.timeout(5_000)),
+    backend.ensureVerifiedRuntime('/resolved/codex', AbortSignal.timeout(5_000)),
+    backend.ensureVerifiedRuntime('/resolved/codex', AbortSignal.timeout(5_000)),
+  ])
+  assert.ok(firstRound.every(settled => settled.status === 'rejected'), 'a failed preflight must fail every concurrent caller')
+  assert.equal(preflightSpawns, 1, 'concurrent callers must share exactly one in-flight preflight spawn')
+
+  // The next call must retry rather than trust a cached failure.
+  preflightShouldFail = false
+  await backend.ensureVerifiedRuntime('/resolved/codex', AbortSignal.timeout(5_000))
+  assert.equal(preflightSpawns, 2, 'a failed preflight must not be cached as success; the next call retries it')
+
+  // Once verified, a further call for the same executable spawns nothing more.
+  await backend.ensureVerifiedRuntime('/resolved/codex', AbortSignal.timeout(5_000))
+  assert.equal(preflightSpawns, 2, 'a verified executable is cached and does not re-run the preflight')
+})
+
+test('argv contract: codex exec routes through the same Windows batch shim as app-server', () => {
+  const executable = 'C:\\Users\\user\\AppData\\Roaming\\npm\\codex.cmd'
+  const prompt = 'search prompt with "quotes", & ampersands, and % percents'
+  const spec = {
+    executable,
+    model: 'gpt-5.6-sol',
+    cwd: 'C:\\work',
+    schemaPath: 'C:\\work\\schema.json',
+    prompt,
+  }
+
+  const posix = codexSearchExecInvocation(spec, {}, 'linux')
+  assert.deepEqual(posix.argv, codexSearchExecArgv(spec), 'non-Windows platforms are unaffected')
+
+  const { argv, env } = codexSearchExecInvocation(spec, {}, 'win32', 'cmd.exe')
+
+  assert.equal(argv[0], 'cmd.exe', 'the same interpreter as the app-server invocation must front the command')
+  assert.deepEqual(argv.slice(1, 5), ['/d', '/v:off', '/s', '/c'], 'the same suppression flags as the app-server invocation')
+  assert.equal(argv.includes(executable), false, 'the configured executable path must never enter the parsed command tail')
+  assert.equal(argv.includes(prompt), false, 'the model-authored prompt must never enter the parsed command tail directly')
+
+  const promptOccurrences = argv.filter(arg => arg.includes('%') && arg.toLowerCase().includes('prompt'))
+  assert.equal(promptOccurrences.length, 1, 'the prompt placeholder must appear exactly once, as one argv element')
+  assert.equal(argv[argv.length - 1], promptOccurrences[0], 'the prompt placeholder is the last argv element, exactly one token')
+
+  assert.ok(Object.values(env).some(value => value.includes(executable)), 'the executable path travels via the environment, not argv')
+  assert.ok(Object.values(env).some(value => value === `"${prompt}"`), 'the prompt travels via the environment, not argv')
+
+  const appServer = codexAppServerInvocation(executable, {}, 'win32', 'cmd.exe')
+  assert.deepEqual(
+    argv.slice(0, 6),
+    appServer.argv.slice(0, 6),
+    'codex exec must share the identical interpreter/flags/executable-placeholder prefix as the app-server invocation',
+  )
+})
+
+test('a simultaneous operation failure and subprocess cleanup failure preserve the original diagnostic', async () => {
+  const OPERATION_MARKER = 'search-operation-failed-marker'
+  const CLEANUP_MARKER = 'cleanup-failed-marker'
+
+  // A structured protocol `error` event (not raw stderr) so the operation
+  // failure carries an identifiable, traceable marker unaffected by the
+  // stderr-sanitization contract this suite covers elsewhere.
+  function failingOperationSearchChild() {
+    const stdout = new PassThrough()
+    const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+    queueMicrotask(() => {
+      stdout.end(`${JSON.stringify({ type: 'error', message: OPERATION_MARKER })}\n`)
+      done.resolve({ exitCode: 1, signal: null })
+    })
+    return {
+      pid: 5002,
+      stdin: undefined,
+      stdout,
+      stderr: undefined,
+      collected: { stderr: { readFrom() { return { text: '' } } } },
+      done: done.promise,
+      terminate() {},
+      // Cleanup (disposeVendorChild -> child.waitForExit()) fails too.
+      async waitForExit() { throw new Error(CLEANUP_MARKER) },
+    }
+  }
+
+  const ctx = {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/codex' },
+      spawn(spec: any) {
+        if (spec.stdio.stdin === 'pipe') return preflightChild()
+        return failingOperationSearchChild()
+      },
+    },
+  } as any
+
+  const backend = new CodexSearchBackend(ctx, { executable: 'codex' })
+
+  await assert.rejects(
+    backend.search(
+      { provider: 'codex-app-server', model: 'gpt-5.6-sol' },
+      { query: 'example', maxResults: 1 },
+      AbortSignal.timeout(5_000),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof CodexWebSearchBackendError)
+      assert.equal(error.code, 'WEB_SEARCH_PROVIDER_ERROR', 'the operation failure taxonomy code must survive')
+      assert.match(error.message, new RegExp(OPERATION_MARKER))
+      assert.match(error.message, new RegExp(CLEANUP_MARKER))
+      assert.ok(error.cause instanceof AggregateError, 'both failures must be reachable, e.g. via AggregateError')
+      const aggregate = error.cause as AggregateError
+      assert.equal(aggregate.errors.length, 2)
+      const [operationError, cleanupError] = aggregate.errors as [Error, Error]
+      assert.match(String(operationError?.message), new RegExp(OPERATION_MARKER))
+      assert.match(String(cleanupError?.message), new RegExp(CLEANUP_MARKER))
+      return true
+    },
+  )
 })

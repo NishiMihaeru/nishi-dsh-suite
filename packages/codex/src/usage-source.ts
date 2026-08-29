@@ -232,8 +232,13 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
           }
           const version = codexAppServerVersionFromUserAgent(initialized.userAgent)
           if (version !== SUPPORTED_CODEX_APP_SERVER_VERSION) {
-            throw new Error(
+            // An installed-but-unsupported Codex version is an availability
+            // problem, not a collection error: the source spec only maps
+            // CodexRateLimitsSourceError to a status, so an ordinary Error
+            // here would collapse to ERROR instead of UNAVAILABLE.
+            throw new CodexRateLimitsSourceError(
               `codex-usage: unsupported Codex App Server version ${JSON.stringify(version ?? initialized.userAgent)}; expected ${SUPPORTED_CODEX_APP_SERVER_VERSION}`,
+              'UNAVAILABLE',
             )
           }
           initCompleted = true
