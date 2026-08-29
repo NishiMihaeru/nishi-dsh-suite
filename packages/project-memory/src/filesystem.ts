@@ -291,11 +291,18 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function isLockContention(error: unknown, lockPath: string): Promise<boolean> {
+async function isLockRenameContention(error: unknown, lockPath: string): Promise<boolean> {
   const code = (error as NodeJS.ErrnoException | null)?.code
-  if (!['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES', 'ENOTDIR', 'EISDIR'].includes(code ?? '')) {
-    return false
+  // These are authoritative destination-collision results for renaming our
+  // prepared lock directory. Do not re-stat the pathname: the holder may
+  // legitimately release it between rename() and any follow-up lstat().
+  if (code === 'EEXIST' || code === 'ENOTEMPTY' || code === 'ENOTDIR' || code === 'EISDIR') {
+    return true
   }
+  if (code !== 'EPERM' && code !== 'EACCES') return false
+  // Some platforms report an existing destination as EPERM/EACCES. Keep the
+  // existence check only for those ambiguous codes, where it distinguishes
+  // contention from a real permission failure.
   return pathExists(lockPath)
 }
 
@@ -557,9 +564,11 @@ function createDirectoryScope(
         try {
           visible = await lstat(targetPath)
         } catch (error: any) {
-          if (error?.code === 'ENOENT') {
-            throw new Error(`Canonical target at "${targetFilePath}" changed while it was being opened`)
-          }
+          // A concurrent unlink after open means the canonical pathname is now
+          // absent. Returning null reflects current namespace state and avoids
+          // exposing stale bytes from the already-unlinked inode. Replacement
+          // by another inode/symlink is still rejected below.
+          if (error?.code === 'ENOENT') return null
           throw error
         }
         if (visible.isSymbolicLink() || !visible.isFile() || !sameIdentity(opened, visible)) {
@@ -679,6 +688,7 @@ function createDirectoryScope(
       for (;;) {
         throwIfAborted(signal)
         const tempLockPath = `${lockPath}.${randomBytes(6).toString('hex')}.tmp`
+        let published = false
         try {
           await mkdir(tempLockPath, { mode: 0o700 })
           const marker = {
@@ -692,12 +702,16 @@ function createDirectoryScope(
             JSON.stringify(marker) + '\n',
             { mode: 0o600, flag: 'wx' },
           )
-          await rename(tempLockPath, lockPath)
-          acquired = true
-          break
-        } catch (error) {
-          await rm(tempLockPath, { recursive: true, force: true })
-          if (!await isLockContention(error, lockPath)) throw error
+          try {
+            await rename(tempLockPath, lockPath)
+            published = true
+            acquired = true
+            break
+          } catch (error) {
+            if (!await isLockRenameContention(error, lockPath)) throw error
+          }
+        } finally {
+          if (!published) await rm(tempLockPath, { recursive: true, force: true })
         }
         throwIfAborted(signal)
         if (Date.now() >= deadline) {
