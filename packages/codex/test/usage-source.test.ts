@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import {
@@ -10,7 +7,7 @@ import {
   OfficialCodexRateLimitsSource,
 } from '../src/usage-source.ts'
 
-function fakeAppServerChild() {
+function fakeAppServerChild(observations?: { terminateCalls: number; waitSignals: Array<AbortSignal | undefined> }) {
   const stdin = new PassThrough()
   const stdout = new PassThrough()
   let settled = false
@@ -59,8 +56,12 @@ function fakeAppServerChild() {
     stderr: undefined,
     collected: {},
     done,
-    terminate: finish,
-    async waitForExit() {
+    terminate() {
+      if (observations) observations.terminateCalls += 1
+      finish()
+    },
+    async waitForExit(signal?: AbortSignal) {
+      observations?.waitSignals.push(signal)
       await done
       return true
     },
@@ -76,32 +77,41 @@ test('external executable uses only the official app-server stdio command', () =
   assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 30_000)
 })
 
-test('usage source resolves external Codex and launches app-server directly', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'nishi-codex-usage-runtime-'))
-  const executable = join(root, 'codex')
-  await writeFile(executable, '#!/bin/sh\nexit 0\n', 'utf8')
-  await chmod(executable, 0o755)
-
-  const spawned: any[] = []
-  try {
-    const source = new OfficialCodexRateLimitsSource({
-      cwd: root,
-      env: {
-        DSH_CODEX_EXECUTABLE: executable,
-        PATH: '/usr/bin',
-      },
-      spawn(spec) {
-        spawned.push(spec)
-        return fakeAppServerChild()
-      },
-    })
-
-    const result = await source.read()
-    assert.deepEqual(result, { primary: { usedPercent: 17 } })
-    assert.equal(spawned.length, 1)
-    assert.deepEqual(spawned[0].argv, [executable, 'app-server', '--stdio'])
-    assert.equal(spawned[0].argv.includes(process.execPath), false)
-  } finally {
-    await rm(root, { recursive: true, force: true })
+test('usage source resolves and launches Codex in the DSH subprocess execution world', async () => {
+  const env = {
+    DSH_CODEX_EXECUTABLE: 'provider-codex',
+    CODEX_HOME: '/provider/codex-home',
+    PATH: '/provider/bin',
   }
+  const resolved: Array<{ command: string; env: Readonly<Record<string, string>> | undefined; signal: AbortSignal | undefined }> = []
+  const spawned: any[] = []
+  const observations = { terminateCalls: 0, waitSignals: [] as Array<AbortSignal | undefined> }
+
+  const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    executable: 'provider-codex',
+    env,
+    async resolveExecutable(command, receivedEnv, signal) {
+      resolved.push({ command, env: receivedEnv, signal })
+      return '/provider/runtime/codex'
+    },
+    spawn(spec) {
+      spawned.push(spec)
+      return fakeAppServerChild(observations)
+    },
+  })
+
+  const result = await source.read()
+  assert.deepEqual(result, { primary: { usedPercent: 17 } })
+  assert.equal(resolved.length, 1)
+  assert.equal(resolved[0]?.command, 'provider-codex')
+  assert.deepEqual(resolved[0]?.env, env)
+  assert.ok(resolved[0]?.signal instanceof AbortSignal)
+
+  assert.equal(spawned.length, 1)
+  assert.deepEqual(spawned[0].argv, ['/provider/runtime/codex', 'app-server', '--stdio'])
+  assert.deepEqual(spawned[0].env, env, 'the subprocess provider, not Codex usage, owns parent-env construction')
+  assert.equal(spawned[0].cwd, '/provider/workspace')
+  assert.equal(observations.terminateCalls, 1)
+  assert.deepEqual(observations.waitSignals, [undefined], 'cleanup must wait for whole-tree exit without a grace-bound abort')
 })
