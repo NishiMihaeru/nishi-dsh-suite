@@ -14,7 +14,7 @@ Core owns the seams that must stay stable when the primary provider changes: pro
 | `nishi-dsh-core/runtime` | library | shared vendor CLI runtime and `registerProvider()` |
 | `nishi-dsh-core/usage` | library | normalized usage contracts and collectors |
 
-A new provider must not require provider-specific branches in Core or browser identity logic. Shipping a provider can still require normal declarative Suite packaging changes.
+A new provider must not require provider-specific branches in Core or browser identity logic. Shipping a provider can still require ordinary declarative Suite packaging changes.
 
 ## Host lifecycle
 
@@ -26,28 +26,30 @@ The Cordis lifecycle is split deliberately:
 
 Core does not import or inject `@deepseek-ai/dsh-authorization`.
 
-### Model Accounts and credentials
+## Model Accounts and credentials
 
 Credential-store availability is distinct from ordinary credential absence. A failed status read projects a sanitized `ERROR` state; credential material and backend error text do not cross the browser RPC boundary.
 
-Direct subscription OAuth initiation is disabled. Legacy DSH grants may still be detected for compatibility, but in-app destructive legacy-grant deletion is also disabled. DSH `0.1.2-alpha.1` exposes serialized credential read/modify/write and unconditional delete operations, but no atomic compare-and-delete operation that can prove the record being removed is still the previously observed grant. A separate read-kind-then-delete sequence can erase a newer API-key record written by another process, so Core fails closed instead of performing that race-prone mutation. The browser therefore shows legacy grants as informational state and does not render an in-app Sign Out action for them.
+Direct subscription OAuth initiation is disabled.
 
-### DSH Connection compatibility seam
+Legacy DSH grants may still be detected for compatibility, but in-app destructive legacy-grant deletion is disabled. DSH `0.1.2-alpha.1` exposes credential read/modify/write plus unconditional delete operations, but no atomic compare-and-delete operation proving the record being removed is still the previously observed grant. A separate read-kind-then-delete sequence can erase a newer API-key record written by another process, so Core fails closed instead. The browser shows legacy grants as informational state and does not render an in-app destructive Sign Out action.
 
-Core RPC handlers depend only on `@deepseek-ai/dsh-client-connection`'s carrier-neutral `ConnectionRpcHandler` contract.
+## DSH Connection compatibility seam
 
-The registration seam currently supports the two declared peer generations:
+Core RPC handlers depend on `@deepseek-ai/dsh-client-connection`'s carrier-neutral `ConnectionRpcHandler` contract.
+
+The registration seam currently supports:
 
 - DSH `0.1.1-rc.2`: `rpc.handle(channel, handler, { authority: 'trusted-host' })`;
 - DSH `0.1.2-alpha.1`: `rpc.handle(channel, handler)`.
 
-`registerConnectionRpcChannel()` isolates this transition. The current `Function.length` compatibility probe is intentionally retained while rc.2 remains a supported published peer; removing it is a future compatibility-boundary decision, not part of the alpha.1 correctness fixes.
+`registerConnectionRpcChannel()` isolates this transition. The current `Function.length` compatibility probe is intentionally retained while rc.2 remains a supported published peer; removing it is a future support-boundary decision.
 
 ## Provider registry and registration
 
 Providers declare `inject: ['nishiProviders', ...]` and call shared `registerProvider(ctx, descriptor, config)`.
 
-`registerProvider()` validates identity/routes/presentation, constructs optional capabilities on the provider context, records the provider, registers model routes through `ctx.llm.registerAdapter`, runs provider install hooks, and rolls core-owned state back if a later transaction stage fails.
+`registerProvider()` validates identity/routes/presentation, constructs optional capabilities on the provider context, records the provider, registers model routes through `ctx.llm.registerAdapter`, runs provider install hooks, and rolls Core-owned state back if a later transaction stage fails.
 
 Registry observers are non-vetoing. Provider registration and withdrawal drive the live usage roster.
 
@@ -69,9 +71,9 @@ Raw vendor stderr is not automatically surfaced as a user-facing error message.
 
 Usage is an optional provider descriptor capability. A provider without one remains visible with explicit `UNSUPPORTED` state.
 
-Core owns generic caching and invalidation. `UsageCapabilityHooks.invalidate()` is an authoritative observation-generation boundary: it immediately drops the provider's cached snapshot, marks any already-running refresh generation as superseded for cache publication, and prevents cached read APIs from returning invalidated data. A refresh that began before invalidation may still resolve to its original caller, but it cannot repopulate the cache after that invalidation. A subsequent refresh is not forced to join the superseded in-flight generation.
+Core owns generic caching and invalidation. `UsageCapabilityHooks.invalidate()` is an authoritative observation-generation boundary: it immediately drops the provider's cached snapshot, advances the invalidation generation, and prevents cached read APIs from returning invalidated data. Refresh work that began before invalidation may still resolve to its original caller, but it cannot repopulate the cache after that invalidation. A subsequent refresh does not have to join the superseded in-flight generation.
 
-The browser's `get-providers` response is likewise authoritative for the current roster. If a provider is omitted because its host snapshot was invalidated, the browser clears any prior locally `FRESH` copy so the next `ensureFresh` path can refresh it. There is no separate push channel for provider invalidation; the contract is that the next host/cache read cannot serve the vendor-superseded snapshot.
+The browser's `get-providers` response is authoritative. If a provider is omitted because its host snapshot was invalidated, the browser clears any prior locally `FRESH` copy so the next `ensureFresh()` path can refresh it. There is no separate push channel for invalidation; the guarantee is that the next authoritative host/cache read cannot serve the vendor-superseded snapshot.
 
 Browser refreshes remain roster-generation-aware so stale async work cannot resurrect withdrawn/re-registered provider generations.
 
@@ -83,17 +85,32 @@ Production DSH peers remain intentionally restricted to:
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The local package devDependency graph is still pinned to the reproducible rc.2 development baseline. Compatibility claims for the changed code must therefore be re-exercised explicitly against official `dsh-v0.1.2-alpha.1` at commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`; a normal rc.2 local test run alone is not alpha.1 evidence.
+The package devDependency graph remains pinned to the reproducible rc.2 development baseline. The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`; ordinary rc.2 workspace tests alone are not that evidence.
 
-## Current status — REOPENED / PENDING VERIFICATION
+## Current status — FROZEN
 
-A fresh independent audit against exact DSH `0.1.2-alpha.1` reopened Core and found:
+Accepted Foundation implementation:
 
-- a credential read-check-delete TOCTOU in legacy logout;
-- usage invalidation that did not actually drop cached snapshots and could leave a browser-side `FRESH` copy suppressing refresh.
+```text
+7cd4d5b17625f9b3a21b741555df6597fd9cb889
+```
 
-The current branch implements fail-closed legacy-grant handling plus generation-aware authoritative usage invalidation and adds targeted regression coverage. These changes have been statically reviewed against the upstream alpha.1 contracts, but the changed tree has **not yet received the new executable Gemini/local validation run**.
+Raw follow-up PASS report commit:
 
-Historical PASS evidence remains historical evidence for its exact earlier checkpoint only. Do not treat it as validation of the current branch head.
+```text
+d1cbac7094488ded52d9ab83891531bc01197090
+```
+
+Accepted Core evidence records:
+
+- focused tests `182/182` PASS;
+- Core check/build PASS;
+- full workspace test/check/build and `pnpm verify:local` PASS;
+- disposable exact-commit alpha.1 Connection RPC registration PASS;
+- authorization status and fail-closed legacy logout PASS with no credential deletion;
+- Usage invalidation/cache-drop runtime probe PASS;
+- independent follow-up review found no new blocking Core/Foundation defect.
+
+Provider-specific compatibility still requires provider-specific validation; Codex is the next active stage.
 
 Windows remains **NOT TESTED**.
