@@ -165,9 +165,10 @@ function assistantHistoryItems(message: Message): Record<string, unknown>[] {
         })
         break
       case 'reasoning':
-        throw new Error(
-          'codex-plugin-dsh: another provider\'s reasoning history cannot be imported into Codex App Server; start a new session',
-        )
+        // Responses history cannot import provider reasoning. Durable DSH
+        // history remains unchanged; fallback replay projects visible output
+        // only when a vendor checkpoint cannot safely be reused.
+        break
       case 'image':
       case 'tool-result':
         throw new Error(`codex-plugin-dsh: assistant history contains unsupported ${JSON.stringify(block.type)} content`)
@@ -194,8 +195,11 @@ export async function responseItems(
 
 /**
  * Split a DSH request into a pinned Codex checkpoint, completed history to import, and current user input.
+ * A checkpoint is reusable only inside the DSH session that created it; otherwise visible durable history is rebuilt.
  * @param messages - Exact DSH provider message sequence for this request.
  * @param provider - Registered Codex provider route.
+ * @param resolveImageUrl - Durable-image resolver for history projection.
+ * @param expectedSessionId - Current DSH session id; mismatched checkpoints are never reused.
  * @param ignoreCheckpoint - Rebuild from DSH history instead of reusing a persisted Codex thread.
  * @returns Work required to construct the matching App Server thread.
  */
@@ -203,9 +207,14 @@ export async function prepareCodexHistory(
   messages: readonly Message[],
   provider: string,
   resolveImageUrl: CodexImageUrlResolver,
+  expectedSessionId?: string,
   ignoreCheckpoint = false,
 ): Promise<PreparedCodexHistory> {
-  const checkpoint = ignoreCheckpoint ? undefined : latestCheckpoint(messages, provider)
+  const checkpointCandidate = ignoreCheckpoint ? undefined : latestCheckpoint(messages, provider)
+  const checkpoint = checkpointCandidate !== undefined
+    && (expectedSessionId === undefined || checkpointCandidate.state.sessionId === expectedSessionId)
+    ? checkpointCandidate
+    : undefined
   const pending = checkpoint === undefined ? messages : messages.slice(checkpoint.index + 1)
   let inputStart = pending.length
   while (inputStart > 0 && isCurrentTurnInput(pending[inputStart - 1] as Message)) inputStart -= 1
