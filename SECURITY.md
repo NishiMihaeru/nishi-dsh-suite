@@ -26,9 +26,11 @@ Nishi DSH Suite does not intentionally collect, copy, store, migrate or persist 
 - Suite code must not copy credential stores, replace vendor homes to bridge authentication, scrape cookies/keyrings, or replay vendor tokens through custom HTTP clients.
 - Usage/quota projection must not expose raw account tokens, CSRF material, private identity data or equivalent secrets to browser-visible DTOs.
 
-The core Model Accounts host reads the DSH credentials service directly. It does not import or inject the DSH authorization service; the Suite's authorization row is a surrounding-profile compatibility seam, not permission to broker vendor authentication.
+The Core Model Accounts host reads the DSH credentials service directly. It does not import or inject the DSH authorization service; the Suite's authorization row is a surrounding-profile compatibility seam, not permission to broker vendor authentication.
 
-## Project memory
+Legacy DSH grants are compatibility state only. Destructive in-app legacy-grant deletion is disabled because the accepted DSH `0.1.2-alpha.1` credentials contract does not provide atomic compare-and-delete semantics. A read-kind-then-unconditional-delete flow must not be reintroduced without a separately reviewed atomic-safe credential contract.
+
+## Project Memory
 
 Project Memory is repository-scoped durable state and may be committed/shared with collaborators. It must not store:
 
@@ -37,7 +39,17 @@ Project Memory is repository-scoped durable state and may be committed/shared wi
 - raw chain-of-thought or transient command logs;
 - personal facts about the operator that do not belong in the shared project.
 
-Memory paths are derived from an explicit absolute session workspace root. Git sessions resolve to the nearest `.git` root so context injection and memory tools use one store. Canonical `.dsh` path components and existing memory targets reject symlinks/junctions/non-regular entries. Replacement writes use the harness atomic-write primitive after those checks.
+Memory paths are derived from an explicit absolute session workspace root. Git sessions resolve to the nearest `.git` root so context injection and memory tools use one store.
+
+On POSIX, package-owned `.dsh`, `.dsh/memory` and `.dsh/local` descendants are accessed through a pinned directory-descriptor chain. Final-file reads use no-follow behavior where available and compare opened file identity with the visible canonical entry before consuming bytes. Replacement by another inode, a symlink or a non-file entry fails closed. A file that is concurrently unlinked after it was opened is treated as current namespace absence rather than exposing stale bytes from an unlinked inode.
+
+Project Memory RMW coordination uses the DSH-compatible `<target>.lock` namespace. Current writers publish populated generation-safe lock directories containing a random acquisition token plus PID/process-birth identity where available. Release and stale cleanup are conditional on the exact observed lock generation so a delayed finalizer must not remove a replacement owner's lock.
+
+Named-topic + Memory-map mutations use `.dsh/local/project-memory-transaction.json` with transaction-generation identity and exact pre-images. `pending` state is rollback state; `committed` state is preserve-and-clean state. Journal phase replacement remains owner-private (`0600`) on POSIX.
+
+The implementation does not `fsync` file contents or parent directories, so sudden power-loss/storage-durability guarantees beyond the documented atomic filesystem protocol are out of scope.
+
+Windows has no equivalent Node directory-fd/openat implementation in this package and remains **NOT TESTED**. Do not infer the stronger POSIX TOCTOU guarantees on Windows.
 
 ## Profile ownership
 
@@ -49,4 +61,6 @@ The managed Orchestrator preset bridge refuses to overwrite/remove an unmanaged 
 
 Normal installation may access npm/GitHub registries. Live provider use naturally performs provider network requests through official vendor runtimes and may consume quota. Deterministic default tests must not make live model calls.
 
-Windows remains not tested for the current rc.3 family; do not infer a Windows security/compatibility guarantee from Linux acceptance.
+Provider-specific compatibility and security claims are accepted only after that provider's own validation stage; Foundation compatibility evidence does not automatically validate Codex, Antigravity or Claude provider seams.
+
+Windows remains **NOT TESTED** for the current rc.3 family.
