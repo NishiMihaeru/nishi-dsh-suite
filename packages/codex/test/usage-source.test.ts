@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
+import { CodexRateLimitsSourceError } from '../src/usage.ts'
 import {
   codexAppServerArgv,
   DEFAULT_REQUEST_TIMEOUT_MS,
   OfficialCodexRateLimitsSource,
 } from '../src/usage-source.ts'
 
-function fakeAppServerChild(observations?: { terminateCalls: number; waitSignals: Array<AbortSignal | undefined> }) {
+interface FakeAppServerOptions {
+  readonly loggedIn?: boolean
+  readonly observations?: { terminateCalls: number; waitSignals: Array<AbortSignal | undefined> }
+}
+
+function fakeAppServerChild(options: FakeAppServerOptions = {}) {
+  const { observations } = options
+  const loggedIn = options.loggedIn ?? true
   const stdin = new PassThrough()
   const stdout = new PassThrough()
   let settled = false
@@ -32,6 +40,14 @@ function fakeAppServerChild(observations?: { terminateCalls: number; waitSignals
           jsonrpc: '2.0',
           id: message.id,
           result: { serverInfo: { name: 'codex', version: '0.150.0' } },
+        })}\n`)
+      } else if (message.method === 'account/read') {
+        stdout.write(`${JSON.stringify({
+          jsonrpc: '2.0',
+          id: message.id,
+          result: loggedIn
+            ? { requiresOpenaiAuth: true, account: { type: 'chatgpt' } }
+            : { requiresOpenaiAuth: true, account: null },
         })}\n`)
       } else if (message.method === 'account/rateLimits/read') {
         stdout.write(`${JSON.stringify({
@@ -97,7 +113,7 @@ test('usage source resolves and launches Codex in the DSH subprocess execution w
     },
     spawn(spec) {
       spawned.push(spec)
-      return fakeAppServerChild(observations)
+      return fakeAppServerChild({ observations })
     },
   })
 
@@ -114,4 +130,33 @@ test('usage source resolves and launches Codex in the DSH subprocess execution w
   assert.equal(spawned[0].cwd, '/provider/workspace')
   assert.equal(observations.terminateCalls, 1)
   assert.deepEqual(observations.waitSignals, [undefined], 'cleanup must wait for whole-tree exit without a grace-bound abort')
+})
+
+test('usage source reports missing vendor login as LOGIN_REQUIRED before reading limits', async () => {
+  const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    async resolveExecutable() { return '/provider/runtime/codex' },
+    spawn() { return fakeAppServerChild({ loggedIn: false }) },
+  })
+
+  await assert.rejects(source.read(), (error: unknown) => {
+    assert.ok(error instanceof CodexRateLimitsSourceError)
+    assert.equal(error.code, 'LOGIN_REQUIRED')
+    return true
+  })
+})
+
+test('usage source classifies executable resolution failure as UNAVAILABLE without leaking raw details', async () => {
+  const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    async resolveExecutable() { throw new Error('/secret/vendor/path/codex missing') },
+    spawn() { throw new Error('spawn must not be reached') },
+  })
+
+  await assert.rejects(source.read(), (error: unknown) => {
+    assert.ok(error instanceof CodexRateLimitsSourceError)
+    assert.equal(error.code, 'UNAVAILABLE')
+    assert.doesNotMatch(error.message, /secret|vendor\/path/)
+    return true
+  })
 })
