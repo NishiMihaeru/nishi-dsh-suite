@@ -148,3 +148,109 @@ test('a cached response from an older roster generation cannot recreate a remove
   assert.deepEqual(controller.getSnapshot().roster, [])
   assert.deepEqual(controller.getSnapshot().providers, {})
 })
+
+test('a refreshProvider implementation that throws synchronously does not leave a stuck in-flight entry', async () => {
+  // `UsageLimitsBrowserRpc` is an interface; nothing requires a real
+  // implementation to defer its failure into a rejected promise the way the
+  // shipped `UsageLimitsBrowserRpcClient` does. `doRefresh` must survive a
+  // caller-supplied rpc whose method throws before ever returning a promise.
+  let refreshCalls = 0
+  const rpc: UsageLimitsBrowserRpc = {
+    async getRoster() { return [entry('fixture')] },
+    async getProviders() { return [] },
+    async getProvider() { return null },
+    refreshProvider(): Promise<PublicProviderUsage> {
+      refreshCalls++
+      throw new Error('synchronous rpc failure')
+    },
+  }
+  const controller = new UsageLimitsClientController(rpc)
+
+  await controller.loadRoster()
+  await controller.refreshProvider('fixture')
+
+  assert.equal(refreshCalls, 1)
+  assert.equal(
+    (controller as unknown as { inFlightRefreshes: Map<string, unknown> }).inFlightRefreshes.size,
+    0,
+    'a synchronous rpc throw must not leave a stale rejected-promise entry in the in-flight map',
+  )
+
+  // If the prior attempt left a stuck entry keyed to this roster generation,
+  // this call would join that dead promise and never call the rpc again.
+  await controller.refreshProvider('fixture')
+  assert.equal(refreshCalls, 2, 'a later refresh in the same roster generation must make its own rpc call')
+})
+
+test('dispose() stops notifying subscribers and clears in-flight bookkeeping', async () => {
+  const pending = deferred<PublicProviderUsage>()
+  let refreshCalls = 0
+  const rpc: UsageLimitsBrowserRpc = {
+    async getRoster() { return [entry('fixture')] },
+    async getProviders() { return [] },
+    async getProvider() { return null },
+    async refreshProvider() {
+      refreshCalls++
+      return pending.promise
+    },
+  }
+  const controller = new UsageLimitsClientController(rpc)
+  await controller.loadRoster()
+
+  let notifications = 0
+  controller.subscribe(() => { notifications++ })
+
+  const inFlight = controller.refreshProvider('fixture')
+  assert.ok(notifications > 0, 'starting a refresh notifies subscribers')
+
+  controller.dispose()
+  assert.equal(
+    (controller as unknown as { inFlightRefreshes: Map<string, unknown> }).inFlightRefreshes.size,
+    0,
+    'dispose must clear in-flight bookkeeping',
+  )
+
+  const notificationsAtDispose = notifications
+  pending.resolve(usage('fixture', 1_000))
+  await inFlight
+
+  assert.equal(notifications, notificationsAtDispose, 'no listener call may happen after dispose')
+  assert.equal(refreshCalls, 1)
+})
+
+test('a subscriber that refreshes again during a synchronous rpc failure can still join the in-flight record', async () => {
+  // The synchronous-throw path runs `catch` — and therefore `notify()` — while
+  // the in-flight record is still published. A subscriber is free to refresh
+  // from that notification, so the published record must already carry a real
+  // promise to join rather than a placeholder filled in afterwards.
+  let refreshCalls = 0
+  const rpc: UsageLimitsBrowserRpc = {
+    async getRoster() { return [entry('fixture')] },
+    async getProviders() { return [] },
+    async getProvider() { return null },
+    refreshProvider(): Promise<PublicProviderUsage> {
+      refreshCalls++
+      throw new Error('synchronous rpc failure')
+    },
+  }
+  const controller = new UsageLimitsClientController(rpc)
+  await controller.loadRoster()
+
+  // Refresh only from the failure notification: the earlier `loading` notify
+  // happens before the record is published, which is a different path.
+  let reentrant: Promise<void> | undefined
+  controller.subscribe(() => {
+    if (reentrant !== undefined) return
+    if (controller.getSnapshot().providers.fixture?.status !== 'error') return
+    reentrant = controller.refreshProvider('fixture')
+  })
+
+  await controller.refreshProvider('fixture')
+  assert.ok(reentrant !== undefined, 'the failing refresh must have notified the subscriber')
+  await reentrant
+  assert.equal(
+    (controller as unknown as { inFlightRefreshes: Map<string, unknown> }).inFlightRefreshes.size,
+    0,
+  )
+  assert.equal(refreshCalls, 1, 'the re-entrant call joins the in-flight record instead of starting a second rpc call')
+})

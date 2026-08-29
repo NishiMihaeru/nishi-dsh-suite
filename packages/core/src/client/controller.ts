@@ -20,8 +20,29 @@ export interface UsageLimitsControllerSnapshot {
 }
 
 interface InFlightRefresh {
-  generation: number
-  promise: Promise<PublicProviderUsage>
+  readonly generation: number
+  readonly promise: Promise<PublicProviderUsage>
+}
+
+interface Settler {
+  readonly promise: Promise<PublicProviderUsage>
+  resolve(value: PublicProviderUsage): void
+  reject(reason: unknown): void
+}
+
+/**
+ * `Promise.withResolvers` is ES2024 and this package compiles against the
+ * ES2022 lib, so the one place that needs a promise before its producer exists
+ * builds the pair by hand.
+ */
+function settler(): Settler {
+  let resolve!: (value: PublicProviderUsage) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<PublicProviderUsage>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 
 export class UsageLimitsClientController {
@@ -42,6 +63,22 @@ export class UsageLimitsClientController {
     return () => this.listeners.delete(listener)
   }
   private notify(): void { for (const listener of this.listeners) listener() }
+
+  /**
+   * Tear down this controller when the browser plugin unloads. Subscribers
+   * stop being notified immediately. Advancing `rosterGeneration` reuses the
+   * existing fencing every refresh write already checks via `hasProvider()`,
+   * so a refresh that was already in flight cannot publish into the snapshot
+   * after dispose — no separate "disposed" flag is needed for that. Clearing
+   * `inFlightRefreshes` only drops bookkeeping; it does not cancel the
+   * underlying RPC calls, which is fine since their results can no longer
+   * reach anything observable.
+   */
+  dispose(): void {
+    this.rosterGeneration++
+    this.listeners.clear()
+    this.inFlightRefreshes.clear()
+  }
 
   private hasProvider(providerId: string, generation = this.rosterGeneration): boolean {
     return generation === this.rosterGeneration
@@ -161,8 +198,24 @@ export class UsageLimitsClientController {
     }
     this.notify()
 
-    let record!: InFlightRefresh
-    const promise = (async () => {
+    // The record must be joinable from the moment it is published, and it must
+    // be published before the async body below can run — not after it. `rpc` is
+    // caller-supplied, and an implementation may throw synchronously rather
+    // than return a rejected promise. An async IIFE runs synchronously up to
+    // its first `await`, so such a throw reaches `catch`/`finally` immediately,
+    // before control returns here. Publishing the record afterwards would leave
+    // `finally` comparing against a variable it cannot see yet, so the dead
+    // entry would survive and every later `doRefresh` for this provider and
+    // generation would join its rejected promise instead of calling `rpc`
+    // again. Settling through explicit resolvers keeps `record.promise` a real
+    // promise for the whole window, including the re-entrant case where the
+    // synchronous `catch` notifies a listener that refreshes again.
+    const settled = settler()
+    const record: InFlightRefresh = { generation, promise: settled.promise }
+    this.inFlightRefreshes.set(providerId, record)
+    void settled.promise.catch(() => {})
+
+    void (async () => {
       try {
         const usage = await this.rpc.refreshProvider(providerId, { force })
         if (this.hasProvider(providerId, generation)) {
@@ -191,9 +244,7 @@ export class UsageLimitsClientController {
           this.inFlightRefreshes.delete(providerId)
         }
       }
-    })()
-    record = { generation, promise }
-    this.inFlightRefreshes.set(providerId, record)
-    await promise.catch(() => {})
+    })().then(settled.resolve, settled.reject)
+    await record.promise.catch(() => {})
   }
 }

@@ -144,6 +144,13 @@ export function apply(ctx: ClientContext): void {
     },
     'model-accounts: dispose auth controller',
   )
+
+  ctx.effect(
+    () => () => {
+      usageController.dispose()
+    },
+    'usage-limits: dispose usage controller',
+  )
 }
 
 export * from './controller.js'
