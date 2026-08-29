@@ -100,7 +100,9 @@ The installed Suite dependency closure must remain free of `@openai/codex*` and 
 
 ## Current verification status
 
-Core and Project Memory are **FROZEN** on accepted Foundation implementation:
+Core and Project Memory were accepted and frozen at the implementation below, but a follow-up audit has since changed both, along with Codex. They are **THAWED, pending re-validation**; the evidence below is history and does not describe this tree.
+
+Superseded accepted Foundation implementation:
 
 ```text
 7cd4d5b17625f9b3a21b741555df6597fd9cb889

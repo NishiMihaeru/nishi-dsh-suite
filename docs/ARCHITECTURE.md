@@ -1,6 +1,8 @@
 # Architecture
 
-Status: canonical `0.1.0-rc.3` architecture after the independent Core + Project Memory audit/remediation and accepted follow-up validation against official DSH `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Foundation is **FROZEN** at accepted implementation `7cd4d5b17625f9b3a21b741555df6597fd9cb889`.
+Status: canonical `0.1.0-rc.3` architecture. This document describes the current tree, which is **no longer the frozen accepted checkpoint**: a follow-up audit of Core, Project Memory and Codex found and fixed defects in all three, so Foundation and Codex are thawed and pending re-validation. See *Current implementation state* at the end for exactly what changed and what evidence does and does not exist.
+
+The DSH compatibility target is unchanged: official `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`).
 
 ## Product contract
 
@@ -67,9 +69,13 @@ The current `Function.length` compatibility probe is intentionally retained whil
 
 ### Model Accounts
 
-Credential backend failure is not ordinary account absence. A failed status read becomes a sanitized `ERROR` state, and credential/backend secret material does not cross RPC.
+The roster is registry-derived, exactly like Usage. A provider declares an optional `account` capability — credential scope, credential id, human-facing label — and Core builds one row per live provider that declares one. Core names no vendor, keeps no label table, and holds no credential namespace of its own; a provider that declares nothing gets no row, which is a legal declared state rather than a gap. Row identity is the canonical Nishi provider id, and the credential key is assembled from the provider's own declaration.
 
-Direct subscription OAuth initiation is disabled.
+`account` is pure data: no factory, no secret, nothing executable. It is validated at registration alongside identity and routes, before any Core state is mutated.
+
+Credential backend failure is not ordinary account absence. A failed status read becomes a sanitized `ERROR` state, and credential/backend secret material does not cross RPC. The DTO carries only provider identity, label, whether a record is configured, its kind, and a status — the credential key itself no longer crosses the boundary.
+
+Direct subscription OAuth initiation is disabled, and the surface that once expressed it is gone rather than disabled in place: no begin/submit/cancel/logout endpoints, no client state machine, and in particular no secret-carrying prompt channel that could only ever end in a refusal.
 
 Legacy grants are read-only compatibility state. In-app destructive logout is disabled because the alpha.1 credential contract provides no atomic compare-and-delete operation. A separate `describeRecord()` kind check followed by unconditional `deleteRecord()` can erase a newer API-key record written by another process. Core therefore fails closed and does not expose a destructive Sign Out action for legacy grants.
 
@@ -78,6 +84,8 @@ Legacy grants are read-only compatibility state. In-app destructive logout is di
 Providers inject `nishiProviders` plus only required DSH services and call shared `registerProvider(ctx, descriptor, config)`.
 
 Registration validates canonical identity/routes/presentation, constructs optional capabilities on the provider context, records the provider, registers model routes, runs provider install hooks, and rolls back Core-owned state if a later transaction stage fails.
+
+Capability descriptors are shape-checked before their factories run, so a malformed `webSearch`/`usage` declaration fails as a named registration error rather than a bare `TypeError`. The rollback boundary is exactly the Core-owned registry entry and LLM adapter. Capability *instances* are built on the provider's own context and are not rolled back here — they carry no dispose contract, so a provider owning a resource must bind it to its own `ctx.effect`.
 
 Registry observers are non-vetoing. Provider registration/withdrawal drives the live roster.
 
@@ -105,6 +113,8 @@ Core reads the current session request header and dispatches only the backend re
 - malformed/unavailable route -> `WEB_SEARCH_ROUTE_UNAVAILABLE`;
 - valid route without search capability -> `WEB_SEARCH_UNSUPPORTED`;
 - no fallback to another vendor.
+
+A backend error keeps its own message when Core re-shapes it into the tool taxonomy, so whatever a provider puts in that message reaches the model. That is why the `VendorFailure` contract in `nishi-dsh-core/runtime` is the required construction path for a provider diagnostic built from a failed vendor process: raw vendor stderr is never forwarded, only a recognized and provider-authored sentence, or an unattributed category with exit/signal metadata. Codex is the reference consumer of that contract.
 
 ## Project Memory
 
@@ -149,6 +159,8 @@ The bound is also an ingestion boundary:
 
 Named topic files remain capped at 256 KiB.
 
+The same discipline covers the two user-facing files initialization rewrites: `.dsh/project.json` is read under a 64 KiB bound and `.gitignore` under 1 MiB. Neither is package-owned, so neither may be materialized without a bound just because it is small in practice.
+
 ### Writer locks
 
 All Project Memory RMW targets use the same `<target>.lock` namespace as DSH atomic-write coordination.
@@ -165,6 +177,8 @@ The populated temp directory is atomically published with `rename()` only after 
 Lock release is conditional on the exact observed owner generation and opened directory identity. It removes the expected marker, then `rmdir()` succeeds only if the canonical pathname still refers to the same empty directory. A replacement live owner publishes a populated directory and cannot be deleted by the delayed old finalizer.
 
 Legacy numeric-PID regular lock files remain readable for recovery/interoperability with older state; current Project Memory writers no longer create them.
+
+A queued waiter gets a 10 s budget before it reports a lock timeout. The number is sized for what the holder actually does under one lock — a WAL publish plus two atomic participant writes — rather than for the uncontended case. The budget is overridable per scope through `lockWaitMs`; there is no public package configuration for it yet.
 
 The namespace is bidirectionally compatible with `@deepseek-ai/dsh-atomic-write`: an upstream regular lock blocks Project Memory, and upstream exclusive creation treats the Project Memory directory lock as contention. This was exercised in the accepted Foundation validation.
 
@@ -229,8 +243,11 @@ Recovery semantics:
 - dead `committed` -> preserve new participants and clean metadata;
 - live matching owner -> cross the `MEMORY.md` barrier before deciding whether anything remains to settle;
 - recycled PID with mismatched birth identity -> stale owner;
-- owner transfer before claim is checked independently from generation and fails closed when ownership is no longer provably the observed dead owner;
-- ownership/WAL mutation that destroys proof after recovery has begun -> fail closed.
+- a journal may only be claimed after its owner is proven dead by a read taken under the journal lock;
+- every pre-claim mismatch between that locked read and the caller's earlier unlocked read — journal gone, generation or phase replaced, owner transferred in either direction, owner alive again — is a stale observation, not lost proof, because no participant has been touched yet. Recovery re-observes from scratch, bounded, and the fresh read decides again whether to await a live owner or claim a dead one;
+- ownership/WAL mutation that destroys proof *after* this recovery wrote its own claim -> fail closed.
+
+Concurrent recovery of one abandoned journal is therefore an ordinary outcome: one caller settles it and reports `true`, the others report `false`. Recovery never fails a caller's unrelated read or write just because that caller lost the race. If observations keep churning past the bound, recovery reports `false` rather than looping; that is safe because a genuinely unresolved journal still blocks the next `createPendingProjectMemoryTransaction` through its exclusive create.
 
 ### Recovery ownership layer
 
@@ -243,11 +260,12 @@ The audit distinguished correctness complexity from removable complexity.
 Simplified and accepted:
 
 - duplicate tool-layer Project Memory recovery;
-- implicit PID/pathname ownership replaced by explicit lock/transaction generations.
+- implicit PID/pathname ownership replaced by explicit lock/transaction generations;
+- the Core authorization begin/submit/cancel/logout state machine, host and client alike. It was previously retained while disabled; a disabled mutation path that still carries a secret-typed prompt channel is a liability rather than compatibility, so it was removed instead of kept inert;
+- the hardcoded Model Accounts vendor roster, replaced by the provider-declared `account` capability.
 
 Intentionally retained until a separate compatibility review:
 
-- exported Core authorization client state-machine methods even though current destructive host mutation flows are disabled;
 - rc2/alpha Connection `Function.length` compatibility shim;
 - usage invalidation generation tokens, because they fence real in-flight observation races;
 - one fixed Project Memory journal pathname, because generation identity + lock order closes the audited race without requiring a larger WAL-directory migration.
@@ -257,7 +275,7 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 ## Invariants
 
 1. Providers register through shared `registerProvider()`.
-2. Core has no provider-package dependency.
+2. Core has no provider-package dependency, and no vendor identity anywhere in its source: every provider-shaped surface — model routes, usage, presentation, Model Accounts — is derived from registry declarations.
 3. Provider ids/routes are canonical before mutation.
 4. Model capability implies at least one route; capability absence is legal.
 5. Browser provider identity comes from serialized presentation data.
@@ -265,37 +283,47 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 7. Usage invalidation cannot leave host cached reads serving vendor-superseded state.
 8. Stale browser async work cannot resurrect old provider generations.
 9. Credential backend failure is not ordinary account absence.
-10. Legacy grant deletion is disabled unless a future credential contract supplies an atomic-safe mutation.
-11. Project Memory root selection/storage confinement is provider-independent.
-12. POSIX package-owned descendants use one pinned `projectRoot -> .dsh -> memory/local` descriptor chain.
-13. Project Memory RMW read/render/write stays on one opened directory scope.
-14. Current lock ownership has a unique generation token; delayed release/recovery must not remove a replacement owner.
-15. Lock publication collision classification must not depend on the lock pathname still existing after the failed publication syscall.
-16. Persisted process identity prevents PID reuse from proving false ownership where the OS seam is available.
-17. Named-topic mutations hold `MEMORY.md` then topic lock.
-18. WAL generations distinguish transactions that reuse the fixed journal pathname.
-19. Legacy WAL generation identity excludes mutable owner identity; ownership is validated separately.
-20. `pending` is rollback state; `committed` is preserve-and-clean state.
-21. Journal phase replacement preserves owner-only permissions.
-22. Caller cancellation applies to ordinary work; mandatory settlement may ignore an already-fired signal only to restore already-durable state.
-23. Concurrent canonical unlink after successful file open is absence, not permission to expose stale unlinked bytes; replacement identity still fails closed.
-24. Core and Project Memory peer support remains exactly `0.1.1-rc.2 || 0.1.2-alpha.1` until another generation passes its own gate.
-25. Windows remains NOT TESTED.
+10. Legacy grant deletion is disabled unless a future credential contract supplies an atomic-safe mutation, and the mutation surface is absent rather than inert.
+11. A provider diagnostic built from a failed vendor process is constructed through `VendorFailure`; raw vendor stderr never reaches a diagnostic, a DTO, or the model.
+12. Project Memory root selection/storage confinement is provider-independent.
+13. POSIX package-owned descendants use one pinned `projectRoot -> .dsh -> memory/local` descriptor chain.
+14. Project Memory RMW read/render/write stays on one opened directory scope.
+15. Current lock ownership has a unique generation token; delayed release/recovery must not remove a replacement owner.
+16. Lock publication collision classification must not depend on the lock pathname still existing after the failed publication syscall.
+17. Persisted process identity prevents PID reuse from proving false ownership where the OS seam is available.
+18. Named-topic mutations hold `MEMORY.md` then topic lock.
+19. WAL generations distinguish transactions that reuse the fixed journal pathname.
+20. Legacy WAL generation identity excludes mutable owner identity; ownership is validated separately.
+21. `pending` is rollback state; `committed` is preserve-and-clean state.
+22. Journal phase replacement preserves owner-only permissions.
+23. Caller cancellation applies to ordinary work; mandatory settlement may ignore an already-fired signal only to restore already-durable state.
+24. Concurrent canonical unlink after successful file open is absence, not permission to expose stale unlinked bytes; replacement identity still fails closed.
+25. A journal is claimed only after a lock-held read proves its owner dead; a stale pre-claim observation is re-observed, never failed, and never lets an unrelated caller's operation fail.
+26. Losing a recovery race is a normal outcome; only mutation of a claim this process already wrote fails closed.
+27. Every Project Memory read-modify-write path bounds the bytes it materializes, package-owned and user-owned files alike.
+28. Core and Project Memory peer support remains exactly `0.1.1-rc.2 || 0.1.2-alpha.1` until another generation passes its own gate.
+29. Windows remains NOT TESTED.
 
-## Current implementation state — FROZEN
+## Current implementation state — THAWED, PENDING RE-VALIDATION
 
-Accepted implementation:
-
-```text
-7cd4d5b17625f9b3a21b741555df6597fd9cb889
-```
-
-Raw PASS report commit:
+The previously accepted implementation and its PASS report were:
 
 ```text
-d1cbac7094488ded52d9ab83891531bc01197090
+implementation: 7cd4d5b17625f9b3a21b741555df6597fd9cb889
+raw PASS report: d1cbac7094488ded52d9ab83891531bc01197090
 ```
 
-The accepted evidence includes Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, 20 consecutive runs of the previously failing concurrency/recovery suites, zero unexpected lock/WAL residue, bidirectional atomic-write lock interoperability, and disposable exact-commit alpha.1 runtime probes.
+That evidence no longer describes this tree. A follow-up audit of Core, Project Memory and Codex reproduced defects in all three, and the remediation changed behavior in each. **The old PASS must not be promoted to the current implementation.** Core, Project Memory and Codex are no longer frozen; they need their own validation run before any freeze claim is restored.
 
-Foundation should not be reopened during provider work without a concrete reproduced Foundation defect or a deliberate support-boundary change.
+What changed since the accepted checkpoint:
+
+- Project Memory recovery no longer fails a caller that loses a benign pre-claim race; the fail-closed boundary moved to post-claim mutation only. Invariants 25 and 26 are new and one previously documented invariant was deliberately weakened.
+- Project Memory bounds the two user-owned files initialization rewrites, and the writer-lock wait budget moved from 2 s to 10 s and became overridable per scope.
+- Core validates capability descriptors before their factories run, and the registration rollback boundary is now stated precisely rather than implied.
+- Core's browser usage controller can no longer strand an in-flight refresh record, and it disposes.
+- Model Accounts became registry-derived; the hardcoded vendor roster and the whole disabled authorization mutation surface — host and client — were removed. This is a public-surface removal in an unpublished `0.1.0-rc.3`.
+- Codex routes every vendor-process diagnostic through `VendorFailure`, closing a path that put raw vendor stderr in front of the model. Its native search verifies the vendor runtime once per executable instead of once per query.
+
+Local gate on the current tree: workspace `build`, `check` and `test` all exit `0` — Core `209`, Project Memory `72`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`. That is a local gate, not an acceptance: no independent validation, no live acceptance run, and no alpha.1 runtime probe has been repeated against this tree.
+
+Windows remains NOT TESTED, and `packages/antigravity` still carries the raw-vendor-stderr pattern that Codex just had removed.

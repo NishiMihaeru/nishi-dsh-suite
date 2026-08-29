@@ -28,9 +28,13 @@ Core does not import or inject `@deepseek-ai/dsh-authorization`.
 
 ## Model Accounts and credentials
 
+Rows are registry-derived. A provider declares an optional `account` capability — credential scope, credential id, label — and Core renders one row per live provider that declares one. Core names no vendor, holds no label table and owns no credential namespace; a provider that declares nothing simply has no row. Row identity is the canonical provider id, and the credential key is assembled from the provider's own declaration rather than a scope fixed in Core.
+
+`account` is declarative data only: no factory, no secret, nothing executable. It is validated at registration before any Core state is mutated.
+
 Credential-store availability is distinct from ordinary credential absence. A failed status read projects a sanitized `ERROR` state; credential material and backend error text do not cross the browser RPC boundary.
 
-Direct subscription OAuth initiation is disabled.
+Direct subscription OAuth initiation is disabled, and the surface that expressed it no longer exists: no begin/submit/cancel/logout endpoints, no client state machine, and no secret-typed prompt channel. A disabled mutation path that still accepts a secret is a liability rather than compatibility, so it was removed instead of left inert.
 
 Legacy DSH grants may still be detected for compatibility, but in-app destructive legacy-grant deletion is disabled. DSH `0.1.2-alpha.1` exposes credential read/modify/write plus unconditional delete operations, but no atomic compare-and-delete operation proving the record being removed is still the previously observed grant. A separate read-kind-then-delete sequence can erase a newer API-key record written by another process, so Core fails closed instead. The browser shows legacy grants as informational state and does not render an in-app destructive Sign Out action.
 
@@ -87,9 +91,11 @@ Production DSH peers remain intentionally restricted to:
 
 The package devDependency graph remains pinned to the reproducible rc.2 development baseline. The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`; ordinary rc.2 workspace tests alone are not that evidence.
 
-## Current status — FROZEN
+## Current status — THAWED, PENDING RE-VALIDATION
 
-Accepted Foundation implementation:
+A follow-up audit changed this package after the acceptance recorded below: capability descriptors are validated before their factories run, the browser usage controller can no longer strand an in-flight refresh, Model Accounts became registry-derived through a provider-declared `account` capability, and the disabled authorization mutation surface was removed rather than kept inert. The accepted evidence below therefore describes a tree this one no longer matches, and must not be cited for the current implementation.
+
+Superseded accepted Foundation implementation:
 
 ```text
 7cd4d5b17625f9b3a21b741555df6597fd9cb889

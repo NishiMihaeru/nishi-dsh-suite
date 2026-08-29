@@ -102,7 +102,7 @@ Before either participant changes, `.dsh/local/project-memory-transaction.json` 
 
 Older journals without the new generation/identity fields remain readable for one-way recovery compatibility.
 
-Current journals use `transactionId` as generation identity. For legacy journals without `transactionId`, generation comparison is based on immutable transaction payload (`topic`, `topicBefore`, `memoryBefore`) while owner PID/identity is checked separately. Recovery therefore permits a legitimate claim rewrite of ownership but fails closed if ownership changes before claim to another live or otherwise unproven owner.
+Current journals use `transactionId` as generation identity. For legacy journals without `transactionId`, generation comparison is based on immutable transaction payload (`topic`, `topicBefore`, `memoryBefore`) while owner PID/identity is checked separately. Recovery therefore permits a legitimate claim rewrite of ownership, and re-observes rather than fails when ownership changed before it could claim.
 
 Protocol:
 
@@ -126,8 +126,11 @@ Recovery semantics:
 - dead `committed` -> preserve new participants, remove stale protocol metadata only;
 - live matching owner -> cross the `MEMORY.md` writer barrier before deciding whether anything remains to settle;
 - recycled PID with mismatched process identity -> owner is stale, not live;
-- owner transfer before claim is validated separately from transaction generation and fails closed when ownership can no longer be proved;
-- ownership/WAL mutation that makes coherent state unprovable after recovery begins -> fail closed.
+- a journal is claimed only after a read taken under the journal lock proves its owner dead;
+- any pre-claim disagreement between that locked read and the caller's earlier unlocked read — journal gone, generation or phase replaced, owner transferred either way, owner alive again — is a stale observation rather than lost proof, since no participant has been touched. Recovery re-observes from scratch, up to a small bound, and the fresh read decides again whether to await a live owner or claim a dead one;
+- ownership/WAL mutation that makes coherent state unprovable *after* this process wrote its own claim -> fail closed.
+
+Concurrent recovery of the same abandoned journal is an ordinary outcome, not an error: one caller settles it and returns `true`, the others return `false`. A caller never has its own unrelated read or write fail because it lost that race. Past the observation bound recovery returns `false` instead of looping, which stays safe because a journal that genuinely remains still blocks the next transaction through its exclusive create.
 
 ## Architectural simplification
 
@@ -145,9 +148,11 @@ Production DSH peers remain restricted to:
 
 The package devDependency graph remains pinned to rc.2. The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
 
-## Current status — FROZEN
+## Current status — THAWED, PENDING RE-VALIDATION
 
-Accepted Foundation implementation:
+A follow-up audit changed this package after the acceptance recorded below: benign pre-claim recovery races re-observe instead of failing an unrelated caller's operation, the two user-owned files initialization rewrites are read under explicit bounds, and the writer-lock wait budget is now 10 s and overridable per scope. The accepted evidence below therefore describes a tree this one no longer matches, and must not be cited for the current implementation.
+
+Superseded accepted Foundation implementation:
 
 ```text
 7cd4d5b17625f9b3a21b741555df6597fd9cb889

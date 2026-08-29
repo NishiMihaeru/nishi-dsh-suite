@@ -53,18 +53,19 @@ Core and Project Memory publish:
 
 Their normal local devDependency graph remains rc.2, so alpha.1 support is accepted only because the changed Foundation was also exercised in a disposable environment against the exact official alpha.1 commit.
 
-Current Foundation acceptance:
+Last Foundation acceptance, now superseded by a follow-up audit and its remediation:
 
 ```text
-accepted implementation: 7cd4d5b17625f9b3a21b741555df6597fd9cb889
-raw PASS report commit: d1cbac7094488ded52d9ab83891531bc01197090
-Core: FROZEN
-Project Memory: FROZEN
+superseded implementation: 7cd4d5b17625f9b3a21b741555df6597fd9cb889
+raw PASS report commit:    d1cbac7094488ded52d9ab83891531bc01197090
+Core: THAWED, pending re-validation
+Project Memory: THAWED, pending re-validation
+Codex: THAWED, pending re-validation
 ```
 
-The report commit changes only `docs/verification/gemini/LATEST.md`; it does not alter the tested implementation.
+That evidence describes a tree this one no longer matches. Do not cite it for the current implementation; see `HANDOFF.md` for what changed and `verification/README.md` for the durable ledger.
 
-Provider packages do **not** inherit Foundation compatibility automatically. Codex is now the next active provider-specific stage.
+Provider packages do **not** inherit Foundation compatibility automatically.
 
 ## Change discipline
 

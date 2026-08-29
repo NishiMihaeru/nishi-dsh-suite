@@ -4,11 +4,13 @@ Status updated for `0.1.0-rc.3` after accepted Foundation revalidation against o
 
 This file owns task status and order only. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
-## 1. Foundation — FROZEN
+## 1. Foundation — THAWED, PENDING RE-VALIDATION
 
-The previous Foundation freeze was reopened by a fresh independent alpha.1 audit. Seven concrete Core/Project Memory defects were remediated. The first independent Gemini run correctly failed on three additional Project Memory issues, narrow fixes were applied, and the complete follow-up gate passed.
+A follow-up audit of Core, Project Memory and Codex reopened this freeze again. It reproduced a Project Memory recovery race that failed unrelated memory operations, a Codex path that put raw vendor stderr in front of the model, and a set of smaller correctness and architecture defects. All were remediated; see `docs/HANDOFF.md` for the itemized list.
 
-Accepted implementation:
+The tree is locally green (workspace `build`/`check`/`test` exit `0`; Core `209`, Project Memory `72`, Codex `61`) but has **no** independent validation, live acceptance or alpha.1 runtime probe against it. The freeze claim below is history.
+
+Previously accepted implementation, now superseded:
 
 ```text
 7cd4d5b17625f9b3a21b741555df6597fd9cb889
@@ -72,7 +74,7 @@ The main devDependency graph remains rc.2; the alpha.1 compatibility claim is su
 
 Do not perform aesthetic Foundation refactors during provider work.
 
-## 2. Codex — FROZEN
+## 2. Codex — THAWED, PENDING RE-VALIDATION
 
 Independent from-scratch audit, remediation, and live acceptance testing completed:
 

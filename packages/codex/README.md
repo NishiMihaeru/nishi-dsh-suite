@@ -20,6 +20,14 @@ At runtime the package uses the user's installed official `codex` CLI/App Server
 
 Native Codex authentication remains vendor-owned. The Suite does not copy credentials, API keys, session tokens or authentication databases.
 
+The audited App Server contract is pinned to exactly `0.150.0`. A Codex CLI outside that version is a runtime-availability condition, not an internal fault: the usage source reports `UNAVAILABLE` rather than collapsing to `ERROR`, and the primary/search paths refuse to start.
+
+### Vendor diagnostics
+
+Raw vendor stderr never reaches a diagnostic, a DTO, or the model. Every place in this package that turns a failed Codex process into an error routes it through one authored recognizer list built on Core's `VendorFailure` contract. A recognized condition — sign-in required, stored-credential access denied, network unreachable — contributes only its own authored sentence; anything else is reported as an unattributed category plus safe exit/signal metadata. Local paths, home directories and vendor tokens therefore cannot escape through a `web_search` error or an unexpected App Server exit.
+
+Native web search verifies the vendor runtime once per resolved executable and shares that verification across concurrent queries, rather than starting a throwaway App Server for every query in a batch.
+
 ## Project-memory policy
 
 The current primary App Server invocation disables vendor-native memories and project-doc injection with these overrides:
@@ -48,8 +56,10 @@ The current Codex manifest still declares provider-specific DSH peers at `0.1.1-
 
 The Foundation's accepted `0.1.2-alpha.1` compatibility does **not** extend this provider package automatically. Any change to Codex DSH generation support must come from the active provider-specific audit and executable validation against the exact claimed upstream contracts.
 
-## Validation status — FROZEN
+## Validation status — THAWED, PENDING RE-VALIDATION
 
-Core, Project Memory, and Codex provider are frozen. `nishi-dsh-codex` has passed independent validation, focused test gates, and live acceptance against official `codex-cli 0.150.0`.
+`nishi-dsh-codex` previously passed independent validation, focused test gates, and live acceptance against official `codex-cli 0.150.0`. A follow-up audit then changed this package: vendor diagnostics are sanitized through Core's `VendorFailure` contract, native-search runtime verification is cached per executable instead of run per query, an unsupported App Server version reports `UNAVAILABLE` rather than `ERROR`, the Windows batch shim covers `codex exec`, cleanup failure no longer replaces the real diagnostic, and a thread-less fatal `error` notification fails the turn instead of hanging.
+
+That acceptance therefore describes a tree this one no longer matches. The current tree is locally green but has had no live acceptance run.
 
 Accepted evidence and verification history live in `docs/verification/README.md` and `docs/verification/gemini/LATEST.md`.

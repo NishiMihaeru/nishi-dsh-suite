@@ -2,7 +2,7 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION FROZEN / PROVIDER WORK ACTIVE**
+Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION & CODEX THAWED PENDING RE-VALIDATION**
 
 Current development baseline:
 
@@ -40,11 +40,11 @@ Exactly six packages move together at `0.1.0-rc.3`:
 
 `0.1.0-rc.1` remains the published npm family. rc.2 was deliberately left unpublished.
 
-## Foundation state — FROZEN
+## Foundation state — THAWED, PENDING RE-VALIDATION
 
-The independent alpha.1 Foundation audit/remediation cycle is accepted.
+The independent alpha.1 Foundation audit/remediation cycle was accepted at the checkpoint below. A later audit of Core, Project Memory and Codex then reproduced defects in all three and changed behavior in each, so that acceptance no longer describes this tree and cannot gate a release. See `HANDOFF.md`.
 
-Accepted implementation HEAD:
+Superseded accepted implementation HEAD:
 
 ```text
 7cd4d5b17625f9b3a21b741555df6597fd9cb889
@@ -159,8 +159,8 @@ Current Market gates:
 
 - [x] repository PR #1 merged historically;
 - [x] repository has sufficient commit history;
-- [x] Core + Project Memory Foundation revalidation PASS / FROZEN;
-- [ ] Codex frozen;
+- [ ] Core + Project Memory Foundation re-validation after the follow-up audit remediation;
+- [ ] Codex re-validated and frozen after the follow-up audit remediation;
 - [ ] Antigravity frozen;
 - [ ] Claude frozen;
 - [ ] repository topic `dsh-plugin` added;
