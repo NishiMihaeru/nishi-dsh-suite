@@ -136,9 +136,13 @@ export function codexSearchExecArgv(spec: CodexSearchExecSpec): string[] {
     '-c', 'approval_policy="never"',
     '-c', 'features.shell_tool=false',
     '-c', 'features.unified_exec=false',
+    '-c', 'features.multi_agent=false',
+    '-c', 'features.multi_agent_v2=false',
+    '-c', 'features.code_mode=false',
+    '-c', 'features.view_image=false',
+    '-c', 'features.apps=false',
     '-c', 'features.plugins=false',
     '-c', 'agents.enabled=false',
-    '-c', 'tools.view_image=false',
     '-c', 'memories.use_memories=false',
     '-c', 'memories.generate_memories=false',
     '-c', 'project_doc_max_bytes=0',
@@ -364,7 +368,15 @@ export class CodexSearchBackend {
           { cause: error },
         )
       } finally {
-        await disposeVendorChild(child)
+        try {
+          await disposeVendorChild(child)
+        } catch (error) {
+          throw new CodexWebSearchBackendError(
+            'WEB_SEARCH_PROVIDER_ERROR',
+            `Codex web_search subprocess cleanup failed: ${boundedError(error)}`,
+            { cause: error },
+          )
+        }
       }
     } finally {
       await rm(workdir, { recursive: true, force: true }).catch(() => {})
