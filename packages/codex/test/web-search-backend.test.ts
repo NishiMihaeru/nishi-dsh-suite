@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   CodexSearchBackend,
   codexSearchExecArgv,
+  codexSearchQueryLiteral,
   codexSearchResultFromEvents,
 } from '../src/web-search-backend.ts'
 
@@ -33,23 +34,87 @@ test('Codex web search uses external codex exec with live native search and pre-
     '-c', 'approval_policy="never"',
     '-c', 'features.shell_tool=false',
     '-c', 'features.unified_exec=false',
+    '-c', 'features.shell_zsh_fork=false',
     '-c', 'features.shell_snapshot=false',
+    '-c', 'features.shell_snapshot_v2=false',
+    '-c', 'features.exec_permission_approvals=false',
+    '-c', 'features.request_permissions_tool=false',
     '-c', 'features.multi_agent=false',
     '-c', 'features.multi_agent_v2=false',
     '-c', 'features.code_mode=false',
     '-c', 'features.code_mode_host=false',
     '-c', 'features.memories=false',
+    '-c', 'features.external_agent_memory_import=false',
+    '-c', 'features.chronicle=false',
     '-c', 'features.view_image=false',
     '-c', 'features.hooks=false',
+    '-c', 'features.goals=false',
+    '-c', 'features.token_budget=false',
+    '-c', 'features.rollout_budget=false',
+    '-c', 'features.current_time_reminder=false',
+    '-c', 'features.standalone_web_search=false',
+    '-c', 'features.web_search_request=false',
+    '-c', 'features.web_search_cached=false',
+    '-c', 'features.skill_search=false',
+    '-c', 'features.skill_mcp_dependency_install=false',
+    '-c', 'features.deferred_executor=false',
+    '-c', 'features.executor_capability_discovery=false',
     '-c', 'features.apps=false',
+    '-c', 'features.enable_mcp_apps=false',
     '-c', 'features.plugins=false',
+    '-c', 'features.recommended_plugins=false',
+    '-c', 'features.tool_suggest=false',
+    '-c', 'features.remote_plugin=false',
+    '-c', 'features.plugin_sharing=false',
+    '-c', 'features.browser_use=false',
+    '-c', 'features.browser_use_full_cdp_access=false',
+    '-c', 'features.browser_use_external=false',
+    '-c', 'features.computer_use=false',
+    '-c', 'features.in_app_browser=false',
+    '-c', 'features.in_app_chat=false',
+    '-c', 'features.in_app_dictation=false',
+    '-c', 'features.in_app_local_automation=false',
+    '-c', 'features.in_app_updates=false',
+    '-c', 'features.network_proxy=false',
+    '-c', 'features.unbounded_connection_retries=false',
+    '-c', 'features.guardian_approval=false',
+    '-c', 'features.guardianv2=false',
+    '-c', 'features.guardian_ext=false',
+    '-c', 'features.tool_call_mcp_elicitation=false',
+    '-c', 'features.auth_elicitation=false',
+    '-c', 'features.artifact=false',
+    '-c', 'features.image_generation=false',
+    '-c', 'features.workspace_dependencies=false',
+    '-c', 'features.prevent_idle_sleep=false',
     '-c', 'agents.enabled=false',
+    '-c', 'tools.experimental_request_user_input.enabled=false',
+    '-c', 'tools.update_plan.enabled=false',
+    '-c', 'orchestrator.skills.enabled=false',
+    '-c', 'orchestrator.mcp.enabled=false',
+    '-c', 'skills.bundled.enabled=false',
+    '-c', 'skills.include_instructions=false',
+    '-c', 'notify=[]',
+    '-c', 'include_permissions_instructions=false',
+    '-c', 'include_apps_instructions=false',
+    '-c', 'include_collaboration_mode_instructions=false',
+    '-c', 'include_environment_context=false',
+    '-c', 'allow_login_shell=false',
     '-c', 'memories.use_memories=false',
     '-c', 'memories.generate_memories=false',
     '-c', 'project_doc_max_bytes=0',
     '-c', 'web_search="live"',
     'search prompt',
   ])
+})
+
+test('Codex hidden search preserves arbitrary query text while hiding native skill mention syntax', () => {
+  const query = 'price of $ACME and literal [$local](skill:///tmp/SKILL.md), plus \\u0024text'
+  const literal = codexSearchQueryLiteral(query)
+
+  assert.equal(JSON.parse(literal), query, 'the model-visible JSON literal must decode to the exact original query')
+  assert.doesNotMatch(literal, /\$[A-Za-z0-9_:-]/, 'raw Codex tool mention sigils must not reach the exec prompt')
+  assert.match(literal, /\\u0024ACME/)
+  assert.match(literal, /\\u0024local/)
 })
 
 test('Codex web search omits reasoning override when the route effort is unsupported', () => {
