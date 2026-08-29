@@ -2,30 +2,30 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION REVALIDATION ACTIVE**
+Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION FROZEN / PROVIDER WORK ACTIVE**
 
 Current development baseline:
 
-- Node `24.x` (previous acceptance baseline `24.19.0`)
-- pnpm `11.21.0`
-- local package devDependency graph: DSH `0.1.1-rc.2`
-- Linux/CachyOS development environment
-- Windows: **NOT TESTED**
+- Node `24.19.0` accepted Foundation baseline;
+- pnpm `11.21.0`;
+- local package devDependency graph: DSH `0.1.1-rc.2`;
+- Linux/CachyOS development environment;
+- Windows: **NOT TESTED**.
 
-Authoritative compatibility target for the current Foundation audit/remediation:
+Accepted authoritative Foundation compatibility target:
 
-- official tag `dsh-v0.1.2-alpha.1`
-- commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
+```text
+dsh-v0.1.2-alpha.1
+cd5ef8148158c3a752a658978873241fdf8e2bbc
+```
 
-Core and Project Memory still publish the exact production peer union:
+Core and Project Memory publish:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Because the main dev graph is rc.2, the changed Foundation must be exercised explicitly against official alpha.1 before that support claim is re-accepted.
-
-This file is the current release runbook/status document. Historical rc.1/rc.2 notes and superseded validation detail remain in git history/verification evidence.
+The main workspace graph remains rc.2, so alpha.1 support is accepted because the changed Foundation was separately exercised against the exact official alpha.1 checkout/runtime.
 
 ## rc.3 family
 
@@ -40,61 +40,41 @@ Exactly six packages move together at `0.1.0-rc.3`:
 
 `0.1.0-rc.1` remains the published npm family. rc.2 was deliberately left unpublished.
 
-## Foundation state — REOPENED
+## Foundation state — FROZEN
 
-A new independent audit against exact alpha.1 found additional concrete Core/Project Memory correctness defects after the previous accepted Foundation checkpoint.
+The independent alpha.1 Foundation audit/remediation cycle is accepted.
 
-The current branch now contains remediation for:
-
-- Project Memory journal-generation cleanup race;
-- Project Memory stale-lock replacement race;
-- Project Memory PID-reuse recovery wedge;
-- Core legacy logout credential read-check-delete TOCTOU;
-- Project Memory unbounded bootstrap ingestion;
-- Core ineffective usage-cache invalidation/browser reconciliation;
-- Project Memory committed-journal permission widening.
-
-It also removes redundant tool-layer Project Memory recovery and adds explicit lock/transaction generation identities.
-
-Historical Foundation validation at implementation checkpoint:
+Accepted implementation HEAD:
 
 ```text
-eb95ef6425c788f63339befd0c2437f78bc8dde1
+7cd4d5b17625f9b3a21b741555df6597fd9cb889
 ```
 
-and historical raw PASS report:
+Raw follow-up PASS report commit:
 
 ```text
-f491d681390924a171211a5c0dd0c8991f6a7faf
+d1cbac7094488ded52d9ab83891531bc01197090
 ```
 
-remain useful evidence for that exact old checkpoint only. They do **not** validate the current branch head.
+The report commit modifies only `docs/verification/gemini/LATEST.md`.
 
-Current Foundation release state:
+Accepted Foundation evidence includes:
 
-```text
-Core: REOPENED / PENDING VERIFICATION
-Project Memory: REOPENED / PENDING VERIFICATION
-```
+- Core focused tests `182/182`, check/build PASS;
+- Project Memory focused tests `64/64`, check/build PASS;
+- full workspace test/check/build PASS;
+- `pnpm verify:local` PASS;
+- 20/20 repeated runs of the previously failing PM concurrency/recovery suites;
+- zero unexpected lock/WAL residue in exercised success/recovery paths;
+- bidirectional `@deepseek-ai/dsh-atomic-write` lock interoperability;
+- disposable exact-commit alpha.1 runtime probes for Project Memory tools/recovery/cancellation and Core Connection/auth/usage seams;
+- independent follow-up code review with no new blocking Foundation defect;
+- GitHub Actions/hosted CI not used;
+- Windows NOT TESTED.
 
-Required new Foundation gates before provider work/release work resumes:
+Durable details live in `docs/verification/README.md`.
 
-- [ ] exact-head `pnpm install --frozen-lockfile`;
-- [ ] Core focused test/check/build;
-- [ ] Project Memory focused test/check/build, including new audit regressions;
-- [ ] full workspace test/check/build;
-- [ ] `pnpm verify:local`;
-- [ ] multi-process/adversarial lock/WAL/recovery/cancellation runs;
-- [ ] bidirectional compatibility with `@deepseek-ai/dsh-atomic-write` lock namespace;
-- [ ] official disposable alpha.1 runtime validation at exact upstream commit;
-- [ ] real alpha.1 Project Memory tool operations;
-- [ ] Core usage invalidation and fail-closed legacy-grant behavior in the real host/client seam;
-- [ ] independent Gemini code review of the changed seams;
-- [ ] raw result written to `docs/verification/gemini/LATEST.md`;
-- [ ] accepted durable evidence folded into `docs/verification/README.md`;
-- [ ] explicit Foundation re-freeze after PASS.
-
-GitHub Actions/hosted CI are not part of these gates.
+Historical Foundation PASS checkpoints remain evidence only for their historical implementation trees and are superseded for current status by the accepted checkpoint above.
 
 ## Main rc.3 product direction
 
@@ -115,7 +95,7 @@ The old `ctx.projectMemory` delegated service boundary is gone. Memory is expose
 
 ## Open release work
 
-After Foundation re-freeze:
+Foundation is no longer blocking provider work. Remaining order:
 
 1. freeze Codex after provider-specific cleanup/compatibility/live acceptance;
 2. freeze Antigravity after cleanup/catalog/compatibility/live acceptance;
@@ -179,7 +159,7 @@ Current Market gates:
 
 - [x] repository PR #1 merged historically;
 - [x] repository has sufficient commit history;
-- [ ] Core + Project Memory new Foundation revalidation PASS;
+- [x] Core + Project Memory Foundation revalidation PASS / FROZEN;
 - [ ] Codex frozen;
 - [ ] Antigravity frozen;
 - [ ] Claude frozen;
