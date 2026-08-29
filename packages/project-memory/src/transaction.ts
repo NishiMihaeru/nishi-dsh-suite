@@ -123,6 +123,17 @@ function serializePendingTransaction(record: PendingProjectMemoryTransaction): B
   return content
 }
 
+function sameSnapshot(left: TransactionFileSnapshot, right: TransactionFileSnapshot): boolean {
+  return left.exists === right.exists && left.contentBase64 === right.contentBase64
+}
+
+function sameTransactionOwner(
+  left: PendingProjectMemoryTransaction,
+  right: PendingProjectMemoryTransaction,
+): boolean {
+  return left.ownerPid === right.ownerPid && left.ownerIdentity === right.ownerIdentity
+}
+
 function sameTransactionGeneration(
   left: PendingProjectMemoryTransaction,
   right: PendingProjectMemoryTransaction,
@@ -132,9 +143,13 @@ function sameTransactionGeneration(
       && right.transactionId !== undefined
       && left.transactionId === right.transactionId
   }
-  // Legacy journals had no generation id. This branch exists only to settle
-  // pre-upgrade state; current writers always use transactionId.
-  return left.ownerPid === right.ownerPid && left.topic === right.topic
+  // Legacy journals had no generation id and recovery legitimately rewrites
+  // their owner fields while claiming them. Use only immutable transaction
+  // payload to identify that pre-upgrade generation; owner changes are checked
+  // separately and fail closed before claim.
+  return left.topic === right.topic
+    && sameSnapshot(left.topicBefore, right.topicBefore)
+    && sameSnapshot(left.memoryBefore, right.memoryBefore)
 }
 
 export function pendingProjectMemoryTransactionPath(projectRoot: string): string {
@@ -220,6 +235,7 @@ export async function markProjectMemoryTransactionCommitted(
       current === null
       || current.phase !== 'pending'
       || !sameTransactionGeneration(current, expected)
+      || !sameTransactionOwner(current, expected)
     ) {
       throw new Error('Project memory recovery journal changed before transaction commit')
     }
@@ -253,6 +269,7 @@ export async function clearPendingProjectMemoryTransaction(
         current === null
         || current.phase !== expected.phase
         || !sameTransactionGeneration(current, expected)
+        || !sameTransactionOwner(current, expected)
       ) return
     }
     await scope.removeRegularFile(journalPath)
@@ -404,10 +421,13 @@ export async function recoverPendingProjectMemoryTransaction(
       if (!sameTransactionGeneration(current, initial) || current.phase !== initial.phase) {
         throw new Error('Project memory recovery journal changed while recovery was starting')
       }
-      if (await processOwnerIsAlive(current.ownerPid, current.ownerIdentity)) {
-        if (current.ownerPid !== initial.ownerPid || current.ownerIdentity !== initial.ownerIdentity) {
+      if (!sameTransactionOwner(current, initial)) {
+        if (await processOwnerIsAlive(current.ownerPid, current.ownerIdentity)) {
           throw new Error('Project memory recovery journal owner changed to a live process before claim')
         }
+        throw new Error('Project memory recovery journal owner changed before claim')
+      }
+      if (await processOwnerIsAlive(current.ownerPid, current.ownerIdentity)) {
         throw new Error('Project memory recovery journal owner became live before claim')
       }
 
@@ -429,7 +449,7 @@ export async function recoverPendingProjectMemoryTransaction(
           throw new Error('Project memory recovery journal disappeared after recovery claim')
         }
         if (
-          latest.ownerPid !== process.pid
+          !sameTransactionOwner(latest, claimed)
           || !sameTransactionGeneration(latest, claimed)
           || latest.phase !== claimed.phase
         ) {
