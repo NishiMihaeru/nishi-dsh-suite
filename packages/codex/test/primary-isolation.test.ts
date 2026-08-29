@@ -129,7 +129,6 @@ test('primary App Server isolation disables vendor host capabilities and every d
     agents: { enabled: false },
     web_search: 'disabled',
     notify: [],
-    model_instructions_file: null,
     include_permissions_instructions: false,
     include_apps_instructions: false,
     include_collaboration_mode_instructions: false,
@@ -157,6 +156,25 @@ test('primary App Server isolation disables vendor host capabilities and every d
   })
   assert.equal(Object.hasOwn(isolation, 'tools'), false, 'tools.view_image is not valid in current Codex ConfigToml')
   assert.equal(Object.hasOwn((isolation as any).features, 'image_generation'), false, 'native image generation is the one intentional Codex host capability')
+})
+
+test('primary thread parameters always own base instructions and do not fall back to vendor config', () => {
+  const adapter = new CodexAppServerAdapter({} as any, config)
+  const withoutSystem = (adapter as any).threadParams(
+    { model: 'gpt-5.6-sol' },
+    '/workspace',
+    {},
+    [],
+  )
+  const withSystem = (adapter as any).threadParams(
+    { model: 'gpt-5.6-sol', system: 'DSH system instructions' },
+    '/workspace',
+    {},
+    [],
+  )
+
+  assert.equal(withoutSystem.baseInstructions, '')
+  assert.equal(withSystem.baseInstructions, 'DSH system instructions')
 })
 
 test('primary App Server isolation fails closed when Codex skill discovery reports an error', async () => {
