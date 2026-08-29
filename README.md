@@ -1,6 +1,8 @@
 # Nishi DSH Suite
 
-Nishi DSH Suite is a modular extension suite for DeepSeek Harness. The current development family is `0.1.0-rc.3`, targeting DeepSeek Harness `0.1.1-rc.2` and Node.js 24.
+Nishi DSH Suite is a modular extension suite for DeepSeek Harness. The current development family is `0.1.0-rc.3` on Node.js 24.
+
+The current workspace/provider dependency baseline is DeepSeek Harness `0.1.1-rc.2`. The provider-independent Foundation packages (`nishi-dsh-core` and `nishi-dsh-project-memory`) additionally publish and have independently validated the exact peer union `0.1.1-rc.2 || 0.1.2-alpha.1`; provider packages do not inherit that alpha.1 compatibility automatically.
 
 The product goal is simple: switching subscription providers should be a route change, not an environment change. DSH keeps the same tools, project memory, Usage & Limits surface, profile and session context while vendor-specific protocol code stays behind one provider-independent core contract.
 
@@ -27,6 +29,8 @@ The host entry publishes `NishiProvidersService`, then mounts an internal host c
 
 Provider plugins inject `nishiProviders` and use the shared `registerProvider()` transaction. Core does not depend on provider packages.
 
+Legacy DSH grants remain readable compatibility state, but destructive in-app logout is disabled because the accepted alpha.1 credentials contract has no atomic compare-and-delete operation. Usage invalidation is generation-aware and authoritative for host cached reads.
+
 ### Project Memory
 
 Project memory stays in the project:
@@ -34,9 +38,11 @@ Project memory stays in the project:
 - `DSH.md` — project contract;
 - `.dsh/memory/MEMORY.md` — bounded bootstrap;
 - `.dsh/memory/<topic>.md` — durable topic memory;
-- `.dsh/local/` — transient local state.
+- `.dsh/local/` — transient local state and the crash-recovery journal.
 
-Context injection and memory tools use the same nearest-Git-root policy, with explicit-cwd fallback for non-Git workspaces. On POSIX, package-owned descendants use a pinned `projectRoot -> .dsh -> memory/local` directory-descriptor chain. Replacement writes stay on the opened parent scope and publish atomically by rename; first publication is complete-before-visible and no-clobber via sibling temp files plus hard-link publication. Windows remains untested for the stronger descriptor-chain TOCTOU guarantee.
+Context injection and memory tools use the same nearest-Git-root policy, with explicit-cwd fallback for non-Git workspaces. On POSIX, package-owned descendants use a pinned `projectRoot -> .dsh -> memory/local` directory-descriptor chain. Reads validate opened file identity; current writer locks use generation-safe populated `<target>.lock` directories; named-topic + Memory-map updates use a journaled transaction with exact pre-images and generation identity.
+
+Windows remains **NOT TESTED** for the stronger POSIX descriptor-chain/TOCTOU guarantees. Sudden power-loss durability beyond the implemented atomic filesystem protocol is out of scope because the package does not `fsync` file or parent-directory contents.
 
 Project memory is repository-shared content, so maintenance policy rejects secrets, quota snapshots, raw chain-of-thought, transient logs and personal facts about the operator.
 
@@ -83,28 +89,33 @@ Use `preset update` after a Suite update and `preset remove` before Suite remova
 
 ## Current development status
 
-Core and Project Memory are **DONE / FROZEN** after fresh package/workspace verification and disposable official DSH `0.1.2-alpha.1` runtime acceptance on implementation checkpoint `eb95ef6425c788f63339befd0c2437f78bc8dde1`.
+Core and Project Memory are **FROZEN** on accepted Foundation implementation:
 
-Remaining rc.3 work is provider-specific:
+```text
+7cd4d5b17625f9b3a21b741555df6597fd9cb889
+```
 
-1. Codex cleanup/focused/live acceptance;
-2. Antigravity cleanup, catalog honesty/tests and live acceptance;
-3. Claude usage-only cleanup/smoke;
-4. repository-wide provider invariants;
-5. cross-provider/product live acceptance;
-6. final install/profile/release gates.
+The raw independent follow-up PASS report is commit:
 
-`0.1.0-rc.3` is **unpublished**. Windows remains **NOT TESTED**. No publication/merge/tag/release is authorized without explicit maintainer approval.
+```text
+d1cbac7094488ded52d9ab83891531bc01197090
+```
+
+That run recorded Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, and disposable official DSH `0.1.2-alpha.1` runtime probes at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
+
+Provider-specific acceptance is still open. Codex is the active provider stage; Antigravity and Claude follow. Historical provider tests/live probes are starting evidence only and do not freeze the current provider stage.
+
+`0.1.0-rc.3` is **unpublished** and **not ready to publish**. Windows remains **NOT TESTED**. No publication, merge, tag or release is authorized without explicit maintainer approval.
 
 ## Documentation
 
-Start at [`docs/README.md`](docs/README.md). It defines the only current documentation entry points and the rules agents must follow to avoid stale/duplicate plans and reports.
+Start at [`docs/README.md`](docs/README.md). It defines the current documentation entry points and the rules used to keep status/evidence from drifting.
 
 For development, the canonical order is:
 
 1. `docs/HANDOFF.md`
 2. `docs/ROADMAP.md`
 3. `docs/ARCHITECTURE.md`
-4. target package README/source/tests
+4. target package README, source and tests
 
-Release state is in `docs/RELEASE.md`; accepted validation is summarized in `docs/verification/README.md`.
+Release state is in `docs/RELEASE.md`; accepted validation is summarized in `docs/verification/README.md`. Package README files describe package runtime/public boundaries and should not replace the roadmap or handoff.
