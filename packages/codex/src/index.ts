@@ -116,7 +116,10 @@ const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
     }),
   },
   webSearch: {
-    create: (ctx) => new CodexSearchBackend(ctx),
+    create: (ctx, config) => new CodexSearchBackend(ctx, {
+      executable: externalCodexCommand(config.env),
+      env: config.env,
+    }),
   },
   usage: {
     /**

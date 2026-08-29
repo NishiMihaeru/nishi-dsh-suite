@@ -40,6 +40,23 @@ test('Codex package registers the codex-app-server primary and no subagent provi
   )
 })
 
+test('Codex registration gives routed search the same configured executable environment', async () => {
+  const fixture = fakeContext()
+  const env = {
+    DSH_CODEX_EXECUTABLE: '/vendor/codex',
+    CODEX_HOME: '/vendor/codex-home',
+    PATH: '/vendor/bin',
+  }
+
+  await codex.apply(fixture.ctx, { env, disposeGraceMs: 3000 })
+
+  assert.equal(fixture.recorded.length, 1)
+  const search = fixture.recorded[0]?.webSearch as any
+  assert.ok(search, 'Codex provider should publish its routed search backend')
+  assert.equal(search.config.executable, '/vendor/codex')
+  assert.deepEqual(search.config.env, env)
+})
+
 test('Codex package keeps the accepted plugin surface', () => {
   assert.equal(codex.name, 'codex')
   assert.deepEqual(codex.inject, [
