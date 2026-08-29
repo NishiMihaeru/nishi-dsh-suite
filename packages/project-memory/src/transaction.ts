@@ -385,25 +385,27 @@ async function waitForLiveTransactionToFinish(
   }, signal)
 }
 
-/**
- * Recover a compound topic/map transaction. All package-owned descendants are
- * opened through one pinned projectRoot -> .dsh descriptor chain. A dead owner
- * is claimed under the journal lock, then participant state is settled under
- * the normal MEMORY.md -> topic lock order. A live owner is first crossed via
- * the MEMORY.md lock barrier; pending state that still exists after that barrier
- * is abandoned and is rolled back even if the old process itself remains live.
- */
-export async function recoverPendingProjectMemoryTransaction(
-  projectRoot: string,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  signal?.throwIfAborted()
-  const initial = await readPendingTransaction(projectRoot, signal)
-  if (initial === null) return false
-  if (await processOwnerIsAlive(initial.ownerPid, initial.ownerIdentity)) {
-    return waitForLiveTransactionToFinish(projectRoot, signal)
-  }
+// A dead-owner journal observed before the journal lock is acquired can
+// legitimately vanish, be replaced by a new generation, or change owner
+// (including to a live process) by the time the lock is actually granted:
+// another concurrent recovery attempt may have already won the race and
+// finished settling it. None of that is loss of proof of ownership -- it is
+// simply that our pre-lock observation is stale, and observing again from
+// scratch is safe because we have not mutated anything yet. Retrying a bounded
+// number of times turns that stale-observation race into a normal outcome
+// instead of a spurious failure for whichever caller loses the race.
+const RETRY = Symbol('project-memory-transaction-recovery-retry')
 
+// Generous but finite: real contention resolves within a handful of
+// observations, and a bound avoids ever looping forever if some invariant
+// this reasoning depends on turns out to be violated.
+const MAX_RECOVERY_OBSERVATIONS = 5
+
+async function claimAndSettleDeadOwner(
+  projectRoot: string,
+  initial: PendingProjectMemoryTransaction,
+  signal?: AbortSignal,
+): Promise<boolean | typeof RETRY> {
   const paths = resolveProjectMemoryPaths(projectRoot)
   const journalPath = pendingProjectMemoryTransactionPath(projectRoot)
 
@@ -415,21 +417,21 @@ export async function recoverPendingProjectMemoryTransaction(
 
     return local.withWriterLock(journalPath, async (journalScope) => {
       const current = await readPendingTransactionFromScope(projectRoot, journalScope)
-      if (current === null) {
-        throw new Error('Project memory recovery journal disappeared before recovery claim')
-      }
-      if (!sameTransactionGeneration(current, initial) || current.phase !== initial.phase) {
-        throw new Error('Project memory recovery journal changed while recovery was starting')
-      }
-      if (!sameTransactionOwner(current, initial)) {
-        if (await processOwnerIsAlive(current.ownerPid, current.ownerIdentity)) {
-          throw new Error('Project memory recovery journal owner changed to a live process before claim')
-        }
-        throw new Error('Project memory recovery journal owner changed before claim')
-      }
-      if (await processOwnerIsAlive(current.ownerPid, current.ownerIdentity)) {
-        throw new Error('Project memory recovery journal owner became live before claim')
-      }
+      // Benign: the journal is already gone. Someone else settled it (or it
+      // never needed settling), so from here recovery has nothing to do.
+      if (current === null) return RETRY
+      // Benign: a different transaction generation now occupies the fixed
+      // journal pathname, or its phase moved on. Our snapshot is stale.
+      if (!sameTransactionGeneration(current, initial) || current.phase !== initial.phase) return RETRY
+      // Benign: ownership changed before we could claim it, in either
+      // direction. We have not touched any participant yet, so this is just a
+      // stale observation, not lost proof of ownership -- re-observe from
+      // scratch and let the fresh read decide whether the (possibly live) new
+      // owner should be awaited or claimed.
+      if (!sameTransactionOwner(current, initial)) return RETRY
+      // Benign: the original owner (or a claimant that reused its identity)
+      // came back to life before we claimed it.
+      if (await processOwnerIsAlive(current.ownerPid, current.ownerIdentity)) return RETRY
 
       const ownerIdentity = await currentProcessIdentity()
       const claimed: PendingProjectMemoryTransaction = {
@@ -444,6 +446,9 @@ export async function recoverPendingProjectMemoryTransaction(
       )
 
       return memory.withWriterLock(paths.memoryMd, async (memoryScope) => {
+        // From here on we have durably claimed the journal ourselves: any
+        // further mismatch is a real loss of proof of ownership (someone else
+        // mutated our own claim) and must fail closed rather than retry.
         const latest = await readPendingTransactionFromScope(projectRoot, journalScope)
         if (latest === null) {
           throw new Error('Project memory recovery journal disappeared after recovery claim')
@@ -459,4 +464,41 @@ export async function recoverPendingProjectMemoryTransaction(
       })
     })
   }, signal)
+}
+
+/**
+ * Recover a compound topic/map transaction. All package-owned descendants are
+ * opened through one pinned projectRoot -> .dsh descriptor chain. A dead owner
+ * is claimed under the journal lock, then participant state is settled under
+ * the normal MEMORY.md -> topic lock order. A live owner is first crossed via
+ * the MEMORY.md lock barrier; pending state that still exists after that barrier
+ * is abandoned and is rolled back even if the old process itself remains live.
+ *
+ * Concurrent callers observing the same dead-owner journal race harmlessly:
+ * a benign pre-claim outcome (journal gone, generation/phase changed, owner
+ * changed, or owner came back alive) re-observes from scratch instead of
+ * failing, up to MAX_RECOVERY_OBSERVATIONS times. If observations keep
+ * churning past that bound, this returns `false` (nothing recovered by us)
+ * rather than looping forever. That is safe for callers: any subsequent
+ * `createPendingProjectMemoryTransaction` still fails closed via
+ * `writeFileExclusiveAtomic` if a pending journal is genuinely still present,
+ * so returning `false` here never lets a real unresolved transaction slip
+ * through unnoticed.
+ */
+export async function recoverPendingProjectMemoryTransaction(
+  projectRoot: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < MAX_RECOVERY_OBSERVATIONS; attempt++) {
+    signal?.throwIfAborted()
+    const initial = await readPendingTransaction(projectRoot, signal)
+    if (initial === null) return false
+    if (await processOwnerIsAlive(initial.ownerPid, initial.ownerIdentity)) {
+      return waitForLiveTransactionToFinish(projectRoot, signal)
+    }
+
+    const outcome = await claimAndSettleDeadOwner(projectRoot, initial, signal)
+    if (outcome !== RETRY) return outcome
+  }
+  return false
 }
