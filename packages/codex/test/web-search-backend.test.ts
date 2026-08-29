@@ -136,6 +136,7 @@ test('Codex web search accepts only a completed native web_search plus structure
     { type: 'thread.started', thread_id: 'thread-1' },
     { type: 'turn.started' },
     { type: 'item.completed', item: { id: 'search-1', type: 'web_search', query: 'example' } },
+    { type: 'item.completed', item: { id: 'reason-1', type: 'reasoning', text: 'thinking' } },
     {
       type: 'item.completed',
       item: {
@@ -166,7 +167,7 @@ test('Codex web search rejects completion without native web_search', () => {
   )
 })
 
-test('Codex web search rejects unexpected local tool activity', () => {
+test('Codex web search rejects every unexpected completed host item', () => {
   assert.throws(
     () => codexSearchResultFromEvents([
       { type: 'item.completed', item: { id: 'cmd-1', type: 'command_execution', command: 'cat file', status: 'completed' } },
@@ -174,12 +175,19 @@ test('Codex web search rejects unexpected local tool activity', () => {
       { type: 'item.completed', item: { id: 'answer-1', type: 'agent_message', text: '{"content":"x","sources":[]}' } },
       { type: 'turn.completed', usage: {} },
     ]),
-    /unexpected local tool item command_execution/,
+    /unexpected completed item command_execution/,
+  )
+  assert.throws(
+    () => codexSearchResultFromEvents([
+      { type: 'item.completed', item: { id: 'image-1', type: 'image_generation' } },
+      { type: 'turn.completed', usage: {} },
+    ]),
+    /unexpected completed item image_generation/,
   )
 })
 
-test('Codex web search resolves and spawns with provider env, then proves process-tree exit', async () => {
-  const stdout = new PassThrough()
+test('Codex web search verifies runtime, resolves and spawns with provider env, then proves both process trees exit', async () => {
+  const searchStdout = new PassThrough()
   const providerEnv = {
     DSH_CODEX_EXECUTABLE: '/configured/codex',
     CODEX_HOME: '/configured/home',
@@ -188,11 +196,31 @@ test('Codex web search resolves and spawns with provider env, then proves proces
   const resolveCalls: any[] = []
   const spawned: any[] = []
   const waitSignals: Array<AbortSignal | undefined> = []
-  let terminated = false
-  let resolveDone!: (value: { exitCode: number | null; signal: NodeJS.Signals | null }) => void
-  const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    resolveDone = resolve
-  })
+  let terminateCalls = 0
+
+  function managedChild(stdin: PassThrough | undefined, stdout: PassThrough) {
+    let settled = false
+    const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
+    return {
+      pid: 4242 + spawned.length,
+      stdin,
+      stdout,
+      stderr: undefined,
+      collected: { stderr: { readFrom() { return { text: '' } } } },
+      done: done.promise,
+      terminate() {
+        terminateCalls += 1
+        if (settled) return
+        settled = true
+        done.resolve({ exitCode: 0, signal: null })
+      },
+      async waitForExit(signal?: AbortSignal) {
+        waitSignals.push(signal)
+        await done.promise
+        return true
+      },
+    }
+  }
 
   const ctx = {
     subprocess: {
@@ -202,32 +230,46 @@ test('Codex web search resolves and spawns with provider env, then proves proces
       },
       spawn(spec: any) {
         spawned.push(spec)
+        if (spec.stdio.stdin === 'pipe') {
+          const stdin = new PassThrough()
+          const stdout = new PassThrough()
+          let buffer = ''
+          stdin.setEncoding('utf8')
+          stdin.on('data', (chunk: string) => {
+            buffer += chunk
+            for (;;) {
+              const newline = buffer.indexOf('\n')
+              if (newline < 0) break
+              const line = buffer.slice(0, newline).trim()
+              buffer = buffer.slice(newline + 1)
+              if (!line) continue
+              const message = JSON.parse(line) as Record<string, unknown>
+              if (message.method === 'initialize') {
+                stdout.write(`${JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    userAgent: 'codex-plugin-dsh/0.150.0 (Linux; x86_64) codex-cli',
+                    codexHome: '/configured/home',
+                    platformFamily: 'unix',
+                    platformOs: 'linux',
+                  },
+                })}\n`)
+              }
+            }
+          })
+          return managedChild(stdin, stdout)
+        }
+
         queueMicrotask(() => {
-          stdout.write(`${JSON.stringify({ type: 'item.completed', item: { id: 'search-1', type: 'web_search', query: 'example' } })}\n`)
-          stdout.write(`${JSON.stringify({
+          searchStdout.write(`${JSON.stringify({ type: 'item.completed', item: { id: 'search-1', type: 'web_search', query: 'example' } })}\n`)
+          searchStdout.write(`${JSON.stringify({
             type: 'item.completed',
             item: { id: 'answer-1', type: 'agent_message', text: '{"content":"summary","sources":[]}' },
           })}\n`)
-          stdout.end(`${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`)
+          searchStdout.end(`${JSON.stringify({ type: 'turn.completed', usage: {} })}\n`)
         })
-        return {
-          pid: 4242,
-          stdin: undefined,
-          stdout,
-          stderr: undefined,
-          collected: { stderr: { readFrom() { return { text: '' } } } },
-          done,
-          terminate() {
-            if (terminated) return
-            terminated = true
-            resolveDone({ exitCode: 0, signal: null })
-          },
-          async waitForExit(signal?: AbortSignal) {
-            waitSignals.push(signal)
-            await done
-            return true
-          },
-        }
+        return managedChild(undefined, searchStdout)
       },
     },
   } as any
@@ -247,10 +289,13 @@ test('Codex web search resolves and spawns with provider env, then proves proces
   assert.equal(resolveCalls[0].command, '/configured/codex')
   assert.deepEqual(resolveCalls[0].env, providerEnv)
   assert.equal(resolveCalls[0].signal, signal)
-  assert.equal(spawned.length, 1)
+  assert.equal(spawned.length, 2)
+  assert.equal(spawned[0].stdio.stdin, 'pipe', 'first child is the audited App Server version preflight')
+  assert.equal(spawned[1].stdio.stdin, 'ignore', 'second child is the isolated codex exec search')
   assert.equal(spawned[0].argv[0], '/resolved/codex')
+  assert.equal(spawned[1].argv[0], '/resolved/codex')
   assert.deepEqual(spawned[0].env, providerEnv)
-  assert.equal(spawned[0].stdio.stdin, 'ignore')
-  assert.equal(terminated, true)
-  assert.deepEqual(waitSignals, [undefined])
+  assert.deepEqual(spawned[1].env, providerEnv)
+  assert.equal(terminateCalls, 2)
+  assert.deepEqual(waitSignals, [undefined, undefined])
 })
