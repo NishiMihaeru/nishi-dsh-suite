@@ -351,3 +351,129 @@ test('registerProvider rejects duplicate model routes before capability factorie
   assert.deepEqual(sideEffects, [])
   assert.deepEqual(fixture.recorded, [])
 })
+
+test('registerProvider rejects a webSearch descriptor whose create is not a function, before recording anything', async () => {
+  const fixture = fakeContext()
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    webSearch: {} as any,
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /^Error: fixture: webSearch\.create must be a function$/,
+  )
+  assert.deepEqual(fixture.recorded, [], 'an invalid webSearch descriptor must not reach registry.record')
+  assert.deepEqual(fixture.calls, [])
+})
+
+test('registerProvider rejects a usage descriptor whose create is not a function, before recording anything', async () => {
+  const fixture = fakeContext()
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    usage: { create: 'nope' } as any,
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /^Error: fixture: usage\.create must be a function$/,
+  )
+  assert.deepEqual(fixture.recorded, [], 'an invalid usage descriptor must not reach registry.record')
+  assert.deepEqual(fixture.calls, [])
+})
+
+// --- account capability ----------------------------------------------------
+
+test('registerProvider passes a valid account declaration through to the registered descriptor', async () => {
+  const fixture = fakeContext()
+  const account = { credentialScope: 'llm-pi-ai', credentialId: 'fixture', label: 'Fixture Provider' }
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    account,
+  }
+
+  await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
+
+  assert.equal(fixture.recorded.length, 1)
+  assert.deepEqual((fixture.recorded[0] as any).descriptor.account, account)
+})
+
+test('a provider descriptor with no account declaration registers fine and carries none', async () => {
+  const fixture = fakeContext()
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+  }
+
+  await registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG)
+
+  assert.equal((fixture.recorded[0] as any).descriptor.account, undefined)
+})
+
+for (const field of ['credentialScope', 'credentialId', 'label'] as const) {
+  test(`registerProvider rejects an empty account.${field} before recording anything, naming the provider`, async () => {
+    const fixture = fakeContext()
+    const account = { credentialScope: 'llm-pi-ai', credentialId: 'fixture', label: 'Fixture Provider', [field]: '   ' }
+    const descriptor: ProviderDescriptor<FixtureConfig> = {
+      id: 'fixture',
+      presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+      executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+      account,
+    }
+
+    await assert.rejects(
+      () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+      new RegExp(`^Error: fixture: account\\.${field} must be a non-empty string$`),
+    )
+    assert.deepEqual(fixture.recorded, [])
+  })
+
+  test(`registerProvider rejects an overlong account.${field} before recording anything`, async () => {
+    const fixture = fakeContext()
+    const account = {
+      credentialScope: 'llm-pi-ai',
+      credentialId: 'fixture',
+      label: 'Fixture Provider',
+      [field]: 'x'.repeat(129),
+    }
+    const descriptor: ProviderDescriptor<FixtureConfig> = {
+      id: 'fixture',
+      presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+      executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+      account,
+    }
+
+    await assert.rejects(
+      () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+      new RegExp(`^Error: fixture: account\\.${field} must be no longer than 128 characters$`),
+    )
+    assert.deepEqual(fixture.recorded, [])
+  })
+}
+
+test('registerProvider validates account before any capability factory runs', async () => {
+  const fixture = fakeContext()
+  const sideEffects: string[] = []
+  const descriptor: ProviderDescriptor<FixtureConfig> = {
+    id: 'fixture',
+    presentation: { id: 'fixture', displayName: 'Fixture', brandColor: '#123456' },
+    executable: { id: 'fixture', defaultName: 'fixture-cli', envOverride: 'DSH_FIXTURE_EXECUTABLE' },
+    account: { credentialScope: '', credentialId: 'fixture', label: 'Fixture' },
+    webSearch: { create: () => { sideEffects.push('search'); return {} as any } },
+    usage: { create: () => { sideEffects.push('usage'); return { collect: async () => ({} as any) } } },
+  }
+
+  await assert.rejects(
+    () => registerProvider(fixture.ctx, descriptor, FIXTURE_CONFIG),
+    /account\.credentialScope must be a non-empty string/,
+  )
+  assert.deepEqual(sideEffects, [])
+  assert.deepEqual(fixture.recorded, [])
+})

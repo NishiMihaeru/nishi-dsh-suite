@@ -11,8 +11,6 @@ import styles from './ModelsAccountsSection.module.css'
 export type ModelsAccountsSectionProps = PropsRuntime<'settings.section'> &
   InjectFace<ModelAccountsInjected>
 
-export const ORDERED_PROVIDERS = ['openai-codex', 'anthropic', 'openai'] as const
-
 export function ModelsAccountsSection(props: ModelsAccountsSectionProps): React.ReactElement {
   const { controller, useSnapshot, t } = props
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -32,6 +30,11 @@ export function ModelsAccountsSection(props: ModelsAccountsSectionProps): React.
       setIsRefreshing(false)
     }
   }
+
+  // The roster is whatever the host reported, in the order it reported it —
+  // there is no fixed provider list here to filter against, because a new
+  // provider's row is only ever an `account` declaration away.
+  const rows = Object.values(snapshot.flows)
 
   return (
     <div className={styles.container} data-testid="model-accounts-section">
@@ -58,19 +61,19 @@ export function ModelsAccountsSection(props: ModelsAccountsSectionProps): React.
         </div>
       )}
 
+      {snapshot.phase === 'ready' && rows.length === 0 && (
+        <p className={styles.subtitle}>{t('noFlows')}</p>
+      )}
+
       <div className={styles.cardsList}>
-        {ORDERED_PROVIDERS.map((providerId) => {
-          const flow = snapshot.flows[providerId]
-          if (!flow) return null
-          return (
-            <ModelsSignInCard
-              key={providerId}
-              flow={flow}
-              controller={controller}
-              t={t}
-            />
-          )
-        })}
+        {rows.map((flow) => (
+          <ModelsSignInCard
+            key={flow.providerId}
+            flow={flow}
+            controller={controller}
+            t={t}
+          />
+        ))}
       </div>
     </div>
   )

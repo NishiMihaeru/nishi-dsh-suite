@@ -1,4 +1,4 @@
-/** Observable Client Controller for Models Sign-In and Authorization. */
+/** Observable Client Controller for Model Accounts status. */
 
 import type {
   AuthorizationBrowserRpc,
@@ -12,7 +12,6 @@ export class AuthorizationClientController {
   private readonly rpc: AuthorizationBrowserRpc
   private snapshot: AuthorizationControllerSnapshot
   private readonly listeners = new Set<() => void>()
-  private pollingTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(rpc: AuthorizationBrowserRpc) {
     this.rpc = rpc
@@ -69,7 +68,6 @@ export class AuthorizationClientController {
         globalError: undefined,
       }
       this.notify()
-      this.checkInFlightPolling()
     } catch (err: unknown) {
       this.snapshot = {
         ...this.snapshot,
@@ -83,135 +81,14 @@ export class AuthorizationClientController {
   async refreshProvider(providerId: string): Promise<SafeAuthorizationFlowDto | null> {
     try {
       const updated = await this.rpc.getProviderStatus(providerId)
-      if (updated) {
-        this.setFlow(updated)
-        this.checkInFlightPolling()
-      }
+      if (updated) this.setFlow(updated)
       return updated
     } catch {
       return null
     }
   }
 
-  async beginLogin(providerId: string, method?: string): Promise<SafeAuthorizationFlowDto> {
-    try {
-      const optimistic = await this.rpc.beginLogin(providerId, method)
-      this.setFlow(optimistic)
-      this.startInFlightPolling(true)
-      return optimistic
-    } catch (err: unknown) {
-      const current = this.snapshot.flows[providerId]
-      if (current) {
-        this.setFlow({
-          ...current,
-          status: 'ERROR',
-          lastError: err instanceof Error ? err.message : 'Failed to start authorization.',
-        })
-      }
-      throw err
-    }
-  }
-
-  async submitPrompt(providerId: string, value: string): Promise<SafeAuthorizationFlowDto> {
-    try {
-      const updated = await this.rpc.submitPrompt(providerId, value)
-      this.setFlow(updated)
-      this.startInFlightPolling(true)
-      return updated
-    } catch (err: unknown) {
-      const current = this.snapshot.flows[providerId]
-      if (current) {
-        this.setFlow({
-          ...current,
-          status: 'ERROR',
-          lastError: err instanceof Error ? err.message : 'Failed to submit authorization code.',
-        })
-      }
-      throw err
-    }
-  }
-
-  async cancelLogin(providerId: string): Promise<SafeAuthorizationFlowDto> {
-    try {
-      const updated = await this.rpc.cancelLogin(providerId)
-      this.setFlow(updated)
-      this.checkInFlightPolling()
-      return updated
-    } catch (err: unknown) {
-      await this.refreshProvider(providerId)
-      throw err
-    }
-  }
-
-  async logout(providerId: string): Promise<SafeAuthorizationFlowDto> {
-    try {
-      const updated = await this.rpc.logout(providerId)
-      this.setFlow(updated)
-      return updated
-    } catch (err: unknown) {
-      await this.refreshProvider(providerId)
-      throw err
-    }
-  }
-
-  private pollingIntervalMs = 1000
-
   dispose(): void {
-    this.stopInFlightPolling()
     this.listeners.clear()
-  }
-
-  private startInFlightPolling(resetBackoff = false): void {
-    if (resetBackoff) {
-      this.pollingIntervalMs = 1000
-      this.stopInFlightPolling()
-    } else if (this.pollingTimer) {
-      return
-    }
-
-    const poll = async () => {
-      const inFlightIds = Object.values(this.snapshot.flows)
-        .filter((f) => f.inFlight || f.status === 'AUTHORIZING' || f.status === 'WAITING_FOR_USER')
-        .map((f) => f.providerId)
-
-      if (inFlightIds.length === 0) {
-        this.stopInFlightPolling()
-        return
-      }
-
-      for (const pid of inFlightIds) await this.refreshProvider(pid)
-
-      const stillInFlight = Object.values(this.snapshot.flows).some(
-        (f) => f.inFlight || f.status === 'AUTHORIZING' || f.status === 'WAITING_FOR_USER',
-      )
-
-      if (!stillInFlight) {
-        this.stopInFlightPolling()
-        return
-      }
-
-      if (this.pollingIntervalMs === 1000) this.pollingIntervalMs = 2000
-      else if (this.pollingIntervalMs === 2000) this.pollingIntervalMs = 5000
-
-      this.pollingTimer = setTimeout(poll, this.pollingIntervalMs)
-    }
-
-    this.pollingTimer = setTimeout(poll, this.pollingIntervalMs)
-  }
-
-  private stopInFlightPolling(): void {
-    if (this.pollingTimer) {
-      clearTimeout(this.pollingTimer)
-      this.pollingTimer = null
-    }
-    this.pollingIntervalMs = 1000
-  }
-
-  private checkInFlightPolling(): void {
-    const hasInFlight = Object.values(this.snapshot.flows).some(
-      (f) => f.inFlight || f.status === 'AUTHORIZING' || f.status === 'WAITING_FOR_USER',
-    )
-    if (hasInFlight) this.startInFlightPolling(false)
-    else this.stopInFlightPolling()
   }
 }

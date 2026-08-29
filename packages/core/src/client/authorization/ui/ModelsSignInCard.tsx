@@ -10,15 +10,29 @@ export interface ModelsSignInCardProps {
   t?: (key: keyof typeof en) => string
 }
 
+/**
+ * Badge style and copy come entirely from the DTO's generic fields — status
+ * and credential kind — never from `providerId`. A provider's identity is
+ * data the descriptor supplies (`flow.label`); the card must not special-case
+ * a vendor by id, or a new provider would need a browser-side branch again.
+ */
+const STATUS_BADGE_STYLE: Record<SafeAuthorizationFlowDto['status'], string> = {
+  CONNECTED: 'badgeConnected',
+  NOT_CONFIGURED: 'badgeNotConfigured',
+  ERROR: 'badgeError',
+}
+const STATUS_LABEL_KEY: Record<SafeAuthorizationFlowDto['status'], keyof typeof en> = {
+  CONNECTED: 'statusConnected',
+  NOT_CONFIGURED: 'statusNotConfigured',
+  ERROR: 'statusError',
+}
+
 export function ModelsSignInCard({
   flow,
   controller,
   t = (key) => en[key] || key,
 }: ModelsSignInCardProps): ReactNode {
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const isCodexCliManaged = flow.providerId === 'openai-codex'
-  const isClaudeDeferred = flow.providerId === 'anthropic'
-  const isOpenAiApiKeyOnly = flow.providerId === 'openai'
   const hasLegacyGrant = flow.credentialKind === 'grant'
 
   const handleRefresh = async () => {
@@ -32,24 +46,9 @@ export function ModelsSignInCard({
     }
   }
 
-  const badge = (() => {
-    if (hasLegacyGrant) {
-      return <span className={`${styles.badge} ${styles.badgeWaiting}`}>{t('legacyGrant')}</span>
-    }
-    if (isCodexCliManaged) {
-      return <span className={`${styles.badge} ${styles.badgeConnected}`}>{t('codexCliManaged')}</span>
-    }
-    if (isClaudeDeferred) {
-      return <span className={`${styles.badge} ${styles.badgeNotConfigured}`}>{t('claudePrimaryDeferred')}</span>
-    }
-    return <span className={`${styles.badge} ${styles.badgeNotConfigured}`}>{t('apiKeyOnly')}</span>
-  })()
-
-  const description = isCodexCliManaged
-    ? t('codexCliManagedDesc')
-    : isClaudeDeferred
-      ? t('claudePrimaryDeferredDesc')
-      : t('apiKeyOnlyDesc')
+  const badge = hasLegacyGrant
+    ? <span className={`${styles.badge} ${styles.badgeWaiting}`}>{t('legacyGrant')}</span>
+    : <span className={`${styles.badge} ${styles[STATUS_BADGE_STYLE[flow.status]]}`}>{t(STATUS_LABEL_KEY[flow.status])}</span>
 
   return (
     <div className={styles.card} data-provider-id={flow.providerId} data-auth-status={flow.status}>
@@ -60,9 +59,7 @@ export function ModelsSignInCard({
         {badge}
       </div>
 
-      <div className={styles.description}>{description}</div>
-
-      {isClaudeDeferred && flow.credentialKind === 'api-key' && (
+      {flow.credentialKind === 'api-key' && (
         <div className={styles.description}>{t('apiKeyConfiguredNotice')}</div>
       )}
 
@@ -76,18 +73,16 @@ export function ModelsSignInCard({
         </div>
       )}
 
-      {(isCodexCliManaged || isClaudeDeferred || isOpenAiApiKeyOnly) && (
-        <div className={styles.buttonRow}>
-          <button
-            type="button"
-            className={styles.secondaryButton}
-            onClick={handleRefresh}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? t('refreshing') : t('refresh')}
-          </button>
-        </div>
-      )}
+      <div className={styles.buttonRow}>
+        <button
+          type="button"
+          className={styles.secondaryButton}
+          onClick={handleRefresh}
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? t('refreshing') : t('refresh')}
+        </button>
+      </div>
     </div>
   )
 }

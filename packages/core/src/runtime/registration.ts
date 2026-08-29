@@ -16,9 +16,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import type { ProviderDescriptor } from '../registry/descriptor.js'
+import type { AccountCapability, ProviderDescriptor } from '../registry/descriptor.js'
 import { canonicalProviderId, canonicalProviderRoute } from '../registry/identity.js'
 import { parseUsageRefreshPolicy, parseUsageSnapshotCollector } from '../usage/service.js'
+
+/** `AccountCapability` fields are credential-store keys and a display label, not free text. */
+const MAX_ACCOUNT_FIELD_LENGTH = 128
 
 /** Config fields every subscription-CLI provider plugin shares. */
 export interface SharedProviderConfig {
@@ -137,16 +140,54 @@ async function rollbackRegistration(
 }
 
 /**
+ * Validate `descriptor.account` before any registry mutation. It carries no
+ * factory to guard — it is pure credential-store addressing data — so this
+ * only has to reject the shapes that would otherwise surface as a broken
+ * Model Accounts row or a malformed `credentialKey()` call much later.
+ */
+function assertAccountCapability(providerId: string, account: AccountCapability): void {
+  for (const field of ['credentialScope', 'credentialId', 'label'] as const) {
+    const value = account[field]
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`${providerId}: account.${field} must be a non-empty string`)
+    }
+    if (value.length > MAX_ACCOUNT_FIELD_LENGTH) {
+      throw new Error(`${providerId}: account.${field} must be no longer than ${MAX_ACCOUNT_FIELD_LENGTH} characters`)
+    }
+  }
+}
+
+/** Validate a capability descriptor's own shape before its `create` runs. */
+function assertCapabilityDescriptor(
+  providerId: string,
+  field: 'webSearch' | 'usage',
+  value: { create?: unknown },
+): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${providerId}: ${field} must be a non-null object`)
+  }
+  if (typeof value.create !== 'function') {
+    throw new Error(`${providerId}: ${field}.create must be a function`)
+  }
+}
+
+/**
  * The single registration path every provider goes through: validate its
  * identity and provider-owned usage contract first, construct provider-owned
  * search/usage capabilities, record the provider, register its model route,
  * then run provider-specific install.
  *
- * Identity/policy validation happens before any capability factory runs, and
- * the collector returned by the usage factory is validated before registry
- * mutation. Once core state starts mutating, registration is transactional for
- * the resources the core directly owns: the registry entry and LLM adapter.
- * Registry change listeners are observers and cannot veto a committed record.
+ * Identity/policy validation happens before any capability factory runs: the
+ * shape of a present `webSearch`/`usage` descriptor is checked before its
+ * `create` is called, and the collector the usage factory returns is
+ * validated before registry mutation. Once core state starts mutating,
+ * registration is transactional for the resources the core directly owns:
+ * the registry entry and LLM adapter. The `webSearch`/`usage` instances
+ * themselves are built on the provider's own context and carry no dispose
+ * contract here — a provider that opens resources for them is responsible
+ * for binding that lifecycle to its own `ctx.effect()` so plugin unload
+ * tears it down; this function does not roll them back. Registry change
+ * listeners are observers and cannot veto a committed record.
  */
 export async function registerProvider<TConfig extends SharedProviderConfig>(
   ctx: Context,
@@ -183,9 +224,20 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
     throw new Error(`${providerId}: a provider declaring a model capability must declare at least one route`)
   }
 
+  if (descriptor.account !== undefined) {
+    assertAccountCapability(providerId, descriptor.account)
+  }
+
   const refreshPolicy = descriptor.usage?.refreshPolicy === undefined
     ? undefined
     : parseUsageRefreshPolicy(descriptor.usage.refreshPolicy, `${providerId}: usage.refreshPolicy`)
+
+  if (descriptor.webSearch !== undefined) {
+    assertCapabilityDescriptor(providerId, 'webSearch', descriptor.webSearch)
+  }
+  if (descriptor.usage !== undefined) {
+    assertCapabilityDescriptor(providerId, 'usage', descriptor.usage)
+  }
 
   const webSearch = descriptor.webSearch?.create(ctx, config)
   const usage = descriptor.usage === undefined

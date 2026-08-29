@@ -104,12 +104,15 @@ test('an authoritative cached-read omission clears prior client usage so ensureF
   assert.equal(controller.getSnapshot().providers.fixture?.usage?.observedAtMs, 2_000)
 })
 
-test('legacy logout fails closed instead of entering a read-check-delete credential race', async () => {
+test('legacy logout fails closed: the mutating surface that could race a read-check-delete credential deletion is gone, not stubbed', async () => {
   const grant = { kind: 'grant', payload: { accessToken: 'legacy-token' } }
   let current: any = grant
   let describeCalls = 0
   let deleteCalls = 0
   const controller = new AuthorizationHostController({
+    nishiProviders: {
+      all: () => [{ id: 'fixture', descriptor: { account: { credentialScope: 'llm-pi-ai', credentialId: 'fixture', label: 'Fixture' } } }],
+    },
     credentials: {
       async describeRecord() {
         describeCalls += 1
@@ -122,12 +125,14 @@ test('legacy logout fails closed instead of entering a read-check-delete credent
     },
   } as any)
 
-  await assert.rejects(
-    () => controller.logout('openai-codex'),
-    /Unsupported provider .* legacy grant removal/,
-  )
+  // No `logout` method exists to call: the describe-then-delete race this
+  // guarded against has no code path left to race through, rather than a
+  // method that still exists only to throw.
+  assert.equal(typeof (controller as any).logout, 'undefined')
 
+  const flow = await controller.describeProviderPublic('fixture')
+  assert.equal(flow?.status, 'CONNECTED')
   assert.equal(current, grant)
-  assert.equal(describeCalls, 0)
   assert.equal(deleteCalls, 0)
+  assert.equal(describeCalls, 1, 'a status read is the only credential-store call this surface can make')
 })

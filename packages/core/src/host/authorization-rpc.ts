@@ -2,46 +2,33 @@
  * Cordis Connection RPC handler for the Model Accounts status surface.
  * Subscription OAuth is intentionally not initiated by DSH. This bridge only
  * reports legacy DSH grants; token material is never projected to the browser.
+ *
+ * The roster is not a fixed list of vendor ids: every row comes from a live
+ * provider's own `descriptor.account` declaration (credential scope/id/label),
+ * read through the registry the same way the Usage plane derives its roster
+ * from registrations instead of naming providers. A provider that never
+ * declares `account` gets no Model Accounts row — that is a legal, declared
+ * state, not a gap to paper over.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
+import type { AccountCapability } from '../registry/descriptor.js'
 
 export const AUTHORIZATION_RPC_CHANNEL = '/authorization'
 export const AUTH_GET_FLOWS_ENDPOINT = 'list-flows'
 export const AUTH_GET_STATUS_ENDPOINT = 'get-provider-status'
-export const AUTH_BEGIN_LOGIN_ENDPOINT = 'begin-login'
-export const AUTH_SUBMIT_PROMPT_ENDPOINT = 'submit-prompt'
-export const AUTH_CANCEL_LOGIN_ENDPOINT = 'cancel-login'
-export const AUTH_LOGOUT_ENDPOINT = 'logout'
 export const AUTH_REFRESH_ENDPOINT = 'refresh'
 
-export type AuthorizationUiState = 'NOT_CONFIGURED' | 'SIGN_IN_AVAILABLE' | 'AUTHORIZING' | 'WAITING_FOR_USER' | 'CONNECTED' | 'ERROR'
-export interface SafeAuthorizationNoticeDto { message: string; url?: string; code?: string }
-export interface SafeAuthorizationPromptOptionDto { id: string; label: string; description?: string }
-export interface SafeAuthorizationPromptDto {
-  kind: 'text' | 'secret' | 'select'
-  message: string
-  placeholder?: string
-  options?: SafeAuthorizationPromptOptionDto[]
-}
+export type AuthorizationUiState = 'NOT_CONFIGURED' | 'CONNECTED' | 'ERROR'
 export interface SafeAuthorizationFlowDto {
   providerId: string
-  flowKey: string
   label: string
-  methods: Array<{ id: string; label: string }>
-  inFlight: boolean
   configured: boolean
   credentialKind?: 'api-key' | 'grant'
   status: AuthorizationUiState
-  lastNotice?: SafeAuthorizationNoticeDto
-  lastPrompt?: SafeAuthorizationPromptDto
   lastError?: string
 }
-export interface BeginLoginRpcRequest { providerId: string; method?: string }
-export interface SubmitPromptRpcRequest { providerId: string; value: string }
-export interface CancelLoginRpcRequest { providerId: string }
-export interface LogoutRpcRequest { providerId: string }
 export interface RefreshRpcRequest { providerId?: string }
 
 type ConnectionRpcResult = Awaited<ReturnType<ConnectionRpcHandler>>
@@ -51,24 +38,6 @@ const GENERIC_BAD_REQUEST_MESSAGE = 'Invalid authorization request.'
 const GENERIC_INTERNAL_ERROR_MESSAGE = 'Authorization operation failed.'
 const GENERIC_STATE_UNAVAILABLE_MESSAGE = 'Authorization state is unavailable.'
 const MAX_PROVIDER_ID_LENGTH = 64
-
-export const READ_PROVIDER_IDS = new Set(['openai-codex', 'anthropic', 'openai'])
-/** No provider is allowed to start subscription OAuth through DSH. */
-export const MUTATING_PROVIDER_IDS = new Set<string>()
-/**
- * The alpha.1 credential seam has no atomic compare-and-delete operation.
- * Deleting a grant after a separate kind check can therefore erase a newer
- * API-key record written by another process. Legacy grants remain observable
- * but destructive removal is disabled until the credential contract can make
- * that mutation atomic.
- */
-export const LEGACY_LOGOUT_PROVIDER_IDS = new Set<string>()
-
-const PROVIDER_LABELS: Record<string, string> = {
-  'openai-codex': 'ChatGPT / Codex',
-  anthropic: 'Claude (Anthropic)',
-  openai: 'OpenAI',
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -87,29 +56,28 @@ function createInternalErrorResult(): ConnectionRpcResult {
   const error: ConnectionRpcError = { code: 'internal', message: GENERIC_INTERNAL_ERROR_MESSAGE, details: {} }
   return { ok: false, error }
 }
-function validProviderId(value: unknown, allowed: Set<string>): value is string {
-  if (typeof value !== 'string') return false
-  const trimmed = value.trim()
-  return trimmed.length > 0 && value.length <= MAX_PROVIDER_ID_LENGTH && allowed.has(trimmed)
+/**
+ * Shape only. Whether a live provider actually owns this id is a registry
+ * question the controller answers, not something a parser can decide.
+ */
+function isWellFormedProviderId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_PROVIDER_ID_LENGTH && value.trim() === value
 }
 
 export class AuthorizationHostController {
   constructor(private readonly ctx: Context) {}
 
-  async describeProviderPublic(providerId: string): Promise<SafeAuthorizationFlowDto> {
-    if (!READ_PROVIDER_IDS.has(providerId)) throw new Error(`Unsupported provider "${providerId}".`)
-    const key = credentialKey('llm-pi-ai', providerId)
-    if (providerId === 'openai') {
-      return {
-        providerId,
-        flowKey: key,
-        label: PROVIDER_LABELS[providerId] ?? providerId,
-        methods: [],
-        inFlight: false,
-        configured: false,
-        status: 'NOT_CONFIGURED',
-      }
+  /** Live providers that opted into a Model Accounts row, keyed by their canonical Nishi provider id. */
+  #accountProviders(): Map<string, AccountCapability> {
+    const result = new Map<string, AccountCapability>()
+    for (const provider of this.ctx.nishiProviders?.all() ?? []) {
+      if (provider.descriptor.account !== undefined) result.set(provider.id, provider.descriptor.account)
     }
+    return result
+  }
+
+  async #describeAccount(providerId: string, account: AccountCapability): Promise<SafeAuthorizationFlowDto> {
+    const key = credentialKey(account.credentialScope, account.credentialId)
 
     let configured = false
     let credentialKind: 'api-key' | 'grant' | undefined
@@ -128,10 +96,7 @@ export class AuthorizationHostController {
 
     return {
       providerId,
-      flowKey: key,
-      label: PROVIDER_LABELS[providerId] ?? providerId,
-      methods: [],
-      inFlight: false,
+      label: account.label,
       configured,
       credentialKind,
       status: storageUnavailable
@@ -143,29 +108,22 @@ export class AuthorizationHostController {
     }
   }
 
+  /**
+   * `undefined` means no live provider owns this id — a bad request from the
+   * RPC handler's point of view, never an internal error.
+   */
+  async describeProviderPublic(providerId: string): Promise<SafeAuthorizationFlowDto | undefined> {
+    const account = this.#accountProviders().get(providerId)
+    if (account === undefined) return undefined
+    return this.#describeAccount(providerId, account)
+  }
+
   async listFlowsPublic(): Promise<SafeAuthorizationFlowDto[]> {
     const result: SafeAuthorizationFlowDto[] = []
-    for (const providerId of READ_PROVIDER_IDS) result.push(await this.describeProviderPublic(providerId))
-    return result
-  }
-
-  async beginLogin(providerId: string, _method?: string): Promise<SafeAuthorizationFlowDto> {
-    throw new Error(`Direct subscription login is disabled for provider "${providerId}".`)
-  }
-  async submitPrompt(providerId: string, _value: string): Promise<SafeAuthorizationFlowDto> {
-    throw new Error(`Direct subscription login is disabled for provider "${providerId}".`)
-  }
-  async cancelLogin(providerId: string): Promise<SafeAuthorizationFlowDto> {
-    throw new Error(`No DSH-managed subscription login exists for provider "${providerId}".`)
-  }
-
-  async logout(providerId: string): Promise<SafeAuthorizationFlowDto> {
-    if (!LEGACY_LOGOUT_PROVIDER_IDS.has(providerId)) {
-      throw new Error(`Unsupported provider "${providerId}" for legacy grant removal.`)
+    for (const [providerId, account] of this.#accountProviders()) {
+      result.push(await this.#describeAccount(providerId, account))
     }
-    // Intentionally unreachable while the alpha.1 credential seam lacks a
-    // serialized conditional delete. Never reintroduce describe-then-delete.
-    return this.describeProviderPublic(providerId)
+    return result
   }
 }
 
@@ -179,18 +137,10 @@ export function createAuthorizationRpcHandler(controller: AuthorizationHostContr
         case AUTH_GET_STATUS_ENDPOINT: {
           if (!isPlainObject(payload) || Object.keys(payload).length !== 1) return createBadRequestResult()
           const rawId = payload.providerId
-          if (!validProviderId(rawId, READ_PROVIDER_IDS)) return createBadRequestResult()
-          return { ok: true, value: await controller.describeProviderPublic(rawId.trim()) }
-        }
-        case AUTH_BEGIN_LOGIN_ENDPOINT:
-        case AUTH_SUBMIT_PROMPT_ENDPOINT:
-        case AUTH_CANCEL_LOGIN_ENDPOINT:
-          return createBadRequestResult()
-        case AUTH_LOGOUT_ENDPOINT: {
-          if (!isPlainObject(payload) || Object.keys(payload).length !== 1) return createBadRequestResult()
-          const rawId = payload.providerId
-          if (!validProviderId(rawId, LEGACY_LOGOUT_PROVIDER_IDS)) return createBadRequestResult()
-          return { ok: true, value: await controller.logout(rawId.trim()) }
+          if (!isWellFormedProviderId(rawId)) return createBadRequestResult()
+          const dto = await controller.describeProviderPublic(rawId)
+          if (dto === undefined) return createBadRequestResult()
+          return { ok: true, value: dto }
         }
         case AUTH_REFRESH_ENDPOINT: {
           if (!isPlainObject(payload)) return createBadRequestResult()
@@ -198,10 +148,17 @@ export function createAuthorizationRpcHandler(controller: AuthorizationHostContr
           if (keys.length === 0) return { ok: true, value: await controller.listFlowsPublic() }
           if (keys.length !== 1 || keys[0] !== 'providerId') return createBadRequestResult()
           const rawId = payload.providerId
-          if (!validProviderId(rawId, READ_PROVIDER_IDS)) return createBadRequestResult()
-          return { ok: true, value: await controller.describeProviderPublic(rawId.trim()) }
+          if (!isWellFormedProviderId(rawId)) return createBadRequestResult()
+          const dto = await controller.describeProviderPublic(rawId)
+          if (dto === undefined) return createBadRequestResult()
+          return { ok: true, value: dto }
         }
         default:
+          // Also covers the removed mutating endpoints (begin-login,
+          // submit-prompt, cancel-login, logout): no DSH-managed subscription
+          // login or atomic legacy-grant deletion exists to dispatch to, so
+          // an old client sending one of those endpoint names gets the same
+          // generic bad-request as any other unrecognized endpoint.
           return createBadRequestResult()
       }
     } catch {

@@ -139,6 +139,11 @@ const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
       }).read(),
     }),
   },
+  account: {
+    credentialScope: 'llm-pi-ai',
+    credentialId: 'openai-codex',
+    label: 'ChatGPT / Codex',
+  },
   async install(ctx) {
     await installCodexPrimaryHistoryBridge(ctx)
   },
