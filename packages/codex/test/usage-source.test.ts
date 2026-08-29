@@ -10,12 +10,14 @@ import {
 
 interface FakeAppServerOptions {
   readonly loggedIn?: boolean
+  readonly version?: string
   readonly observations?: { terminateCalls: number; waitSignals: Array<AbortSignal | undefined> }
 }
 
 function fakeAppServerChild(options: FakeAppServerOptions = {}) {
   const { observations } = options
   const loggedIn = options.loggedIn ?? true
+  const version = options.version ?? '0.150.0'
   const stdin = new PassThrough()
   const stdout = new PassThrough()
   let settled = false
@@ -39,7 +41,12 @@ function fakeAppServerChild(options: FakeAppServerOptions = {}) {
         stdout.write(`${JSON.stringify({
           jsonrpc: '2.0',
           id: message.id,
-          result: { serverInfo: { name: 'codex', version: '0.150.0' } },
+          result: {
+            userAgent: `deepseek-harness/${version} (Linux; x86_64) codex-cli`,
+            codexHome: '/provider/codex-home',
+            platformFamily: 'unix',
+            platformOs: 'linux',
+          },
         })}\n`)
       } else if (message.method === 'account/read') {
         stdout.write(`${JSON.stringify({
@@ -130,6 +137,16 @@ test('usage source resolves and launches Codex in the DSH subprocess execution w
   assert.equal(spawned[0].cwd, '/provider/workspace')
   assert.equal(observations.terminateCalls, 1)
   assert.deepEqual(observations.waitSignals, [undefined], 'cleanup must wait for whole-tree exit without a grace-bound abort')
+})
+
+test('usage source rejects a Codex App Server version outside the audited runtime', async () => {
+  const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    async resolveExecutable() { return '/provider/runtime/codex' },
+    spawn() { return fakeAppServerChild({ version: '0.151.0' }) },
+  })
+
+  await assert.rejects(source.read(), /unsupported Codex App Server version.*0\.151\.0.*0\.150\.0/)
 })
 
 test('usage source reports missing vendor login as LOGIN_REQUIRED before reading limits', async () => {
