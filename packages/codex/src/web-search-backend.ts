@@ -140,6 +140,7 @@ export function codexSearchExecArgv(spec: CodexSearchExecSpec): string[] {
     '-c', 'features.multi_agent_v2=false',
     '-c', 'features.code_mode=false',
     '-c', 'features.view_image=false',
+    '-c', 'features.hooks=false',
     '-c', 'features.apps=false',
     '-c', 'features.plugins=false',
     '-c', 'agents.enabled=false',
