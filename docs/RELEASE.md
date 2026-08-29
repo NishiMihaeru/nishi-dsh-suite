@@ -2,32 +2,30 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / PROVIDER FREEZE WORK ACTIVE**
+Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION REVALIDATION ACTIVE**
 
-Current local acceptance baseline:
+Current development baseline:
 
-- DeepSeek Harness `0.1.1-rc.2`
-- Node `24.x` (acceptance baseline `24.19.0`)
+- Node `24.x` (previous acceptance baseline `24.19.0`)
 - pnpm `11.21.0`
-- Linux/CachyOS development/acceptance environment
+- local package devDependency graph: DSH `0.1.1-rc.2`
+- Linux/CachyOS development environment
 - Windows: **NOT TESTED**
 
-Additional compatibility source target:
+Authoritative compatibility target for the current Foundation audit/remediation:
 
-- official DSH tag `dsh-v0.1.2-alpha.1`
+- official tag `dsh-v0.1.2-alpha.1`
 - commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`
 
-Core and Project Memory are re-frozen. Their production DSH peers accept exactly:
+Core and Project Memory still publish the exact production peer union:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Local dev dependencies remain pinned to rc.2; alpha.1 evidence comes from official source/runtime probes in disposable environments.
+Because the main dev graph is rc.2, the changed Foundation must be exercised explicitly against official alpha.1 before that support claim is re-accepted.
 
-This foundation range does **not** automatically broaden provider packages or the complete Suite. Codex, Antigravity and Claude still require provider-specific compatibility/freeze work.
-
-This file is the only current release runbook/status document. Historical rc.1/rc.2 release notes and superseded foundation reports remain in git history.
+This file is the current release runbook/status document. Historical rc.1/rc.2 notes and superseded validation detail remain in git history/verification evidence.
 
 ## rc.3 family
 
@@ -42,9 +40,65 @@ Exactly six packages move together at `0.1.0-rc.3`:
 
 `0.1.0-rc.1` remains the published npm family. rc.2 was deliberately left unpublished.
 
-## Main rc.3 change
+## Foundation state — REOPENED
 
-The Suite has one provider-independent core plus one plugin per provider. Project Memory remains separate and provider-agnostic.
+A new independent audit against exact alpha.1 found additional concrete Core/Project Memory correctness defects after the previous accepted Foundation checkpoint.
+
+The current branch now contains remediation for:
+
+- Project Memory journal-generation cleanup race;
+- Project Memory stale-lock replacement race;
+- Project Memory PID-reuse recovery wedge;
+- Core legacy logout credential read-check-delete TOCTOU;
+- Project Memory unbounded bootstrap ingestion;
+- Core ineffective usage-cache invalidation/browser reconciliation;
+- Project Memory committed-journal permission widening.
+
+It also removes redundant tool-layer Project Memory recovery and adds explicit lock/transaction generation identities.
+
+Historical Foundation validation at implementation checkpoint:
+
+```text
+eb95ef6425c788f63339befd0c2437f78bc8dde1
+```
+
+and historical raw PASS report:
+
+```text
+f491d681390924a171211a5c0dd0c8991f6a7faf
+```
+
+remain useful evidence for that exact old checkpoint only. They do **not** validate the current branch head.
+
+Current Foundation release state:
+
+```text
+Core: REOPENED / PENDING VERIFICATION
+Project Memory: REOPENED / PENDING VERIFICATION
+```
+
+Required new Foundation gates before provider work/release work resumes:
+
+- [ ] exact-head `pnpm install --frozen-lockfile`;
+- [ ] Core focused test/check/build;
+- [ ] Project Memory focused test/check/build, including new audit regressions;
+- [ ] full workspace test/check/build;
+- [ ] `pnpm verify:local`;
+- [ ] multi-process/adversarial lock/WAL/recovery/cancellation runs;
+- [ ] bidirectional compatibility with `@deepseek-ai/dsh-atomic-write` lock namespace;
+- [ ] official disposable alpha.1 runtime validation at exact upstream commit;
+- [ ] real alpha.1 Project Memory tool operations;
+- [ ] Core usage invalidation and fail-closed legacy-grant behavior in the real host/client seam;
+- [ ] independent Gemini code review of the changed seams;
+- [ ] raw result written to `docs/verification/gemini/LATEST.md`;
+- [ ] accepted durable evidence folded into `docs/verification/README.md`;
+- [ ] explicit Foundation re-freeze after PASS.
+
+GitHub Actions/hosted CI are not part of these gates.
+
+## Main rc.3 product direction
+
+The Suite has one provider-independent Core plus one plugin per provider. Project Memory remains separate/provider-agnostic.
 
 Vendor-specific delegation tools are removed. Orchestrator uses DSH-native `subagent` / `subagent_fork` on the active primary route.
 
@@ -57,67 +111,22 @@ antigravity-cli
 
 Claude is usage-only and has no Nishi model route/search backend.
 
-The old `ctx.projectMemory` delegated service boundary is gone. Current memory surface is ordinary DSH `memory_read`, `memory_write`, `memory_edit` plus `/memory` and `/consolidate` maintenance commands.
-
-## Foundation evidence — ACCEPTED
-
-Accepted foundation implementation checkpoint:
-
-```text
-eb95ef6425c788f63339befd0c2437f78bc8dde1
-```
-
-Raw PASS report commit:
-
-```text
-f491d681390924a171211a5c0dd0c8991f6a7faf
-```
-
-Accepted final foundation gates:
-
-- `pnpm install --frozen-lockfile` PASS;
-- Core `178/178` focused tests + check/build PASS;
-- Project Memory `57/57` focused tests + check/build PASS;
-- full workspace test/check/build PASS;
-- `pnpm verify:local` PASS, including release-family/package-contract/orchestrator checks and local packing of all six rc.3 packages;
-- official disposable `dsh-v0.1.2-alpha.1` runtime compatibility PASS for the changed Core and Project Memory seams;
-- real alpha.1 Project Memory `memory_read`, `memory_write` and `memory_edit` PASS;
-- descriptor-chain replacement, cancellation, mandatory-settlement, WAL recovery and recovery fail-closed regressions PASS;
-- working-tree integrity PASS during the validation run;
-- GitHub Actions/hosted CI NOT USED;
-- Windows NOT TESTED.
-
-The report commit is documentation-only; the implementation actually tested and accepted is `eb95ef6425c788f63339befd0c2437f78bc8dde1`.
-
-Foundation state:
-
-```text
-Core: FROZEN
-Project Memory: FROZEN
-```
-
-Provider-specific work must not reopen the foundation without a new concrete defect or compatibility failure.
+The old `ctx.projectMemory` delegated service boundary is gone. Memory is exposed through ordinary DSH `memory_read`, `memory_write`, `memory_edit` plus `/memory` and `/consolidate` maintenance commands.
 
 ## Open release work
 
-Before rc.3 can be release-ready:
+After Foundation re-freeze:
 
-1. freeze Codex after provider-specific cleanup, compatibility and live acceptance;
+1. freeze Codex after provider-specific cleanup/compatibility/live acceptance;
 2. freeze Antigravity after cleanup/catalog/compatibility/live acceptance;
 3. freeze Claude after usage-only cleanup/compatibility/smoke;
-4. recheck repository-wide provider invariants and whole-family DSH package declarations;
+4. recheck repository-wide provider invariants and dependency declarations;
 5. run cross-provider product acceptance;
-6. run final target-profile install/update/remove lifecycle;
+6. run final profile install/update/remove lifecycle;
 7. run managed Orchestrator preset lifecycle;
 8. run final deterministic/local/vendor/bundle/name release gates.
 
-Product live acceptance must still cover:
-
-- Codex primary/search/vendor-memory suppression;
-- Antigravity primary/model switch/search;
-- Codex -> Antigravity switch inside one session;
-- Project Memory continuity across that switch;
-- live Usage & Limits dynamic-roster cases.
+Product live acceptance must still cover Codex primary/search/vendor-memory suppression, Antigravity primary/model switch/search, Codex -> Antigravity switch in one session, Project Memory continuity, and live Usage & Limits dynamic-roster cases.
 
 ## Final release commands
 
@@ -131,14 +140,15 @@ pnpm verify:bundle-install
 pnpm check:npm-names
 ```
 
-Read each command's real exit code. Do not hide failures through pipelines.
+Read real exit codes; do not mask failures through pipelines.
 
 ## Security/runtime release boundary
 
 Release must continue to satisfy:
 
 - no vendor credential/session/token store copied, parsed, migrated or deleted;
-- no `@openai/codex*` or `@anthropic-ai/*` runtime dependency in the Suite graph;
+- no unsafe read-check-delete legacy credential mutation;
+- no `@openai/codex*` or `@anthropic-ai/*` runtime dependency in the Suite graph unless separately reviewed;
 - vendor sign-in stays inside official vendor products;
 - no silent provider fallback for routed search;
 - Project Memory path/symlink confinement remains fail-closed;
@@ -146,30 +156,30 @@ Release must continue to satisfy:
 
 ## Orchestrator preset distribution
 
-The installed rc.2 baseline does not reliably preserve third-party contributed preset roots. Until compatibility work deliberately changes this, the supported rc.3 path remains the explicit managed bridge:
+Until separately changed by compatibility work, the supported rc.3 path remains the explicit managed bridge:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install
 dsh plugin --profile web exec nishi-dsh-suite preset status
 ```
 
-Use `preset update` after a Suite update and `preset remove` before Suite removal. Do not describe this workaround as automatic one-click preset discovery.
+Use `preset update` after a Suite update and `preset remove` before Suite removal. Do not describe this as automatic one-click preset discovery.
 
 ## Market submission
 
-The prepared registry template is:
+Prepared registry template:
 
 ```text
 docs/market/awesome-dsh-plugin-entry.yml
 ```
 
-It may advertise only behavior proven by the final released build. It must not advertise retired vendor-specific subagents, automatic preset discovery, or compatibility with a DSH version/range that has not passed the relevant provider/family release gates.
+It may advertise only behavior proven by the final released build.
 
 Current Market gates:
 
 - [x] repository PR #1 merged historically;
 - [x] repository has sufficient commit history;
-- [x] Core + Project Memory foundation re-freeze PASS;
+- [ ] Core + Project Memory new Foundation revalidation PASS;
 - [ ] Codex frozen;
 - [ ] Antigravity frozen;
 - [ ] Claude frozen;
