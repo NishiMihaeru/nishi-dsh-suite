@@ -1,44 +1,52 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after a new independent Core + Project Memory audit strictly against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`).
+Status updated for `0.1.0-rc.3` after accepted Foundation revalidation against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`).
 
 This file owns task status and order only. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
-## 1. Foundation — REOPENED / IMPLEMENTED / PENDING VERIFICATION
+## 1. Foundation — FROZEN
 
-The previous Foundation freeze was reopened by new concrete findings. Earlier PASS evidence remains valid only for the earlier checkpoint and is not evidence for the changed branch head.
+The previous Foundation freeze was reopened by a fresh independent alpha.1 audit. Seven concrete Core/Project Memory defects were remediated. The first independent Gemini run correctly failed on three additional Project Memory issues, narrow fixes were applied, and the complete follow-up gate passed.
 
-Current remediation targets:
+Accepted implementation:
 
-- [x] Project Memory: prevent delayed committed-journal cleanup from deleting the next transaction generation;
-- [x] Project Memory: prevent stale-lock cleanup/finalizers from deleting a replacement live owner lock;
-- [x] Project Memory: distinguish process ownership from recycled numeric PID on Linux/macOS;
-- [x] Core: remove the unsafe legacy credential read-kind-then-delete mutation; fail closed because alpha.1 has no atomic compare-and-delete seam;
-- [x] Project Memory: bound bootstrap ingestion before whole-file materialization;
-- [x] Core: make usage invalidation authoritative for host cache and browser cached-read reconciliation;
-- [x] Project Memory: keep recovery journal mode `0600` across the committed phase transition;
-- [x] add deterministic regressions for journal generation, stale lock replacement, PID reuse, bounded prefix reads, journal permissions, unsafe logout and usage invalidation;
-- [x] add lock-namespace interoperability regression against `@deepseek-ai/dsh-atomic-write`;
-- [x] remove redundant tool-layer Project Memory recovery while preserving domain-owned recovery;
-- [x] update current package/canonical documentation so the changed tree is not mislabeled frozen.
+```text
+7cd4d5b17625f9b3a21b741555df6597fd9cb889
+```
 
-Pending executable gates:
+Raw PASS report commit:
 
-- [ ] install/frozen-lockfile validation on the exact final head;
-- [ ] Core focused tests;
-- [ ] Core check/build;
-- [ ] Project Memory focused tests, including new audit regressions and multi-process tests;
-- [ ] Project Memory check/build;
-- [ ] full workspace test/check/build;
-- [ ] `pnpm verify:local`;
-- [ ] official disposable DSH `0.1.2-alpha.1` runtime validation at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`;
-- [ ] adversarial/repeat runs for journal/lock concurrency, cancellation and recovery;
-- [ ] confirm zero lingering lock/WAL protocol files after exercised successful/recovery paths;
-- [ ] Gemini independent code review of the changed Core + Project Memory seams;
-- [ ] overwrite `docs/verification/gemini/LATEST.md` with raw PASS/FAIL evidence;
-- [ ] only after accepted PASS, fold durable evidence into `docs/verification/README.md` and freeze Foundation again.
+```text
+d1cbac7094488ded52d9ab83891531bc01197090
+```
 
-Windows remains **NOT TESTED**. Process-birth PID-reuse hardening is implemented for Linux and macOS; unsupported platforms conservatively treat a live PID as live.
+Accepted Foundation gates:
+
+- [x] Project Memory journal-generation cleanup race fixed;
+- [x] Project Memory stale-lock replacement/finalizer race fixed;
+- [x] Project Memory PID-reuse ownership hardening implemented for Linux/macOS;
+- [x] Core unsafe legacy credential read-kind-then-delete mutation removed/fail-closed;
+- [x] Project Memory bootstrap ingestion bounded before whole-file materialization;
+- [x] Core usage invalidation made authoritative for host cache and browser reconciliation;
+- [x] Project Memory journal phase replacement preserves `0600` on POSIX;
+- [x] writer-lock publication collision handoff race fixed;
+- [x] concurrent journal open/unlink recovery preflight handled as current absence;
+- [x] legacy transaction generation separated from mutable owner state;
+- [x] duplicate tool-layer Project Memory recovery removed;
+- [x] deterministic regression coverage retained/extended for the audited interleavings;
+- [x] `pnpm install --frozen-lockfile` PASS;
+- [x] Core focused tests `182/182`, check/build PASS;
+- [x] Project Memory focused tests `64/64`, check/build PASS;
+- [x] full workspace test/check/build PASS;
+- [x] `pnpm verify:local` PASS;
+- [x] three concurrency-sensitive PM suites repeated 20/20 iterations PASS;
+- [x] zero unexpected lock/WAL residue after exercised success/recovery paths;
+- [x] bidirectional `@deepseek-ai/dsh-atomic-write` lock interoperability PASS;
+- [x] disposable official DSH `0.1.2-alpha.1` runtime validation at exact upstream commit PASS;
+- [x] independent Gemini follow-up code review found no new blocking Foundation defect;
+- [x] durable evidence folded into `docs/verification/README.md`.
+
+Windows remains **NOT TESTED**. Unsupported process-identity seams remain conservative.
 
 Foundation production DSH peers remain:
 
@@ -46,36 +54,43 @@ Foundation production DSH peers remain:
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The main devDependency graph remains rc.2, so explicit alpha.1 validation is mandatory.
+The main devDependency graph remains rc.2; the alpha.1 compatibility claim is supported by the accepted disposable exact-commit validation, not by rc.2 workspace tests alone.
 
-## Architectural overcomplexity decision
+## Architectural overcomplexity disposition
 
-### Simplify now
+### Simplified and accepted
 
-- [x] Remove duplicate Project Memory recovery at the tool wrapper; domain operations remain the single recovery boundary.
-- [x] Replace implicit PID/pathname ownership assumptions with explicit transaction ids, lock tokens and process identities. This adds fields but reduces the number of ambiguous states/races.
+- [x] duplicate Project Memory recovery at the tool wrapper removed; domain operations remain the single recovery boundary;
+- [x] implicit PID/pathname ownership replaced with explicit transaction ids, lock tokens and process identities.
 
-### Keep for now
+### Intentionally retained
 
-- [ ] Core authorization client begin/submit/cancel/polling state machine: currently broader than the host's read-only/fail-closed behavior, but it is exported client API. Consider removal only as a separately reviewed compatibility cleanup after Foundation verification.
-- [ ] `registerConnectionRpcChannel()` `Function.length` rc2/alpha compatibility probe: brittle, but intentional while the package continues to publish rc2 support. Remove only when the supported peer boundary changes.
-- [ ] Usage invalidation generation token: keep; it now fences in-flight pre-invalidation observations and has a concrete correctness role.
-- [ ] Project Memory fixed journal pathname: keep for now. Generation identity plus participant locking closes the audited cross-generation race without introducing a larger WAL-directory migration.
+- [ ] Core authorization client begin/submit/cancel/polling state machine: exported client API; consider removal only as a separately reviewed compatibility cleanup.
+- [ ] `registerConnectionRpcChannel()` `Function.length` rc2/alpha compatibility probe: retain while rc2 remains a declared peer.
+- [ ] Usage invalidation generation token: retain; it fences pre-invalidation observations.
+- [ ] Project Memory fixed journal pathname: retain; explicit transaction generation + locking closes the audited cross-generation race without a larger WAL-directory migration.
 
-Do not perform aesthetic refactors in the Foundation before the verification gate. Any further simplification needs a concrete invariant/API benefit and its own regression proof.
+Do not perform aesthetic Foundation refactors during provider work.
 
-## 2. Codex — BLOCKED ON FOUNDATION RE-FREEZE
+## 2. Codex — ACTIVE
 
-After Foundation PASS:
+Next stage:
 
-- [ ] independently audit current Codex source/runtime seams against its actually supported DSH generations;
+- [ ] independently audit current Codex source/runtime seams against the DSH generations it actually claims/supports;
 - [ ] reconcile provider-specific DSH dependencies/peers only to proven generations;
-- [ ] replace genuinely provider-neutral failure/helper duplication with Core contracts where appropriate;
+- [ ] remove genuinely provider-neutral failure/helper duplication where Core now owns the contract;
 - [ ] preserve vendor protocol translation and the reviewed Codex App Server adapter boundary inside the provider package;
-- [ ] focused test/check/build PASS;
-- [ ] live primary turn + routed native `web_search` PASS;
-- [ ] prove vendor-native persistent memory/project-doc injection is suppressed on primary invocation;
+- [ ] preserve registry-first provider registration and canonical `codex-app-server` route;
+- [ ] preserve absence of vendor-specific subagent registrations/tools;
+- [ ] focused test/check/build PASS on the final Codex tree;
+- [ ] live primary turn PASS;
+- [ ] routed native `web_search` PASS;
+- [ ] prove vendor-native persistent memory/project-doc injection is suppressed on primary invocation where required by the current contract;
+- [ ] independent provider-specific lifecycle/security/complexity review;
+- [ ] fresh accepted Codex validation evidence;
 - [ ] freeze Codex.
+
+Historical Codex pre-work evidence is a starting point only, not the final freeze for this stage.
 
 ## 3. Antigravity
 
