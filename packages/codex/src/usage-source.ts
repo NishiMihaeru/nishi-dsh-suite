@@ -7,20 +7,12 @@
  *
  * @module nishi-dsh-codex/usage-source
  */
-import {
-  scrubbedParentEnv,
-  type SubprocessHandle,
-  type SubprocessSpawnSpec,
+import type {
+  SubprocessHandle,
+  SubprocessSpawnSpec,
 } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { resolveVendorExecutable, type VendorExecutableDescriptor } from 'nishi-dsh-core/runtime'
 import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
-
-const CODEX_DESCRIPTOR: VendorExecutableDescriptor = {
-  id: 'codex-usage',
-  defaultName: 'codex',
-  envOverride: 'DSH_CODEX_EXECUTABLE',
-}
 
 const DEFAULT_DISPOSE_GRACE_MS = 3_000
 const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024
@@ -29,13 +21,18 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
 export interface OfficialCodexRateLimitsSourceSpec {
   readonly cwd: string
-  /** Programmatic override retained for compatibility; normal user override is DSH_CODEX_EXECUTABLE. */
+  /** Bare name or configured command; resolution belongs to the mounted DSH subprocess provider. */
   readonly executable?: string
+  /** Explicit provider environment override. Parent-env construction belongs to the subprocess provider. */
   readonly env?: Readonly<Record<string, string>>
   readonly requestTimeoutMs?: number
   readonly disposeGraceMs?: number
+  readonly resolveExecutable: (
+    command: string,
+    env?: Readonly<Record<string, string>>,
+    signal?: AbortSignal,
+  ) => Promise<string>
   readonly spawn: (spec: SubprocessSpawnSpec) => SubprocessHandle
-  readonly onRateLimitsUpdated?: () => void
 }
 
 export interface CodexRateLimitsSourceLike {
@@ -63,12 +60,9 @@ function jsonRpcErrorDetail(error: unknown): string {
     : JSON.stringify(error)
 }
 
-function resolvedExecutable(spec: OfficialCodexRateLimitsSourceSpec): string {
+function configuredCommand(spec: OfficialCodexRateLimitsSourceSpec): string {
   const explicit = spec.executable?.trim()
-  if (explicit) return explicit
-  return resolveVendorExecutable(CODEX_DESCRIPTOR, {
-    env: { ...process.env, ...spec.env },
-  }).executable
+  return explicit && explicit.length > 0 ? explicit : 'codex'
 }
 
 export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike {
@@ -80,6 +74,9 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
     }
     if (typeof spec.cwd !== 'string' || spec.cwd.trim().length === 0) {
       throw new Error('codex-usage: cwd must be a non-empty string')
+    }
+    if (typeof spec.resolveExecutable !== 'function') {
+      throw new Error('codex-usage: resolveExecutable must be a function')
     }
     if (typeof spec.spawn !== 'function') {
       throw new Error('codex-usage: spawn must be a function')
@@ -102,10 +99,31 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
   async read(): Promise<unknown> {
     const timeoutMs = this.spec.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     const graceMs = this.spec.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS
-    const executable = resolvedExecutable(this.spec)
-    const argv = codexAppServerArgv(executable)
-    const env = { ...scrubbedParentEnv(), ...this.spec.env }
+    const command = configuredCommand(this.spec)
+    const env = this.spec.env ?? {}
 
+    const timeoutController = new AbortController()
+    let timer: NodeJS.Timeout | undefined
+    const timeoutError = new Error('codex-usage: app-server request timed out')
+    const timeout = new Promise<never>((_, reject) => {
+      const onAbort = (): void => reject(timeoutError)
+      timeoutController.signal.addEventListener('abort', onAbort, { once: true })
+      timer = setTimeout(() => timeoutController.abort(timeoutError), timeoutMs)
+      timer.unref?.()
+    })
+    void timeout.catch(() => {})
+
+    let executable: string
+    try {
+      const resolution = this.spec.resolveExecutable(command, env, timeoutController.signal)
+      void resolution.catch(() => {})
+      executable = await Promise.race([resolution, timeout])
+    } catch (resolutionError) {
+      if (timer !== undefined) clearTimeout(timer)
+      throw thrown(resolutionError)
+    }
+
+    const argv = codexAppServerArgv(executable)
     let child: SubprocessHandle
     try {
       child = this.spec.spawn({
@@ -116,15 +134,18 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
         env,
       })
     } catch (spawnError) {
+      if (timer !== undefined) clearTimeout(timer)
       throw thrown(spawnError)
     }
     if (!child || typeof child !== 'object') {
+      if (timer !== undefined) clearTimeout(timer)
       throw new Error('codex-usage: spawn did not return a valid SubprocessHandle')
     }
 
     const stdout = child.stdout
     const stdin = child.stdin
     if (!stdout || !stdin) {
+      if (timer !== undefined) clearTimeout(timer)
       await disposeVendorChild(child).catch(() => {})
       throw new Error('codex-usage: child process did not provide pipe stdio streams')
     }
@@ -133,16 +154,6 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
 
     const initRequestId = 'req_init'
     const readRequestId = 'req_read'
-
-    let timer: NodeJS.Timeout | undefined
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error('codex-usage: app-server request timed out')),
-        timeoutMs,
-      )
-      timer.unref?.()
-    })
-    void timeout.catch(() => {})
 
     const exited = child.done.then(
       (outcome): never => {
@@ -182,12 +193,7 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
         }
         const frame = parsed as Record<string, unknown>
 
-        if (typeof frame.method === 'string' && frame.id === undefined) {
-          if (frame.method === 'account/rateLimits/updated') {
-            try { this.spec.onRateLimitsUpdated?.() } catch {}
-          }
-          continue
-        }
+        if (typeof frame.method === 'string' && frame.id === undefined) continue
 
         if (frame.id === initRequestId) {
           if (frame.error) {
