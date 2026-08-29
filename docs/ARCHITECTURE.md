@@ -1,10 +1,10 @@
 # Architecture
 
-Status: canonical `0.1.0-rc.3` architecture after the independent Core + Project Memory audit/remediation against DSH `0.1.2-alpha.1`. Foundation implementation checkpoint `eb95ef6425c788f63339befd0c2437f78bc8dde1` is **FROZEN** after the accepted local + disposable-alpha.1 validation recorded by raw report commit `f491d681390924a171211a5c0dd0c8991f6a7faf`.
+Status: canonical `0.1.0-rc.3` architecture after the new independent Core + Project Memory audit against official DSH `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). Foundation is **REOPENED / PENDING VERIFICATION** until the changed tree passes the new executable gates.
 
 ## Product contract
 
-Switching subscription providers should be a route change, not an environment change. DSH keeps the same tools, project memory, Usage & Limits surface, profile and session context while provider packages translate only vendor-specific protocols.
+Switching primary providers should be a route change, not an environment change. DSH keeps the same tools, Project Memory, Usage & Limits surface, profile and session context while provider packages translate vendor-specific protocols.
 
 The runtime family has four architectural roles:
 
@@ -13,11 +13,11 @@ The runtime family has four architectural roles:
 - `nishi-dsh-project-memory` — provider-agnostic project memory tools/context;
 - `nishi-dsh-suite` — declarative composition and managed Orchestrator preset bridge.
 
-A new provider must not require edits to Core, Project Memory, generic usage/search logic or browser provider identity logic. Shipping it still requires ordinary declarative packaging changes.
+A new provider must not require provider-specific Core, Project Memory or browser identity branches.
 
-## Current package family
+## Package family and DSH boundary
 
-`0.1.0-rc.3` contains exactly:
+`0.1.0-rc.3` contains:
 
 1. `nishi-dsh-core`
 2. `nishi-dsh-codex`
@@ -26,218 +26,226 @@ A new provider must not require edits to Core, Project Memory, generic usage/sea
 5. `nishi-dsh-project-memory`
 6. `nishi-dsh-suite`
 
-Canonical provider identities and model routes:
-
-- `codex` -> `codex-app-server`
-- `antigravity` -> `antigravity-cli`
-- `claude` -> no model route; usage-only
-
-Vendor-specific subagent integrations are removed. Orchestrator delegation uses DSH-native `subagent` / `subagent_fork` on the current primary route.
-
-## Supported DSH foundation family
-
-Core and Project Memory publish an explicit peer union for every production `@deepseek-ai/dsh-*` peer:
+Core and Project Memory publish the exact peer union:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The main development graph stays pinned to DSH `0.1.1-rc.2`. Official `dsh-v0.1.2-alpha.1` at `cd5ef8148158c3a752a658978873241fdf8e2bbc` is the compatibility source target used by the accepted foundation validation. Provider packages do not inherit this range automatically.
+Their local devDependency graph remains rc.2. Explicit validation against official alpha.1 is therefore required for the current changed tree; normal local tests alone do not establish alpha.1 compatibility. Provider packages do not inherit Foundation compatibility automatically.
 
-The independent alpha.1 audit found no broad Core DSH API/ABI migration requirement: Connection RPC, LLM adapter registration, session request-header routing, subprocess, browser ModuleLoader and UI slot composition remain compatible. The audit did reopen one Core correctness seam and the Project Memory storage layer; those remediations are now part of the frozen foundation contract described below.
+## Core
 
-## Core surfaces
+### Surfaces
 
 | Entry | Plane | Role |
 |---|---|---|
 | `nishi-dsh-core` | host | publish registry and compose host services |
-| `nishi-dsh-core/web-search` | agent | register routed `web_search` |
-| `nishi-dsh-core/client` | browser | Usage & Limits + Model Accounts UI |
-| `nishi-dsh-core/runtime` | library | shared vendor runtime + registration contract |
-| `nishi-dsh-core/usage` | library | normalized usage contracts/service types |
+| `nishi-dsh-core/web-search` | agent | routed `web_search` |
+| `nishi-dsh-core/client` | browser | Usage & Limits + Model Accounts |
+| `nishi-dsh-core/runtime` | library | shared vendor runtime + registration |
+| `nishi-dsh-core/usage` | library | normalized usage service/contracts |
 
-The browser never imports provider packages. Provider identity and presentation cross RPC as serialized data.
+The browser never imports provider packages. Provider presentation crosses RPC as serialized data.
 
-## Core lifecycle and Model Accounts
+### Lifecycle and Connection
 
-The outer Core mounts `NishiProvidersService` before the internal host child. The internal child injects:
+The outer Core publishes `NishiProvidersService`; the internal host child injects:
 
 ```ts
 ['nishiProviders', 'connection', 'credentials']
 ```
 
-Core does not import or inject `@deepseek-ai/dsh-authorization`. Model Accounts reads DSH credentials directly.
+Core does not import or inject `@deepseek-ai/dsh-authorization`.
 
-The Connection boundary supports both known generations:
+The Connection compatibility boundary currently supports:
 
-- rc.2 three-argument `rpc.handle(channel, handler, { authority: 'trusted-host' })`;
-- alpha.1 two-argument authenticated `rpc.handle(channel, handler)`.
+- rc.2: three-argument `rpc.handle(channel, handler, { authority: 'trusted-host' })`;
+- alpha.1: authenticated two-argument `rpc.handle(channel, handler)`.
 
-The compatibility helper isolates that transition; Connection remains transport/authentication/lifecycle owner.
+The current `Function.length` compatibility probe is intentionally retained while rc.2 remains a supported peer. It is brittle implementation debt, but removing it before the support boundary changes would be an unrelated compatibility refactor.
 
-Credential-store availability is a separate state from credential absence. A failed credential status read becomes a sanitized Model Accounts `ERROR` state. A failed durable legacy-grant deletion is not converted into a successful logout: rejection reaches the authorization RPC boundary and is reduced to the generic internal authorization error. Credential material and backend error text do not cross the browser contract.
+### Model Accounts
 
-## Provider contract
+Credential backend failure is not ordinary account absence. A failed status read becomes a sanitized `ERROR` state, and credential/backend secret material does not cross RPC.
+
+Direct subscription OAuth initiation is disabled.
+
+Legacy grants are read-only compatibility state. In-app destructive logout is disabled because the alpha.1 credential contract provides no atomic compare-and-delete operation. A separate `describeRecord()` kind check followed by unconditional `deleteRecord()` is unsafe: another process may replace the grant with an API-key record between those operations. Core therefore fails closed and never enters that read-check-delete race. The browser exposes the legacy state but no destructive Sign Out action.
+
+### Provider registration
 
 Providers inject `nishiProviders` plus only required DSH services and call shared `registerProvider(ctx, descriptor, config)`.
 
-A provider descriptor declares:
+Registration validates canonical identity/routes/presentation, constructs optional capabilities on the provider context, records the provider, registers model routes, runs provider install hooks, and rolls back core-owned state if a later transaction stage fails.
 
-- canonical provider identity and presentation;
-- executable resolution metadata;
-- optional model capability with one or more canonical routes;
-- optional web-search capability;
-- optional usage capability;
-- optional provider-specific install hook.
-
-`registerProvider()` owns validation, optional capability construction, registry record, adapter registration, install and rollback. Provider packages do not bypass it for model registration.
-
-Registry change notifications are non-vetoing observers. Descriptor facts that can reject registration are validated before registry commit; observer failure cannot create ghost provider/route state by denying the caller its withdrawal handle.
+Registry observers are non-vetoing. Provider registration/withdrawal drives the live roster.
 
 ### Usage
 
-Usage source and normalization belong to the provider. Core owns generic caching, invalidation, public projection and browser lifecycle. A live provider without a usage capability remains visible as `UNSUPPORTED`.
+Providers own usage collection/normalization. Core owns cache, invalidation, public projection and browser lifecycle.
 
-### Web search
+`UsageCapabilityHooks.invalidate()` is an authoritative observation-generation boundary:
 
-The provider owns vendor request/event/result translation. Core owns the model-facing tool and exact current-route dispatch:
+1. remove the provider's currently cached snapshot immediately;
+2. advance an invalidation generation token;
+3. cached host read APIs omit the invalidated provider;
+4. a refresh that started before the invalidation may resolve to its original caller but cannot republish into cache;
+5. a post-invalidation refresh is not required to join the superseded in-flight refresh;
+6. successful refresh in the current generation publishes and clears that generation's invalidation token.
 
-1. read current agent request header;
-2. validate route;
-3. resolve `ctx.nishiProviders.byRoute(route)?.webSearch`;
-4. dispatch only that backend.
+Browser `get-providers` is authoritative for the current roster. If a provider is omitted, a prior browser-side `FRESH` snapshot is cleared rather than retained, so the next `ensureFresh` can refresh it. There is no separate invalidate push channel; the guarantee is that the next host/cache read does not serve superseded data.
 
-Malformed/unavailable route -> `WEB_SEARCH_ROUTE_UNAVAILABLE`.
+Provider roster generations still fence stale async browser work so withdrawn/re-registered providers cannot be resurrected by old requests.
 
-Valid route without backend -> `WEB_SEARCH_UNSUPPORTED`.
+### Routed web search
 
-There is no vendor fallback.
+Core reads the current session request header and dispatches only the backend registered for that exact route.
 
-## Project Memory root and context contract
+- malformed/unavailable route -> `WEB_SEARCH_ROUTE_UNAVAILABLE`;
+- valid route without search capability -> `WEB_SEARCH_UNSUPPORTED`;
+- no fallback to another vendor.
 
-Project Memory uses one project-root policy for context injection and tools:
+## Project Memory
+
+### Root and context
+
+Project Memory uses one root policy for context and tools:
 
 - session `cwd` must be absolute;
-- walk upward to the nearest `.git` marker, including worktree-style `.git` files;
+- walk upward to nearest `.git` marker, including worktree-style `.git` files;
 - if no Git marker exists, use normalized explicit `cwd`;
-- context injection and `memory_read` / `memory_write` / `memory_edit` use that same root.
+- context injection and memory tools use the same discovered root.
 
-An explicit workspace root or DSH home may be represented by a symlink path. Operations bind to the resolved directory identity rather than requiring the user-facing root pathname itself to be a real directory. Package-owned canonical `.dsh`, `.dsh/memory`, and `.dsh/local` final components remain real directories and may not be symlinks/junctions.
+Explicit workspace roots may be symlink paths. Package-owned `.dsh`, `.dsh/memory`, and `.dsh/local` final components must be real directories.
 
-On `agent/pre-step`, successful initialized roots are cached. In-flight initialization is not shared between agents because one caller's `AbortSignal` must not cancel another caller. Initialization is instead idempotent and coordinated through the filesystem protocol.
+`DSH.md` and bounded `MEMORY.md` are injected lazily on `agent/pre-step`; topic files are read on demand. Concurrent initialization does not share one cancellable promise between agents.
 
-`DSH.md` and bounded `MEMORY.md` are injected once when project context is not already visible. Topic files are read on demand only.
+### Storage confinement
 
-## Project Memory filesystem contract
-
-### Path binding
-
-On Linux/POSIX, package-owned descendants are opened as a descriptor chain rather than from independently re-resolved full pathnames:
+On POSIX, package-owned descendants are opened through one descriptor chain:
 
 ```text
-explicit projectRoot
-  -> .dsh
-     -> memory
-     -> local
+projectRoot -> .dsh -> memory/local
 ```
 
-The explicit project root may itself be represented by a symlink path. Once it is opened and bound to a device/inode identity, `.dsh` is opened as its direct real child. `memory` and `local` are then opened as direct real children of that same pinned `.dsh` generation. Every level verifies identity and uses `/proc/self/fd/<fd>` or `/dev/fd/<fd>` when available. Replacing an intermediate `.dsh` pathname with a symlink therefore cannot redirect later descendant I/O outside the opened canonical tree.
+Opened directories are bound to device/inode identity and descriptor paths where available. Final-file reads use `O_NOFOLLOW` where available and verify the opened file against the visible entry before consuming bytes. Atomic writes and first-publication operations are anchored to the same opened parent generation.
 
-Reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible final entry, then read bytes from that handle. Temp-file creation, hard-link publication, rename and removal use the same opened parent-directory identity.
+Windows has no equivalent Node directory-fd/openat implementation here. It remains **NOT TESTED** and does not inherit the stronger POSIX TOCTOU claim.
 
-A read-modify-write critical section does not reopen that parent pathname after taking its lock. `SafeDirectoryScope` owns the target lock plus all read/render/write operations for the critical section. Named-topic compound transactions additionally open `memory` and `local` as siblings of one pinned `.dsh` scope: `MEMORY.md.lock`, the nested topic lock, participant snapshots, participant commits and rollback stay on the memory scope, while WAL publication, phase change and cleanup stay on the paired local scope.
+The storage layer does not `fsync` file/parent-directory contents; sudden power-loss durability is out of scope.
 
-Every opened directory scope is post-validated against its logical pathname before success is reported. Namespace replacement can therefore cause an operation to fail, but cannot silently redirect the operation and still be reported as a successful mutation.
+### Bootstrap bounds
 
-Windows has no equivalent Node directory-fd/openat surface here. It uses pathname operations plus identity revalidation and remains **NOT TESTED**. The stronger descriptor-chain TOCTOU guarantee is therefore a POSIX claim only.
+`MEMORY.md` has a 25 KiB / 200-line model-facing bound.
 
-### Atomic replacement and first publication
+The bound is also an ingestion boundary:
 
-Replacement writes create a complete sibling temp inode and rename it through the anchored parent.
+- read-only bootstrap projection reads only a bounded prefix sufficient for UTF-8-safe truncation;
+- existence-only paths read zero content bytes;
+- read-modify-write bootstrap/map operations use file metadata to reject an oversized persisted file before whole-file materialization.
 
-First creation of canonical user-visible files is also complete-before-visible. A sibling temp inode is written in full first, then a hard-link no-clobber publication makes the canonical name visible. A concurrent external winner is preserved rather than overwritten. This applies to first publication of `DSH.md`, `.dsh/project.json`, `MEMORY.md`, and fresh `.gitignore` state.
+Named topic files remain capped at 256 KiB.
 
-These are process-interruption and atomic-namespace guarantees. The storage layer does not `fsync` file data or parent directories, so sudden power-loss/storage-durability guarantees are out of scope.
+### Writer locks
 
-### Writer locking and cancellation
+All Project Memory RMW targets use the same `<target>.lock` namespace as DSH atomic-write coordination.
 
-Every Project Memory RMW target uses the DSH-compatible `<target>.lock` namespace. The lock covers read/render/commit and whole-file writers honor the same target lock. Lock ownership and all operations performed under that lock share the same `SafeDirectoryScope`.
+Current Project Memory locks are generation-safe populated directories. One owner marker contains:
 
-Lock acquisition is `AbortSignal`-aware. DSH tool execution and `agent/pre-step` signals are forwarded through root discovery, recovery, initialization, reads, lock waits and commit boundaries. An aborted waiter cannot later acquire the lock and commit a mutation merely because the current holder eventually released it. Model-facing tool wrappers also rethrow the caller's cancellation reason instead of converting cancellation into an ordinary sanitized Project Memory failure.
+- lock format version;
+- PID;
+- random acquisition token;
+- OS process-birth identity when available.
 
-If a failure/cancellation arrives after a participant has already crossed a durable replacement boundary, exact rollback becomes mandatory settlement. The same already-opened memory/local scopes are reused without the caller's fired signal until pre-images and WAL state are restored. This exception is deliberately limited to settling already-durable state; ordinary new work remains cancellation-aware.
+The populated directory is atomically published only after the owner marker exists. Lock release is conditional on that exact observed generation. It removes the expected marker and then removes the lock directory only if the canonical pathname still refers to the same directory identity. If another owner replaces the generation, its populated directory cannot be removed by the old finalizer.
 
-Writer domains:
+Legacy numeric-PID regular lock files remain readable only for recovery/interoperability with older state; current Project Memory code no longer creates them.
 
-- `.dsh/memory/MEMORY.md`: bootstrap create/write/edit plus Memory-map updates;
-- `.dsh/memory/<topic>.md`: whole-file topic writes plus exact edits;
-- root `.gitignore`: initializer create/update of `.dsh/local/` ignore state.
+The namespace remains bidirectionally compatible with `@deepseek-ai/dsh-atomic-write`: its regular lock blocks Project Memory, and its exclusive create treats the Project Memory directory lock as contention. This has regression coverage and still requires executable confirmation on the final tree.
 
-Cleanup removal is idempotent: concurrent recovery/cleanup that races after a successful regular-file validation treats a later `ENOENT` as an already-completed removal, not a new failure.
+### Process ownership and PID reuse
 
-## Named-topic crash transaction
+PID liveness alone is insufficient because numeric PIDs are recycled.
 
-Model-facing named-topic `memory_write` / `memory_edit` use fixed lock order:
+New persisted journal/lock ownership carries a process-birth identity where supported:
+
+- Linux: `/proc/<pid>/stat` process start time;
+- macOS: `ps` process start time.
+
+A live numeric PID with a mismatched birth identity is not the original owner and does not keep dead recovery state alive indefinitely. When a reliable birth identity cannot be obtained, recovery fails closed and treats a live PID as live rather than guessing stale ownership.
+
+### Cancellation and settlement
+
+Caller `AbortSignal` propagates through root discovery, recovery, lock waits, reads and ordinary commit boundaries.
+
+If failure/cancellation happens after a compound operation has already durably replaced one participant, exact rollback becomes mandatory settlement. Settlement reuses the already-opened storage generation without consulting the already-fired caller signal until pre-images/WAL state are restored. This exception is limited to restoring already-durable partial state.
+
+### Named-topic transaction
+
+Model-facing named-topic writes/edits use fixed lock order:
 
 ```text
 MEMORY.md -> <topic>.md
 ```
 
-While both participant locks are held, the transaction owns `.dsh/local/project-memory-transaction.json` containing:
+`.dsh/local/project-memory-transaction.json` records:
 
-- transaction version;
-- `pending` or `committed` phase;
+- journal version;
+- `pending` / `committed` phase;
 - owner PID;
+- optional process-birth identity;
+- random transaction-generation id;
 - topic id;
-- exact pre-image of the topic (or explicit absence);
-- exact pre-image of `MEMORY.md` (or explicit absence).
+- exact pre-images of topic and `MEMORY.md`.
+
+Old journals without the new identity/generation fields remain readable for recovery compatibility.
 
 Protocol:
 
-1. open one canonical `projectRoot -> .dsh -> {memory, local}` storage generation;
-2. preflight the next canonical Memory-map text while holding `MEMORY.md.lock`;
-3. acquire topic lock on the same memory-directory scope;
-4. capture exact participant pre-images through that scope;
-5. atomically publish `pending` WAL through the paired local scope;
-6. commit topic participant;
-7. commit Memory-map participant;
-8. atomically replace WAL phase with `committed` while both participant locks still belong to this live transaction;
-9. release participant locks/scopes;
-10. remove committed WAL best-effort.
+1. open one pinned `projectRoot -> .dsh -> {memory, local}` generation;
+2. hold `MEMORY.md` then topic lock;
+3. preflight/capture bounded participant state;
+4. atomically publish `pending` WAL mode `0600`;
+5. commit topic;
+6. commit Memory map;
+7. atomically replace WAL with `committed`, still mode `0600`;
+8. while participant locks are still held, best-effort remove only that exact committed transaction generation;
+9. release participant locks/scopes.
 
-The phase replace in step 8 is the logical commit point. It does not acquire a second metadata lock during the normal transaction because any competing Project Memory operation that observes the live owner must cross the already-held `MEMORY.md.lock` barrier first.
+Step 7 is the logical commit point. Cleanup failure after it is preserve-and-clean metadata, never a reason to roll committed participants back.
+
+Transaction generation identity plus cleanup under participant locks prevents a delayed cleanup from transaction A from deleting pending transaction B at the fixed journal pathname.
 
 Recovery semantics:
 
-- dead `pending` -> claim recovery, restore both exact pre-images under one stable memory scope with normal Memory/topic locks, remove WAL;
-- dead `committed` -> preserve both new participants, clean dead protocol locks and WAL only;
-- live recorded owner -> first cross the `MEMORY.md.lock` barrier; if the journal disappeared because the live transaction completed, nothing remains to recover; if it is `committed`, preserve participants and clean metadata; if it is still `pending`, the compound critical section has ended and the abandoned state is rolled back under normal Memory/topic lock order even though the process itself remains live;
-- once recovery has observed a dead unresolved WAL and entered claim protocol, transfer of that WAL to another live owner, disappearance of the WAL, or incompatible mutation of the WAL is fail-closed because coherent participant state can no longer be proven from the captured recovery state;
-- committed WAL left after an otherwise successful write is cleanup-only and may be removed idempotently by the next Memory-map critical section or recovery.
+- dead `pending` -> claim and restore exact pre-images;
+- dead `committed` -> preserve new participants and clean metadata;
+- live matching owner -> cross the `MEMORY.md` barrier before deciding whether anything remains to settle;
+- recycled PID with mismatched birth identity -> stale owner;
+- ownership/WAL mutation that destroys proof after recovery has begun -> fail closed.
 
-A missing `MEMORY.md` is modeled in-memory during map preflight and is not created as a side effect of a failed topic operation.
+### Recovery ownership layer
 
-Low-level single-file topic helpers intentionally do not mutate the Memory map. Model-facing named-topic tools use the compound transaction helpers.
+Recovery is owned by Project Memory domain operations. Tool wrappers do not run a redundant pre-dispatch recovery and then invoke a domain operation that immediately recovers again. This is an intentional simplification that reduces I/O and recovery interleavings without changing the tool contract.
 
-## Maintenance commands
+## Architectural overcomplexity disposition
 
-`/memory` and `/consolidate` register only when both `commands` and `llm` are available. The selected provider/model is activated for the exact steered maintenance message on `agent/inbox/claimed`, before alpha.1 prompt assembly snapshots model selection, and is cleaned on idle/stop/error.
+The audit distinguished correctness complexity from removable complexity.
 
-Project memory is repository-shared data. Maintenance policy rejects secrets, credential material, quota snapshots, raw chain-of-thought, transient logs and operator-personal facts.
+Simplified now:
 
-## Provider-native memory policy
+- duplicate tool-layer Project Memory recovery;
+- implicit PID/pathname ownership replaced with explicit lock/transaction generations.
 
-Project Memory is DSH-owned. A provider whose primary vendor runtime injects persistent vendor memory/project docs must suppress that behavior where the vendor boundary allows it.
+Intentionally retained until a separate compatibility review:
 
-Codex primary sets:
+- exported Core authorization client state-machine methods even though current host mutation flows are disabled;
+- rc2/alpha Connection `Function.length` compatibility shim;
+- usage invalidation generation tokens, because they now fence real in-flight observation races;
+- one fixed Project Memory journal pathname, because generation identity + lock order closes the audited race without requiring a larger WAL-directory migration.
 
-```text
-memories.use_memories=false
-memories.generate_memories=false
-project_doc_max_bytes=0
-```
-
-Antigravity suppression remains partly configuration and partly prompt guidance; documentation must not overstate vendor guarantees.
+Further Foundation refactors are deferred until the remediation passes executable validation. A cleanup must remove a real state/invariant burden or compatibility requirement; aesthetic shortening alone is not sufficient.
 
 ## Invariants
 
@@ -246,24 +254,26 @@ Antigravity suppression remains partly configuration and partly prompt guidance;
 3. Provider ids/routes are canonical before mutation.
 4. Model capability implies at least one route; capability absence is legal.
 5. Browser provider identity comes from serialized presentation data.
-6. Web search follows the exact current route with no fallback.
-7. Stale browser async work cannot resurrect withdrawn providers.
-8. Vendor-specific subagent registration/tools are absent.
-9. Project Memory root selection and filesystem confinement are provider-independent.
-10. Explicit symlinked workspace roots are allowed; package-owned `.dsh` canonical final components are not symlinks/junctions.
-11. On POSIX, package-owned descendants are opened through one `projectRoot -> .dsh -> memory/local` descriptor chain rather than independent full-path reopens.
-12. Project Memory RMW lock/read/write composition stays on one opened directory scope; named-topic memory/local scopes belong to the same pinned `.dsh` generation.
-13. All model-facing memory work forwards caller cancellation through ordinary work; mandatory settlement may ignore an already-fired signal only to restore state after a durable partial commit.
-14. Every writer that can race an RMW cycle honors the same per-target lock namespace.
-15. Named-topic model-facing writes hold `MEMORY.md` then topic lock in that order on the same memory scope.
-16. A `pending` WAL is rollback state; a `committed` WAL is preserve-and-clean state; recovery ownership ambiguity after claim starts is fail-closed.
-17. Credential backend failure is not represented as ordinary account absence, and failed durable logout is not reported as success.
-18. Core and Project Memory production DSH peers accept only `0.1.1-rc.2` and `0.1.2-alpha.1` until another generation passes its own gate.
+6. Web search follows the exact current route with no vendor fallback.
+7. Usage invalidation cannot leave host cached reads serving vendor-superseded state.
+8. Stale browser async work cannot resurrect old provider generations.
+9. Credential backend failure is not ordinary account absence.
+10. Legacy grant deletion is disabled unless a future credential contract supplies an atomic safe mutation.
+11. Project Memory root selection/storage confinement is provider-independent.
+12. POSIX package-owned descendants use one pinned `projectRoot -> .dsh -> memory/local` descriptor chain.
+13. Project Memory RMW read/render/write stays on one opened directory scope.
+14. Current lock ownership has a unique generation token; delayed release/recovery must not remove a replacement owner.
+15. Persisted process identity prevents PID reuse from proving false ownership where the OS seam is available.
+16. Named-topic mutations hold `MEMORY.md` then topic lock.
+17. WAL generations distinguish transactions that reuse the fixed journal pathname.
+18. `pending` is rollback state; `committed` is preserve-and-clean state.
+19. Journal phase replacement preserves owner-only permissions.
+20. Caller cancellation applies to ordinary work; mandatory settlement may ignore an already-fired signal only to restore already-durable state.
+21. Core and Project Memory peer support remains exactly `0.1.1-rc.2 || 0.1.2-alpha.1` until another generation passes its own gate.
+22. Windows remains NOT TESTED.
 
-## Current implementation state — FOUNDATION FROZEN
+## Current implementation state — PENDING VERIFICATION
 
-The independent audit reopened Core and Project Memory after the historical foundation freeze. The current implementation checkpoint `eb95ef6425c788f63339befd0c2437f78bc8dde1` contains the accepted remediation for the five confirmed findings plus follow-up race/cancellation hardening discovered during implementation.
+The current branch contains remediation and deterministic regression tests for all seven findings from the fresh independent alpha.1 audit, plus the bounded architectural simplification described above.
 
-Fresh executable validation passed on that exact implementation checkpoint: Core `178/178`, Project Memory `57/57`, focused check/build, full workspace test/check/build, `pnpm verify:local`, and disposable official `dsh-v0.1.2-alpha.1` runtime probes for the changed authorization, memory tool, descriptor-chain, cancellation, settlement, WAL and recovery seams. Raw evidence is recorded by report commit `f491d681390924a171211a5c0dd0c8991f6a7faf` and durable evidence is summarized in `docs/verification/README.md`.
-
-Core and Project Memory are therefore **FROZEN** for the current rc.3 provider work. Provider-specific cleanup may use their contracts but must not casually refactor the foundation. A new concrete defect or compatibility failure is required to reopen it.
+No new PASS is claimed yet. Historical validation records apply only to their historical implementation checkpoints. The next gate is an independent Gemini/local run covering focused tests, check/build, full workspace verification, multi-process/adversarial recovery tests, and disposable official alpha.1 runtime probes. Foundation may be called **FROZEN** again only after that evidence is accepted.
