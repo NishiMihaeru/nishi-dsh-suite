@@ -1,8 +1,6 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { promisify } from 'node:util'
 
-const execFileAsync = promisify(execFile)
 let ownIdentityPromise: Promise<string | undefined> | undefined
 
 /**
@@ -23,19 +21,24 @@ export async function readProcessIdentity(pid: number): Promise<string | undefin
       const fields = stat.slice(close + 1).trim().split(/\s+/)
       const startTime = fields[19] // field 22 overall; field 3 is index 0 here.
       return startTime ? `linux:${startTime}` : undefined
-    } catch (error: any) {
-      if (error?.code === 'ENOENT' || error?.code === 'ESRCH') return undefined
+    } catch {
       return undefined
     }
   }
 
   if (process.platform === 'darwin') {
     try {
-      const { stdout } = await execFileAsync(
-        'ps',
-        ['-o', 'lstart=', '-p', String(pid)],
-        { encoding: 'utf8', maxBuffer: 4096 },
-      )
+      const stdout = await new Promise<string>((resolve, reject) => {
+        execFile(
+          'ps',
+          ['-o', 'lstart=', '-p', String(pid)],
+          { encoding: 'utf8', maxBuffer: 4096 },
+          (error, result) => {
+            if (error) reject(error)
+            else resolve(result)
+          },
+        )
+      })
       const start = stdout.trim().replace(/\s+/g, ' ')
       return start.length > 0 ? `darwin:${start}` : undefined
     } catch {
