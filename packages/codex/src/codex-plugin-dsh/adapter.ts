@@ -691,7 +691,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
         observer,
       )
       await connection.initialize(signal)
-      const isolationConfig = await this.isolationConfig(connection, signal)
+      const isolationConfig = await this.isolationConfig(connection, cwd, signal)
       let dynamicTools = history.checkpoint?.toolSignature === toolSignature
         ? undefined
         : codexDynamicTools(options.tools)
@@ -829,11 +829,12 @@ export class CodexAppServerAdapter extends LlmAdapter {
 
   private async isolationConfig(
     connection: CodexAppServerConnection,
+    cwd: string,
     signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
-    const result = await connection.request('config/read', { includeLayers: false }, signal)
+    const result = await connection.request('config/read', { includeLayers: false, cwd }, signal)
     const current = recordValue(result.config)
-    const skills = disabledCodexSkills(await connection.request('skills/list', { forceReload: true }, signal))
+    const skills = disabledCodexSkills(await connection.request('skills/list', { cwds: [cwd], forceReload: true }, signal))
     const disabledMcpServers = Object.fromEntries(
       Object.keys(recordValue(current.mcp_servers)).map(name => [name, { enabled: false }]),
     )
