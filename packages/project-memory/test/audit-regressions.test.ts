@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import {
   resolveProjectMemoryPaths,
   writeProjectMemoryBootstrap,
@@ -67,6 +68,27 @@ test('writer-lock release never removes a replacement lock it does not own', asy
     })
 
     assert.equal(await readFile(lockPath, 'utf8'), 'replacement-owner\n')
+  })
+})
+
+test('upstream dsh-atomic-write treats the generation-safe directory lock as contention', async () => {
+  await withTempProject(async (projectRoot) => {
+    const targetPath = join(projectRoot, 'MEMORY.md')
+
+    await withSafeFileWriterLock(projectRoot, targetPath, async () => {
+      let upstreamOperationRan = false
+      await assert.rejects(
+        () => withFileLock(
+          targetPath,
+          async () => {
+            upstreamOperationRan = true
+          },
+          { waitMs: 50 },
+        ),
+        /timed out waiting for the writer lock/,
+      )
+      assert.equal(upstreamOperationRan, false)
+    })
   })
 })
 
