@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
-import { CodexAppServerConnection } from '../src/codex-plugin-dsh/app-server.ts'
+import {
+  CodexAppServerConnection,
+  SUPPORTED_CODEX_APP_SERVER_VERSION,
+  codexAppServerVersionFromUserAgent,
+} from '../src/codex-plugin-dsh/app-server.ts'
+
+test('Codex App Server version parser accepts only the audited user-agent shape', () => {
+  assert.equal(SUPPORTED_CODEX_APP_SERVER_VERSION, '0.150.0')
+  assert.equal(
+    codexAppServerVersionFromUserAgent('codex-plugin-dsh/0.150.0 (Linux 6.1; x86_64) codex-cli'),
+    '0.150.0',
+  )
+  assert.equal(codexAppServerVersionFromUserAgent('codex-plugin-dsh/0.151.0'), '0.151.0')
+  assert.equal(codexAppServerVersionFromUserAgent('unexpected-user-agent'), undefined)
+  assert.equal(codexAppServerVersionFromUserAgent(undefined), undefined)
+})
 
 test('concurrent close callers all wait for the same whole-tree shutdown', async () => {
   const stdin = new PassThrough()
