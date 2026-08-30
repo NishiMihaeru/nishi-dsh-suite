@@ -130,3 +130,41 @@ test('an error notification for a different, non-empty threadId is still ignored
     'the turn must complete normally once the foreign-thread error is correctly ignored',
   )
 })
+
+test('a failed turn reports the status without copying the vendor error text', async () => {
+  const SECRET = '/home/secret-user/private/path'
+  const TOKEN = 'sk_fake_9f8e7d6c5b4a3210'
+  const { adapter, options } = fixture()
+
+  const iterator = adapter.stream(options)[Symbol.asyncIterator]()
+  const first = iterator.next()
+
+  const active = await waitForActiveTurn(adapter, 'session-a')
+  active.events.push({
+    kind: 'notification',
+    notification: {
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-a',
+        turn: {
+          id: 'turn-a',
+          status: 'failed',
+          error: { message: `disk full while writing ${SECRET} token=${TOKEN}` },
+        },
+      },
+    },
+  })
+
+  await assert.rejects(
+    drainWithGuard(first, 2_000, 'the failed turn'),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.match(error.message, /status failed/)
+      // The vendor authored this string; it must not reach the caller.
+      assert.doesNotMatch(error.message, /secret-user/)
+      assert.doesNotMatch(error.message, /sk_fake/)
+      assert.doesNotMatch(error.message, /disk full/)
+      return true
+    },
+  )
+})

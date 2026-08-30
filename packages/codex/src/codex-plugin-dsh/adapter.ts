@@ -35,6 +35,7 @@ import {
   type AppServerNotification,
 } from './app-server.js'
 import { prepareCodexHistory, type CodexReplayState } from './history.js'
+import { codexVendorFailure } from './vendor-stderr.js'
 import { attachmentDataUrl, generatedImageBlock } from './images.js'
 import {
   codexDynamicToolCall,
@@ -302,10 +303,30 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {}
 }
 
+/**
+ * Build a turn-failure diagnostic without copying vendor text into it.
+ *
+ * `turn.error` is a structured App Server field rather than process stderr,
+ * but it is still free text the vendor authored, and it can carry paths or
+ * anything else the vendor chose to put there. Every other vendor-authored
+ * string in this suite goes through `VendorFailure`; this was the last one
+ * that did not.
+ *
+ * The cost is accepted: until the recognizer list grows, an ordinary turn
+ * failure reports an unrecognized category instead of the vendor's own
+ * words. `turn.status` is a safe enum and is still named directly.
+ */
 function turnFailure(turn: Record<string, unknown>): Error {
   const error = turn.error
-  const detail = error === undefined || error === null ? '' : `: ${messageText(error)}`
-  return new LlmError(`Codex App Server turn ended with status ${String(turn.status)}${detail}`, 'CODEX_APP_SERVER')
+  const failure = codexVendorFailure({
+    stage: 'turn',
+    stderrText: error === undefined || error === null ? undefined : messageText(error),
+  })
+  return new LlmError(
+    `Codex App Server turn ended with status ${String(turn.status)}. ${failure.message}`,
+    'CODEX_APP_SERVER',
+    { cause: failure },
+  )
 }
 
 function contextWindowExceeded(turn: Record<string, unknown>): boolean {
