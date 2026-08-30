@@ -92,7 +92,7 @@ The alpha.1 side of the peer claim is accepted because the frozen Foundation was
 
 ## Current status — THAWED, PENDING RE-VALIDATION
 
-A follow-up audit changed this package after the acceptance recorded below: capability descriptors are validated before their factories run, the browser usage controller can no longer strand an in-flight refresh, Model Accounts became registry-derived through a provider-declared `account` capability, and the disabled authorization mutation surface was removed rather than kept inert. The accepted evidence below therefore describes a tree this one no longer matches, and must not be cited for the current implementation.
+A follow-up audit changed this package after the acceptance recorded below: capability descriptors are validated before their factories run, the browser usage controller can no longer strand an in-flight refresh, and the disabled authorization mutation surface was removed rather than kept inert. That audit's Model Accounts state — registry-derived through a provider-declared `account` capability — was itself superseded shortly after: the whole Model Accounts surface was then removed outright, together with the `account` capability (see *Credentials* above), so no intermediate registry-derived state survives in the current tree. The accepted evidence below therefore describes a tree this one no longer matches, and must not be cited for the current implementation.
 
 Superseded accepted Foundation implementation:
 

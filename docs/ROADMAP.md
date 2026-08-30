@@ -8,7 +8,7 @@ This file owns task status and order only. Architecture belongs in `ARCHITECTURE
 
 A follow-up audit of Core, Project Memory and Codex reopened this freeze again. It reproduced a Project Memory recovery race that failed unrelated memory operations, a Codex path that put raw vendor stderr in front of the model, and a set of smaller correctness and architecture defects. All were remediated; see `docs/HANDOFF.md` for the itemized list.
 
-Local re-validation of this tree first returned FAIL — `pnpm verify:local` gave FAIL, PASS, PASS over three runs, on a load-sensitive Project Memory recovery read race that failed an unrelated caller's memory operation. That defect is fixed and the gate is now green: `pnpm verify:local` 5/5, Core `209`, Project Memory `77`, Codex `61`. A single `build`/`check`/`test` pass exited `0` throughout, which is why the defect was missed — treat that as the weaker signal it is. See `docs/HANDOFF.md`. There is still **no** independent validation, live acceptance or alpha.1 runtime probe against this tree. The freeze claim below is history.
+Local re-validation of this tree first returned FAIL — `pnpm verify:local` gave FAIL, PASS, PASS over three runs, on a load-sensitive Project Memory recovery read race that failed an unrelated caller's memory operation. That defect is fixed and the gate is now green: `pnpm verify:local` passes on three consecutive runs; current focused test counts are Core `182`, Project Memory `77`, Codex `72`, Claude `6`, Antigravity `62`, Suite `12` (the `209`/`61` figures recorded right after that fix are themselves superseded by the Model Accounts removal and the Codex thread-resume redesign since). A single `build`/`check`/`test` pass exited `0` throughout, which is why the Project Memory race was missed — treat that as the weaker signal it is. See `docs/HANDOFF.md`. Codex and Antigravity live acceptance now both pass on this tree (see §2 and §3), but there is still **no** independent validation by a party that did not write the code, and no alpha.1 runtime probe has been repeated against this tree. The freeze claim below is history.
 
 Previously accepted implementation, now superseded:
 
@@ -65,12 +65,12 @@ The devDependency graph matches, so the alpha.1 claim rests on the whole workspa
 ### Simplified and accepted
 
 - [x] duplicate Project Memory recovery at the tool wrapper removed; domain operations remain the single recovery boundary;
-- [x] implicit PID/pathname ownership replaced with explicit transaction ids, lock tokens and process identities.
+- [x] implicit PID/pathname ownership replaced with explicit transaction ids, lock tokens and process identities;
+- [x] Core authorization begin/submit/cancel/polling state machine removed entirely, host and client alike, rather than kept inert — a disabled mutation path that still carried a secret-typed prompt channel was a liability, not compatibility;
+- [x] `registerConnectionRpcChannel()` `Function.length` rc2/alpha compatibility probe removed together with the rc.2 branch it selected, when the peer range was narrowed to `0.1.2-alpha.1`.
 
 ### Intentionally retained
 
-- [ ] Core authorization client begin/submit/cancel/polling state machine: exported client API; consider removal only as a separately reviewed compatibility cleanup.
-- [ ] `registerConnectionRpcChannel()` `Function.length` rc2/alpha compatibility probe: **removal debt**, not retained compatibility — rc2 is unsupported. Remove it together with the peer-range narrowing, in that gated change.
 - [ ] Usage invalidation generation token: retain; it fences pre-invalidation observations.
 - [ ] Project Memory fixed journal pathname: retain; explicit transaction generation + locking closes the audited cross-generation race without a larger WAL-directory migration.
 
@@ -95,7 +95,7 @@ Independent from-scratch audit, remediation, and live acceptance testing complet
 - [x] prove adversarial isolation against forbidden host capabilities;
 - [x] prove zero process residue;
 - [x] fresh accepted Codex validation evidence folded into `docs/verification/README.md`;
-- [x] freeze Codex.
+- [ ] freeze Codex — reverted: the follow-up Foundation audit found and fixed a Codex defect (raw vendor stderr reaching the model, among others) after this stage was originally frozen on the evidence above. A fresh freeze needs its own validation run against the current tree; see `docs/HANDOFF.md`.
 
 ## 3. Antigravity — ACTIVE
 
@@ -153,16 +153,16 @@ Automatic failover remains deferred.
 - [ ] managed Orchestrator preset install/status/update/remove;
 - [ ] Suite removal preserves unrelated profile/session/project/vendor state.
 
-## 7a. Codex thread handling — evidence gathered, decision open
+## 7a. Codex thread handling — decision taken and implemented
 
 Measured against real `codex-cli 0.150.0`; the numbers and the protocol facts are in `ARCHITECTURE.md` under *Codex vendor threads*.
 
-The current fork-per-turn design gets **zero** prompt-cache credit on every turn, while resuming one thread gets cache credit for ~90% of input, and a partial `thread/rollback` does not disturb it. Forking also leaves one persisted vendor thread per DSH message in the user's own vendor account, each carrying that turn's runtime context and project contract.
+The former fork-per-turn design got **zero** prompt-cache credit on every turn, while resuming one thread gets cache credit for ~90% of input, and a partial `thread/rollback` does not disturb it. Forking also left one persisted vendor thread per DSH message in the user's own vendor account, each carrying that turn's runtime context and project contract.
 
-- [ ] verify that `thread/inject_items` actually reaches the model. It succeeds but is invisible through `thread/read` and `thread/resume`, and the current adapter already depends on it. This blocks the redesign and is worth knowing regardless;
-- [ ] decide whether to replace fork-per-turn with `thread/resume` plus `thread/rollback` for divergence. It would keep the cache, keep exact-turn semantics, and leave one vendor thread per session — but it rewrites the turn path in a provider that has just passed audit and live acceptance, and `rollback` discards where `fork` branched;
-- [ ] independently of that, decide whether this suite should clean up the vendor threads it creates (`thread/delete` / `thread/archive` exist). Deletion touches data in the user's vendor account and must not be default behaviour without explicit consent;
-- [ ] whatever is decided, record the reason for the chosen thread strategy in the code. The original fork choice left no rationale, which is why this took three live measurement runs to reconstruct.
+- [x] decide whether to replace fork-per-turn with `thread/resume` plus `thread/rollback` for divergence, and implement it (`perf(codex)!: resume the vendor thread instead of forking every turn`). An ordinary turn resumes; `thread/rollback` realigns when DSH's history has diverged from the vendor thread's tip; `thread/fork` is kept only for a checkpoint that is neither the tip nor an ancestor of it. This keeps the cache, keeps exact-turn semantics, and leaves one vendor thread per session instead of one per message. Codex 61 -> 69 tests; `verify:local` and live acceptance (primary + full 15-scenario suite) pass;
+- [x] record the reason for the chosen thread strategy in the code — the shared start/fork/resume configuration and the resume/rollback/fork decision are now commented at the call site in `packages/codex/src/codex-plugin-dsh/adapter.ts`;
+- [x] decide whether this suite should clean up the vendor threads it creates (`thread/delete` / `thread/archive` exist). Decided: no. Deletion touches data in the user's vendor account and the maintainer has said old sessions do not matter, so no cleanup is implemented and none is planned against previously created threads. Threads created before this change (one per message, under the old fork-per-turn design) still exist in the user's vendor account exactly as they were;
+- [ ] verify that `thread/inject_items` actually reaches the model. It succeeds but is invisible through `thread/read` and `thread/resume`, and the adapter still depends on it for history that follows a checkpoint. This remains the one open gap and is worth knowing regardless of any future thread-handling change.
 
 Note on cost framing: the measurements are token counts the vendor reports. ChatGPT/Codex subscription limits are message-weighted rather than token-metered, so a large cached-token saving does not automatically translate into the same saving on the user's `5h`/`Weekly` counters. Do not promise that it does.
 
@@ -172,7 +172,7 @@ Note on cost framing: the measurements are token counts the vendor reports. Chat
 
 - [x] Foundation devDependency/test baseline moved from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides;
 - [x] Core and Project Memory peers narrowed to `0.1.2-alpha.1`;
-- [x] provider peers (`codex`, `antigravity`, `claude`) moved to `0.1.2-alpha.1`, each on its own evidence — Codex 61 unit tests plus 15 live scenarios, Antigravity 38 plus 11, Claude 7 unit tests only and correspondingly weaker;
+- [x] provider peers (`codex`, `antigravity`, `claude`) moved to `0.1.2-alpha.1`, each on its own evidence — Codex 72 unit tests plus the full 15-scenario live acceptance suite, Antigravity 62 unit tests plus 10 live scenarios (8 primary, 1 native search, 1 routed search), Claude 6 unit tests only and correspondingly weaker;
 - [x] the Suite's `dsh-authorization` dependency and `DSH_COMPATIBILITY_VERSION` moved;
 - [x] `registerConnectionRpcChannel()`'s `Function.length` arity probe removed with the rc.2 branch it selected; the named seam stays because it records that Connection owns the disposer;
 - [x] Core's retired rc.2 dev fixtures (`dsh-client-runtime`, `dsh-host-apiproxy`) dropped; the invariant that they stay out of `dependencies`/`peerDependencies` and out of production imports remains;

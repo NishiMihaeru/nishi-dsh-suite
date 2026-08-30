@@ -16,7 +16,7 @@ DSH generations named in this ledger are historical run facts, not support claim
 
 Everything recorded in this section describes the implementation checkpoint named below. A later audit of Core, Project Memory and Codex reproduced defects in all three and changed behavior in each, so **this ledger no longer describes the working tree** and must not be promoted to it.
 
-The current tree passes a local gate: `pnpm verify:local` 5/5 exit `0`, Core `209`, Project Memory `77`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`. Reaching that took one fix — the first re-validation returned FAIL, PASS, PASS on a load-sensitive Project Memory recovery read race, itemized in `HANDOFF.md`. A local gate is still not an acceptance: there is no independent validation, no live acceptance run and no repeated alpha.1 runtime probe. Restoring a freeze claim requires producing that evidence against this tree.
+The current tree (HEAD `87a6e5d`) passes a local gate: `pnpm verify:local` exits `0` on three consecutive runs. Current focused test counts are Core `182`, Project Memory `77`, Claude `6`, Antigravity `62`, Codex `72`, Suite `12`. (Reaching a green gate at all first took one fix — the first re-validation returned FAIL, PASS, PASS on a load-sensitive Project Memory recovery read race, itemized in `HANDOFF.md`; the `209`/`61`/`7`/`7` counts recorded at that point are themselves superseded by the Model Accounts removal, the Codex thread-resume redesign and the Antigravity catalog/diagnostic/usage rework since.) Live acceptance has also since been run and passes: Codex primary, the full 15-scenario suite, and both web-search suites (the two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL`, and fail a precondition assertion — not a product defect — without it); Antigravity primary (8 scenarios), native web search and routed web search. A local gate plus these live suites is still not an acceptance: there is no independent validation by a party that did not write the code, and no repeated alpha.1 runtime probe. Restoring a freeze claim requires producing that evidence against this tree.
 
 The accepted evidence below is retained as history.
 
@@ -63,13 +63,13 @@ cd5ef8148158c3a752a658978873241fdf8e2bbc
 
 Actual upstream source/runtime contracts at that exact tag/commit remain primary truth when documentation lags.
 
-Core and Project Memory retain the production peer union:
+Every declared production DSH peer, Foundation and provider alike, is now exactly:
 
 ```text
-0.1.1-rc.2 || 0.1.2-alpha.1
+0.1.2-alpha.1
 ```
 
-Provider packages do not inherit Foundation compatibility automatically.
+The rc.2 union was dropped from every declared contract. Provider packages do not inherit Foundation compatibility automatically — each moved to `0.1.2-alpha.1` on its own evidence.
 
 ## Accepted executable evidence
 
@@ -217,10 +217,10 @@ Accepted Codex provider implementation validation:
 
 ## Next open validation
 
-Foundation and Codex are frozen. Ordered provider/product validation is now:
+Foundation and Codex are **not** frozen — see *Current validation status* above; both are THAWED, pending re-validation, and no independent (third-party) validation has happened against the current tree. Antigravity's own provider-specific audit, catalog rewrite, vendor-diagnostic routing, dedup and live acceptance are also complete (`docs/ROADMAP.md` §3); only its freeze declaration remains open, gated on the same independent validation as everything else. Ordered remaining work is now:
 
-1. Antigravity cleanup/catalog + provider-specific compatibility + focused/local/live freeze acceptance;
-2. Claude usage-only cleanup + provider-specific compatibility/smoke;
+1. independent (third-party) validation of Core, Project Memory, Codex and Antigravity against the current tree, plus repeated alpha.1 runtime probes;
+2. Claude usage-only cleanup + provider-specific compatibility/smoke (still not started);
 3. repository-wide provider invariants;
 4. cross-provider/product live acceptance;
 5. final profile/install/release gates.

@@ -93,21 +93,23 @@ Use `preset update` after a Suite update and `preset remove` before Suite remova
 
 ## Current development status
 
-Core and Project Memory are **FROZEN** on accepted Foundation implementation:
+Core and Project Memory are **THAWED, PENDING RE-VALIDATION** — a follow-up audit found and fixed defects in both, reopening the freeze accepted on:
 
 ```text
 7cd4d5b17625f9b3a21b741555df6597fd9cb889
 ```
 
-The raw independent follow-up PASS report is commit:
+That run's raw independent follow-up PASS report is commit:
 
 ```text
 d1cbac7094488ded52d9ab83891531bc01197090
 ```
 
-That run recorded Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, and disposable official DSH `0.1.2-alpha.1` runtime probes at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
+It recorded Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, and disposable official DSH `0.1.2-alpha.1` runtime probes at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`. That evidence describes a tree this one no longer matches; see `docs/HANDOFF.md`.
 
-Provider-specific acceptance is still open. Codex is the active provider stage; Antigravity and Claude follow. Historical provider tests/live probes are starting evidence only and do not freeze the current provider stage.
+On the current tree, `pnpm verify:local` exits `0` on three consecutive runs. Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass. Neither of those is independent validation by a party that did not write the code, which is still missing and is what a restored freeze claim requires.
+
+Provider-specific acceptance is still open, but not equally unstarted: Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity's provider-specific audit, catalog rewrite, vendor-diagnostic routing and live acceptance are likewise complete, with only its freeze declaration outstanding (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Historical provider tests/live probes are checkpoint-specific evidence only and do not by themselves freeze a provider stage.
 
 `0.1.0-rc.3` is **unpublished** and **not ready to publish**. Windows remains **NOT TESTED**. No publication, merge, tag or release is authorized without explicit maintainer approval.
 

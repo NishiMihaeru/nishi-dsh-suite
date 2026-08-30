@@ -30,13 +30,13 @@ A new provider must not require provider-specific Core, Project Memory or browse
 
 Supported DSH generation: `0.1.2-alpha.1` only. rc.2 and earlier are unsupported.
 
-Core and Project Memory still publish the wider peer union:
+Every declared DSH range in the repository is exactly `0.1.2-alpha.1` — Core and Project Memory peers, provider peers, and the Suite's own `dsh-authorization` dependency:
 
 ```text
-0.1.1-rc.2 || 0.1.2-alpha.1
+0.1.2-alpha.1
 ```
 
-That range is now wider than the support policy and is retained only because upstream has not published alpha.1 to npm. Narrowing it is a published-contract change with its own gate. The local devDependency and test graph, by contrast, has already moved: Core and Project Memory build and test against `0.1.2-alpha.1` resolved from the local upstream checkout, so the alpha.1 side of the claim now rests on the full workspace suite rather than on a one-off probe. The rc.2 side is unsupported compatibility surface that nothing exercises any more. Provider packages keep rc.2 peers, are not part of the dev-baseline move, and do not inherit alpha.1 compatibility automatically.
+The rc.2 union was dropped from every declared contract (`build!: drop DSH 0.1.1-rc.2 from every declared contract`). Ranges that narrow are not installable from npm until upstream publishes alpha.1, which gates publication rather than development. The local devDependency and test graph has also moved: Core and Project Memory build and test against `0.1.2-alpha.1` resolved from the local upstream checkout, so the alpha.1 side of the claim rests on the full workspace suite rather than on a one-off probe. Provider packages moved to `0.1.2-alpha.1` peers too, each on its own executable evidence, and do not inherit alpha.1 compatibility automatically from Core/Project Memory.
 
 ## Core
 
@@ -62,12 +62,11 @@ The outer Core publishes `NishiProvidersService`; the internal host child inject
 
 Core does not import or inject `@deepseek-ai/dsh-authorization`.
 
-The Connection compatibility boundary still accepts both shapes:
+The Connection compatibility boundary supports exactly one shape now:
 
-- rc.2: three-argument `rpc.handle(channel, handler, { authority: 'trusted-host' })`;
 - alpha.1: authenticated two-argument `rpc.handle(channel, handler)`.
 
-alpha.1 is the only supported generation, so the `Function.length` probe is no longer retained compatibility — it is removal debt. It stays until the peer range that justifies it is narrowed, and removing it is that change, not a separate cleanup.
+The `Function.length` arity probe that used to select between the rc.2 three-argument form and the alpha.1 two-argument form was removed with the rc.2 branch it selected (`build!: drop DSH 0.1.1-rc.2 from every declared contract`). `packages/core/src/host/connection-compat.ts` is now a plain passthrough: `registerConnectionRpcChannel()` remains as a named seam, not because a second shape still exists, but because it is the single place recording that Connection owns the returned disposer and Core must not add a second lifecycle owner.
 
 ### Credentials
 
@@ -114,21 +113,21 @@ A backend error keeps its own message when Core re-shapes it into the tool taxon
 
 ## Codex vendor threads
 
-Every DSH turn currently creates a **new vendor thread**. The adapter calls `thread/start` for the first turn and `thread/fork { threadId, lastTurnId }` for each one after, and sets `ephemeral: false` on all of them. Only the delta since the last checkpoint crosses the wire — `prepareCodexHistory` slices the messages after the checkpoint, so prior turns are never re-transmitted.
+An ordinary DSH turn **resumes** the vendor thread rather than forking a new one. The adapter calls `thread/start` only for the first turn. After that, `thread/resume { threadId, ...overrides }` gets the thread's current tip from the response's own `thread.turns` — no extra round trip. If the DSH checkpoint is that tip, nothing else is needed, which is the common case and the one that keeps the prompt cache. If the checkpoint is an ancestor of the tip (DSH history was rolled back or edited), `thread/rollback { threadId, numTurns }` drops exactly the turns after it before the turn proceeds. `thread/fork { threadId, lastTurnId }` is kept only for what resume and rollback cannot express: a checkpoint turn that is neither the tip nor an ancestor of it — fork addresses a turn by id regardless of the thread's current tip, which is the property it was originally chosen for. All three set `ephemeral: false`. Only the delta since the checkpoint crosses the wire either way — `prepareCodexHistory` slices the messages after the checkpoint, so prior turns are never re-transmitted. The shared start/fork/resume configuration overrides are factored into one helper so they cannot drift apart: a resumed turn still re-applies DSH's current system prompt and isolation config rather than pinning them to the first turn's values.
 
-`fork` was chosen over `resume` for a reason the code never recorded, and the protocol schema makes it visible: `thread/fork` accepts `lastTurnId` ("fork through, inclusive") while `thread/resume` takes only `threadId`. DSH owns durable history, so branching from an exact turn matters whenever DSH's history and the vendor thread disagree.
+This is a real implementation, not a proposal: `perf(codex)!: resume the vendor thread instead of forking every turn` landed it, with a stale-checkpoint/deleted-vendor-thread recovery path unchanged (`recoverableCheckpointError` still falls back to rebuilding from DSH history when the vendor thread or turn is gone).
 
 ### Measured vendor behaviour
 
-These numbers were measured against real `codex-cli 0.150.0`, not inferred. They are recorded here because they were expensive to obtain and are not discoverable from the code.
+These numbers were measured against real `codex-cli 0.150.0`, not inferred, before the redesign landed. They are recorded here because they were expensive to obtain, are not discoverable from the code, and are why resume was chosen.
 
 | Thread handling | Cache credit per turn |
 |---|---|
-| `thread/fork` every turn (current design) | **0**, on every turn of a 5-turn run |
+| `thread/fork` every turn (previous design) | **0**, on every turn of a 5-turn run |
 | `thread/resume` on one thread | ~3840 of ~4200 input tokens, from the second or third turn onward |
 | `thread/resume` after `thread/rollback` of the newest turn | **unchanged** — 3840 before and after |
 
-Forking therefore re-bills the entire accumulated context as fresh input on every turn; resuming does not. The prefix — system prompt plus tool catalog, roughly 1950-4050 tokens depending on the run — is identical across turns and is exactly what goes uncached under fork.
+Forking re-billed the entire accumulated context as fresh input on every turn; resuming does not. The prefix — system prompt plus tool catalog, roughly 1950-4050 tokens depending on the run — is identical across turns and is exactly what went uncached under fork.
 
 Also established from the live protocol:
 
@@ -140,13 +139,15 @@ Fork and resume runs used `gpt-5.6-sol`; the rollback run used `gpt-5.6-luna`. A
 
 ### Consequences of the current design
 
-One vendor thread per DSH turn is persisted in the user's own vendor account, each carrying that turn's DSH runtime context and project contract. This is durable storage outside DSH's control that DSH cannot clean up today. Anyone reading `docs/` before changing thread handling should know this is a privacy property, not only clutter.
+Resuming leaves **one vendor thread per session** persisted in the user's own vendor account, carrying that session's runtime context and project contract, instead of one per DSH message. That is still durable storage outside DSH's control that DSH cannot clean up today — anyone reading `docs/` before changing thread handling further should know this is a privacy property, not only clutter.
 
-### Candidate redesign — not implemented
+This does not retroactively change anything: vendor threads created before this change (one per message, under the old fork-per-turn design) still exist in the user's vendor account exactly as they were. Only sessions that continue or start after the redesign accumulate at the new, lower rate.
 
-`thread/resume` for the ordinary turn, with `thread/rollback` to realign when DSH's history has diverged, would keep the prompt cache and the exact-turn semantics, and would leave one vendor thread per session instead of one per message.
+`thread/inject_items` remains **unverified**: the call succeeds, but injected items are invisible through both `thread/read` and `thread/resume`, so nothing has confirmed they reach the model, even though the adapter depends on it for history that follows a checkpoint. This is the one open item carried from the design decision; see `docs/ROADMAP.md` §7a.
 
-Before implementing it, one gap must be closed: **`thread/inject_items` is unverified**. The call succeeds, but injected items are invisible through both `thread/read` and `thread/resume`, so nothing has confirmed they reach the model. The current adapter already depends on it for history that follows a checkpoint. Note also that `rollback` is destructive where `fork` was not: it discards the truncated turns rather than leaving a branch behind.
+Rollback is destructive where fork was not — it discards the truncated turns rather than leaving a branch behind. That is accepted because DSH's own history no longer reaches those turns either.
+
+Whether this suite should clean up the vendor threads it creates (`thread/delete` / `thread/archive` exist) was raised as an open decision and has since been closed: the maintainer decided old sessions do not matter, so no cleanup behavior is implemented and none is planned against previously created threads.
 
 ## Project Memory
 
@@ -294,11 +295,11 @@ Simplified and accepted:
 - duplicate tool-layer Project Memory recovery;
 - implicit PID/pathname ownership replaced by explicit lock/transaction generations;
 - the Core authorization begin/submit/cancel/logout state machine, host and client alike. It was previously retained while disabled; a disabled mutation path that still carries a secret-typed prompt channel is a liability rather than compatibility, so it was removed instead of kept inert;
-- the hardcoded Model Accounts vendor roster, first replaced by a provider-declared `account` capability and then removed outright with the whole Model Accounts surface.
+- the hardcoded Model Accounts vendor roster, first replaced by a provider-declared `account` capability and then removed outright with the whole Model Accounts surface;
+- the rc2/alpha Connection `Function.length` compatibility shim, removed together with the rc.2 branch it selected once the peer range was narrowed to `0.1.2-alpha.1` (`build!: drop DSH 0.1.1-rc.2 from every declared contract`).
 
 Intentionally retained until a separate compatibility review:
 
-- rc2/alpha Connection `Function.length` compatibility shim, now reclassified as removal debt: rc.2 is unsupported, and the shim survives only until the peer range is narrowed;
 - usage invalidation generation tokens, because they fence real in-flight observation races;
 - one fixed Project Memory journal pathname, because generation identity + lock order closes the audited race without requiring a larger WAL-directory migration.
 
@@ -314,8 +315,8 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 6. Web search follows the exact current route with no vendor fallback.
 7. Usage invalidation cannot leave host cached reads serving vendor-superseded state.
 8. Stale browser async work cannot resurrect old provider generations.
-9. Credential backend failure is not ordinary account absence.
-10. Legacy grant deletion is disabled unless a future credential contract supplies an atomic-safe mutation, and the mutation surface is absent rather than inert.
+9. Core has no credential-backend or Model Accounts surface; a provider capability must not read, mutate, or otherwise gain access to vendor credential state through Core. (Vacuous today in the sense that no such code path exists to violate; stated as a prohibition on reintroducing one, not as a description of live machinery.)
+10. Legacy-grant deletion must not be reintroduced without a reviewed atomic-safe credential contract, and any such mutation surface must be absent when not justified by one — never merely disabled/inert. (Also a prohibition, not a description of an existing disabled path: the mutation surface was removed outright, not kept and switched off.)
 11. A provider diagnostic built from a failed vendor process is constructed through `VendorFailure`; raw vendor stderr never reaches a diagnostic, a DTO, or the model.
 12. Project Memory root selection/storage confinement is provider-independent.
 13. POSIX package-owned descendants use one pinned `projectRoot -> .dsh -> memory/local` descriptor chain.
@@ -357,6 +358,6 @@ What changed since the accepted checkpoint:
 - Model Accounts was first made registry-derived and then removed entirely, together with the `account` capability and the disabled authorization mutation surface — host and client alike. This is a public-surface removal in an unpublished `0.1.0-rc.3`.
 - Codex routes every vendor-process diagnostic through `VendorFailure`, closing a path that put raw vendor stderr in front of the model. Its native search verifies the vendor runtime once per executable instead of once per query.
 
-Local gate on the current tree: PASS. `pnpm verify:local` 5/5 exit `0`; Core `209`, Project Memory `77`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`. It took one fix to get there: the first re-validation gave FAIL, PASS, PASS on a load-sensitive Project Memory recovery read race that violated invariant 25, and `HANDOFF.md` carries the reproduction and the remediation. A green local gate is not an acceptance: no independent validation, no live acceptance run, and no alpha.1 runtime probe has been repeated against this tree.
+Local gate on the current tree: PASS. `pnpm verify:local` exits `0` on three consecutive runs; current focused test counts are Core `182`, Project Memory `77`, Claude `6`, Antigravity `62`, Codex `72`, Suite `12`. (The `209`/`61`/`7`/`7` figures from the first post-audit re-validation are themselves now history: the Model Accounts removal, the Codex thread-resume redesign and the Antigravity catalog/diagnostic/usage rework each changed a package's test count since.) Codex live acceptance passes on the current tree: primary, the full 15-scenario suite, and both web-search suites (`test:live:web-search`, `test:live:web-search-routed`) all PASS — the two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL` to be set, and fail a precondition assertion (not a product defect) without it. Antigravity live acceptance also passes: primary (8 scenarios), native web search and routed web search. A green local gate plus these live suites is still not an acceptance: no independent validation by a party that did not write the code, and no alpha.1 runtime probe, has been repeated against this tree.
 
-Windows remains NOT TESTED, and `packages/antigravity` still carries the raw-vendor-stderr pattern that Codex just had removed.
+Windows remains NOT TESTED. `packages/antigravity` no longer carries a raw-vendor-stderr pattern: `packages/antigravity/src/vendor-stderr.ts` mirrors the Codex `VendorFailure` module, and every vendor-process diagnostic site in the package routes through it.

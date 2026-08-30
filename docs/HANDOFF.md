@@ -1,8 +1,8 @@
 # Handoff
 
-Updated for `0.1.0-rc.3` after a follow-up audit of Core, Project Memory and Codex that reproduced defects in all three, the remediation of those defects, a local re-validation of the remediated tree that failed on a further Project Memory defect, and the fix for that defect. The local gate is now green; independent validation, alpha.1 probes and Codex live acceptance are still missing.
+Updated for `0.1.0-rc.3` after a follow-up audit of Core, Project Memory and Codex that reproduced defects in all three, the remediation of those defects, a local re-validation of the remediated tree that failed on a further Project Memory defect, and the fix for that defect. The local gate is now green, and Codex and Antigravity live acceptance now both pass on the current tree too (see below); independent validation and alpha.1 runtime probes are still missing.
 
-Core, Project Memory and Codex are **THAWED** — the previously accepted freeze no longer describes this tree. Each needs its own validation run before a freeze claim is restored. The Antigravity provider stage is unchanged and still queued behind that.
+Core, Project Memory and Codex are **THAWED** — the previously accepted freeze no longer describes this tree. Each needs its own validation run before a freeze claim is restored. Antigravity's own provider-specific audit, catalog rewrite, vendor-diagnostic routing and live acceptance are complete as well (`docs/ROADMAP.md` §3) — it is not frozen either, but it is not queued behind Codex any more; only its freeze declaration is outstanding, gated on the same independent validation as everything else.
 
 This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
@@ -16,9 +16,9 @@ feat/core-provider-plugins-rc3
 
 Current family: six packages at `0.1.0-rc.3`, unpublished.
 
-Working tree is clean and pushed; current HEAD is `7039913`. The audit remediation described below is committed, not uncommitted work.
+Working tree is clean and pushed; current HEAD is `87a6e5d`. The audit remediation described below is committed, not uncommitted work. Since `7039913` (the HEAD this section was originally written against), 21 further commits landed: the Model Accounts surface was removed outright (`a8b44fa`), Codex moved from forking a new vendor thread every turn to resuming one (`79fa972`), and Antigravity's catalog parsing, vendor-diagnostic routing and usage collection were reworked. An adversarial review of that work then found four defects in it, including a vendor-text leak a commit had already declared closed; all four are fixed (`87a6e5d`). Those changes are reflected in `docs/ARCHITECTURE.md`, `docs/ROADMAP.md` and the affected package READMEs; the narrative below still describes the audit as it stood at `7039913` and has not been rewritten commit-by-commit.
 
-Last accepted Foundation implementation HEAD, superseded by the 60 commits since it:
+Last accepted Foundation implementation HEAD, superseded by the 80 commits since it:
 
 ```text
 7cd4d5b17625f9b3a21b741555df6597fd9cb889
@@ -41,7 +41,7 @@ cd5ef8148158c3a752a658978873241fdf8e2bbc
 
 `0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence. `docs/README.md` owns that policy.
 
-The Foundation dev/test baseline has moved to alpha.1 and the whole workspace is green on it. The declared peer range has **not** moved — upstream has not published alpha.1 to npm, so an alpha.1-only range would be uninstallable for consumers. That narrowing, and removing the rc2/alpha `Function.length` shim with it, stays gated in `ROADMAP.md` §7b. Provider packages keep rc.2 peers and do not inherit Foundation alpha.1 compatibility automatically.
+The Foundation dev/test baseline has moved to alpha.1 and the whole workspace is green on it. The declared peer range has **also** moved: every package's declared DSH peers, Foundation and provider alike, are now exactly `0.1.2-alpha.1` — the rc.2 union was dropped from every declared contract (`build!: drop DSH 0.1.1-rc.2 from every declared contract`), and the rc2/alpha `Function.length` Connection shim was removed with it; see `ROADMAP.md` §7b. Those ranges are still uninstallable from npm until upstream publishes alpha.1, which gates publication rather than development. Provider packages do not inherit Foundation alpha.1 compatibility automatically — each moved on its own evidence.
 
 Windows: **NOT TESTED**.
 
@@ -110,6 +110,8 @@ Evidence on the fixed tree:
 | workspace `build` / `check` / `test` | exit `0`; Core `209`, Project Memory `77`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12` |
 | new deterministic race tests x10 | 10/10 exit `0` |
 
+Those counts describe HEAD `7039913`. On the current tree (HEAD `87a6e5d`), `pnpm verify:local` still exits `0` on three consecutive runs, with focused counts Core `182`, Project Memory `77`, Claude `6`, Antigravity `62`, Codex `72`, Suite `12` — the Model Accounts removal, the Codex thread-resume change and the Antigravity rework each moved a package's count since the row above was recorded.
+
 Project Memory went from `72` to `77` tests: five new deterministic regressions, no test removed or weakened.
 
 Pre-fix evidence, retained because it describes what the gate does and does not catch: `pnpm test` x3 all exit `0`; Project Memory full suite x5, `compound-transaction` alone x8, and `compound-transaction` x18 under 6-way process contention all passed. Only the full `verify:local` sequence ever reproduced it. A single green `build`/`check`/`test` is not evidence for this class of defect.
@@ -118,7 +120,9 @@ Lock/WAL residue: none created by any of these runs. Three pre-existing `/tmp/ds
 
 Codex live acceptance is **done and PASS on the alpha.1 baseline**: `pnpm --filter nishi-dsh-codex test:live:acceptance` exits `0`, 9 test cases covering all 15 scenarios, 0 failures, ~66 s, against real `codex-cli 0.150.0` processes. Routed native web search, usage/rate-limits read, cancellation during an active turn and during tool continuation, recovery from a deleted vendor thread, adversarial isolation returning `HOST_CAPABILITIES_ISOLATED`, and zero lingering `app-server --stdio` processes. It was first run and passed on the rc.2 baseline too, before the move.
 
-Still missing before any freeze claim: independent validation, and exact-commit alpha.1 runtime probes.
+On the current tree (HEAD `87a6e5d`), that live evidence has been repeated and extended: Codex live primary, the full 15-scenario acceptance suite, and both web-search suites (`test:live:web-search`, `test:live:web-search-routed`) all PASS. The two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL` to be set; without it they fail a precondition assertion before exercising anything — that is a harness prerequisite, not a product failure, and is worth knowing so the exit code is not misread as a regression. Antigravity live acceptance also PASSes on this tree: primary (8 scenarios), native web search and routed web search — see `docs/ROADMAP.md` §3.
+
+Still missing before any freeze claim: independent validation by a party that did not write the code, and exact-commit alpha.1 runtime probes repeated against the current tree.
 
 ### The local DSH install is NOT a valid alpha.1 probe environment
 
@@ -153,27 +157,27 @@ Invariants 24 and 25 in `ARCHITECTURE.md` and the Project Memory README were upd
 
 ## Immediate task — finish the validation the fix unblocks
 
-1. run an independent validation of Core, Project Memory and Codex against this tree;
-2. produce the evidence still missing: exact-commit alpha.1 runtime probes and Codex live acceptance, using the wired environment above — build the linked packages first;
+1. run an independent validation, by a party that did not write the code, of Core, Project Memory, Codex and Antigravity against this tree;
+2. produce the evidence still missing: exact-commit alpha.1 runtime probes, using the wired environment above — build the linked packages first. (Codex and Antigravity live acceptance are no longer missing — see above and `docs/ROADMAP.md` §2/§3 — but neither has been independently validated.);
 3. only then fold durable evidence into `docs/verification/README.md` and restore a freeze claim.
 
 
 `packages/antigravity` no longer builds diagnostics from raw vendor output. All four sites — the two in `web-search-backend.ts`, model discovery and the turn close handler in `antigravity-primary.ts` — go through `antigravityVendorFailure` in `packages/antigravity/src/vendor-stderr.ts`, mirroring the Codex module. The recognizer list has two entries: platform errno tokens, and the one agy wording confirmed against the real CLI. Everything else reports `unrecognized` with exit/signal only, which is deliberate: agy's wording for login and credential failures is unverified, and a guessed recognizer produces a confidently wrong diagnostic.
 
-## Next stage — Antigravity provider stage
+## Next stage — Antigravity provider stage — done except the freeze itself
 
-For `packages/antigravity`, independently inspect current source/tests and the exact DSH/provider runtime seams it actually uses.
+This section previously listed the Antigravity provider stage as upcoming work, including "fix the raw-vendor-stderr diagnostics noted above, following the Codex template" — that directly contradicted the paragraph above it, which already states that work is done. It is done: all four vendor-process diagnostic sites in `packages/antigravity` route through `antigravityVendorFailure` in `vendor-stderr.ts`, mirroring the Codex module.
 
-Required direction:
+The rest of the stage is also complete; see `docs/ROADMAP.md` §3 for the itemized record:
 
-1. establish the current Antigravity package/runtime baseline from source, tests and package manifest;
-2. audit DSH compatibility for Antigravity primary and subagent providers;
-3. remove hardcoded model-family catalog filtering while preserving malformed-entry rejection;
-4. verify model-list parser and catalog coverage;
-5. verify native web search backend and usage source;
-6. run focused test/check/build and live acceptance (primary turn, model switch, routed search);
-7. fix the raw-vendor-stderr diagnostics noted above, following the Codex template;
-8. after fresh PASS evidence, mark Antigravity frozen.
+- Antigravity baseline/DSH-compatibility audit done;
+- hardcoded model-family catalog filtering removed, both parser paths unified on the real `id\tname` format;
+- vendor-process diagnostics routed through `VendorFailure`;
+- intra-package duplication (`agy-vendor.ts`) removed;
+- two accepted-debt items recorded deliberately, not fixed: no vendor runtime version verification (`agy` exposes no handshake), and the `usage-source.ts` trust model (loopback-only, read-only quota, `rejectUnauthorized = false`);
+- focused tests 62/62, and live acceptance PASS: primary 8/8, native search 1/1, routed search 1/1, all against real `agy 1.1.22`.
+
+The only remaining step is `[ ] freeze Antigravity` in `docs/ROADMAP.md` §3, which — per the "Do not mark anything frozen" rule in effect for this whole tree — needs the same independent validation the rest of the tree is waiting on, not further Antigravity-specific work.
 
 ## Architectural simplification boundary
 

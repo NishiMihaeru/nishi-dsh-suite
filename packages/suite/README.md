@@ -50,7 +50,7 @@ The Core host lifecycle is registry-first:
 2. internal `nishi-core-host` waits for `nishiProviders`, `connection` and `credentials`;
 3. provider plugins become eligible when their own dependencies plus `nishiProviders` are present.
 
-The Core itself no longer imports or injects the authorization service. Its Model Accounts host reads the DSH credentials service directly, and destructive legacy-grant logout is disabled unless a future credential contract offers an atomic-safe removal operation.
+The Core itself no longer imports or injects the authorization service. Core has no Model Accounts surface and reads no vendor credential records; that section and the `account` capability behind it were removed. The Suite keeps the official `@deepseek-ai/dsh-authorization` row only as a surrounding-profile compatibility seam, not permission to broker vendor authentication.
 
 ## Agent-plane Orchestrator preset
 
@@ -118,9 +118,11 @@ d1cbac7094488ded52d9ab83891531bc01197090
 
 Accepted Foundation evidence includes Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, bidirectional atomic-write lock interoperability, and disposable exact-commit alpha.1 runtime probes.
 
-Provider packages are **not yet frozen** for the current rc.3 provider stage. Codex is active; Antigravity and Claude follow. Historical provider tests, CLI smoke runs, disposable bundle installs and earlier live fixtures remain useful checkpoint evidence, but they must not be presented as final acceptance for a later changed provider tree.
+Provider packages are **not yet frozen** for the current rc.3 provider stage. Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity's provider-specific audit, catalog rewrite, vendor-diagnostic routing and live acceptance are also complete, with only its freeze declaration outstanding (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Historical provider tests, CLI smoke runs, disposable bundle installs and earlier live fixtures remain useful checkpoint evidence, but they must not be presented as final acceptance for a later changed provider tree.
 
-The final Suite/product gate still requires fresh provider freezes, repository-wide invariants, cross-provider live acceptance, install/profile lifecycle acceptance and the release commands defined in `docs/RELEASE.md`.
+On the current tree, `pnpm verify:local` exits `0` on three consecutive runs; Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass. None of that is independent validation by a party that did not write the code, which remains the actual gap before any freeze claim.
+
+The final Suite/product gate still requires fresh provider freezes, independent validation, repository-wide invariants, cross-provider live acceptance, install/profile lifecycle acceptance and the release commands defined in `docs/RELEASE.md`.
 
 See `docs/HANDOFF.md` for the immediate task, `docs/ROADMAP.md` for task order, and `docs/verification/README.md` for exact accepted checkpoint evidence.
 

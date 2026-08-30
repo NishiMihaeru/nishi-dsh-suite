@@ -36,6 +36,6 @@ The Claude manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` 
 
 ## Validation status — PENDING PROVIDER STAGE
 
-Core and Project Memory are frozen. Claude is not frozen for rc.3 and remains intentionally usage-only; no Claude primary model route/search capability is part of the current rc.3 contract.
+Core and Project Memory are **THAWED, pending re-validation** (see `docs/HANDOFF.md`), not frozen. Claude is not frozen for rc.3 either, remains intentionally usage-only, and has not yet started its own provider stage (see `docs/ROADMAP.md` §4); no Claude primary model route/search capability is part of the current rc.3 contract.
 
 Historical tests/smokes are checkpoint-specific evidence only. The authoritative remaining work lives in `docs/ROADMAP.md`; this README describes the current package boundary rather than duplicating a task checklist.

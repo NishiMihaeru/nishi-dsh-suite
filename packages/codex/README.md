@@ -54,23 +54,23 @@ Foundation behavior is not duplicated here: generic provider registration, share
 
 The Codex manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`, `dsh-attachment`, `dsh-invariants` and `dsh-sdk-protocol`). Its direct `dsh-sdk-protocol` dependency is the same version.
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Codex's own evidence for it is executable, not inherited: 61 unit tests plus a full 15-scenario live acceptance against real `codex-cli 0.150.0` processes, both on the alpha.1 baseline.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Codex's own evidence for it is executable, not inherited: 72 unit tests plus a full 15-scenario live acceptance against real `codex-cli 0.150.0` processes, both on the alpha.1 baseline.
 
 ## Validation status — THAWED, PENDING RE-VALIDATION
 
-`nishi-dsh-codex` previously passed independent validation, focused test gates, and live acceptance against official `codex-cli 0.150.0`. A follow-up audit then changed this package: vendor diagnostics are sanitized through Core's `VendorFailure` contract, native-search runtime verification is cached per executable instead of run per query, an unsupported App Server version reports `UNAVAILABLE` rather than `ERROR`, the Windows batch shim covers `codex exec`, cleanup failure no longer replaces the real diagnostic, and a thread-less fatal `error` notification fails the turn instead of hanging.
+`nishi-dsh-codex` previously passed independent validation, focused test gates, and live acceptance against official `codex-cli 0.150.0`. A follow-up audit then changed this package: vendor diagnostics are sanitized through Core's `VendorFailure` contract, native-search runtime verification is cached per executable instead of run per query, an unsupported App Server version reports `UNAVAILABLE` rather than `ERROR`, the Windows batch shim covers `codex exec`, cleanup failure no longer replaces the real diagnostic, a thread-less fatal `error` notification fails the turn instead of hanging, and — later in the same stage — the vendor thread is resumed instead of forked every turn (see *Vendor threads and prompt caching* below).
 
-That acceptance therefore describes a tree this one no longer matches. Codex's own suites pass on the current tree, but the workspace local gate fails on an unrelated Project Memory defect, and Codex has had no live acceptance run against this tree.
+That original acceptance therefore describes a tree this one no longer matches. On the current tree, focused tests pass (69/69), `pnpm verify:local` exits `0` on three consecutive runs, and Codex live acceptance passes: primary, the full 15-scenario suite, and both web-search suites (`test:live:web-search`, `test:live:web-search-routed`). The two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL` to be set and fail a precondition assertion — not a product defect — without it. What is still missing is independent validation by a party that did not write the code, and a repeated exact-commit alpha.1 runtime probe.
 
 Accepted evidence and verification history live in `docs/verification/README.md` and `docs/verification/gemini/LATEST.md`.
 
 ## Vendor threads and prompt caching
 
-Every DSH turn creates a new vendor thread: `thread/start` for the first, `thread/fork { threadId, lastTurnId }` for the rest, all with `ephemeral: false`. Only the delta since the last checkpoint is sent — prior turns are not re-transmitted.
+An ordinary DSH turn **resumes** the vendor thread rather than forking a new one every turn. `thread/start` runs only for the first turn; after that, `thread/resume { threadId, ... }` gets the tip from its own response, and `thread/rollback` realigns it if DSH's history has diverged from that tip. `thread/fork { threadId, lastTurnId }` is kept only for a checkpoint that is neither the tip nor an ancestor of it. Only the delta since the checkpoint is sent either way — prior turns are not re-transmitted.
 
-Two consequences are measured facts, not estimates, against real `codex-cli 0.150.0`:
+Two consequences were measured facts, not estimates, against real `codex-cli 0.150.0`, and are why this design was chosen over the original fork-every-turn one:
 
-- forking gets **no** prompt-cache credit at all, so every turn re-bills the whole accumulated context as fresh input. Resuming a single thread instead gets credit for roughly 90% of input;
-- one vendor thread per DSH message is persisted in the user's own vendor account, each carrying that turn's runtime context and project contract. DSH cannot currently clean these up.
+- forking got **no** prompt-cache credit at all, so every turn re-billed the whole accumulated context as fresh input. Resuming a single thread instead gets credit for roughly 90% of input;
+- forking left one vendor thread per DSH message persisted in the user's own vendor account. Resuming leaves one vendor thread **per session** instead. DSH still cannot clean these up, and threads created under the old per-message design still exist in the user's vendor account exactly as they were — this change does not retroactively remove them, and the maintainer has decided that cleaning up previously created threads is not worth doing.
 
-The repository `docs/ARCHITECTURE.md` records the numbers and the protocol facts under *Codex vendor threads*, and `docs/ROADMAP.md` §7a tracks the open decision about changing this.
+The repository `docs/ARCHITECTURE.md` records the numbers and the protocol facts under *Codex vendor threads*, and `docs/ROADMAP.md` §7a records the decision and the one item still open: `thread/inject_items` is unverified — it succeeds, but injected items are invisible through both `thread/read` and `thread/resume`, and the adapter depends on it for history that follows a checkpoint.

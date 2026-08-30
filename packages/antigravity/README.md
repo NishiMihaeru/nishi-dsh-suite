@@ -37,10 +37,10 @@ Project Memory and DSH-native child-agent delegation are external to this provid
 
 The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 38 unit tests plus 11 live scenarios against the real `agy 1.1.22` binary, both on the alpha.1 baseline.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 62 unit tests plus 10 live scenarios (8 primary, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline.
 
 ## Validation status — PENDING PROVIDER STAGE
 
-Core and Project Memory are frozen. Antigravity is not frozen for rc.3; its provider-specific audit/cleanup and live acceptance follow the active Codex stage.
+Core and Project Memory are **THAWED, pending re-validation** (see `docs/HANDOFF.md`), not frozen. Antigravity is not frozen for rc.3 either, but its own provider-specific audit/cleanup and live acceptance are complete rather than queued behind Codex: catalog parsing was rewritten, every vendor-process diagnostic routes through `VendorFailure`, intra-package duplication was removed, and live acceptance passes (primary 8/8, native search 1/1, routed search 1/1). The only outstanding item is the freeze declaration itself (`docs/ROADMAP.md` §3), which needs the same independent validation the rest of the tree is waiting on.
 
 Historical tests or live probes remain checkpoint-specific evidence only. The authoritative remaining work is maintained in `docs/ROADMAP.md` and the current operational task in `docs/HANDOFF.md`; this README intentionally describes the package boundary rather than duplicating that checklist.
