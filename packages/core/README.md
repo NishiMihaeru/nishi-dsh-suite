@@ -10,7 +10,7 @@ Core owns the seams that must stay stable when the primary provider changes: pro
 |---|---|---|
 | `nishi-dsh-core` | host | provider-registry publication and host lifecycle composition |
 | `nishi-dsh-core/web-search` | agent | routed `web_search` tool |
-| `nishi-dsh-core/client` | browser | Usage & Limits and Model Accounts UI |
+| `nishi-dsh-core/client` | browser | Usage & Limits UI |
 | `nishi-dsh-core/runtime` | library | shared vendor CLI runtime and `registerProvider()` |
 | `nishi-dsh-core/usage` | library | normalized usage contracts and collectors |
 
@@ -22,21 +22,17 @@ The Cordis lifecycle is split deliberately:
 
 1. outer `nishi-core` publishes `NishiProvidersService`;
 2. it mounts the internal `nishi-core-host` child with `inject: ['nishiProviders', 'connection', 'credentials']`;
-3. that child constructs Usage Limits host state and registers Usage Limits / Model Accounts RPC handlers.
+3. that child constructs Usage Limits host state and registers the Usage Limits RPC handlers.
 
 Core does not import or inject `@deepseek-ai/dsh-authorization`.
 
-## Model Accounts and credentials
+## Credentials
 
-Rows are registry-derived. A provider declares an optional `account` capability — credential scope, credential id, label — and Core renders one row per live provider that declares one. Core names no vendor, holds no label table and owns no credential namespace; a provider that declares nothing simply has no row. Row identity is the canonical provider id, and the credential key is assembled from the provider's own declaration rather than a scope fixed in Core.
+Core has no Model Accounts surface. It was removed together with the provider-declared `account` capability that fed it: the rows, the browser section, the host RPC handlers and the capability field are all gone rather than disabled, so no Core code path reads or mutates a vendor credential record any more.
 
-`account` is declarative data only: no factory, no secret, nothing executable. It is validated at registration before any Core state is mutated.
+Vendors that need a credential still own it entirely — sign-in happens in the vendor's own CLI or app, outside anything this suite brokers. That was already true for Antigravity, and is now true everywhere.
 
-Credential-store availability is distinct from ordinary credential absence. A failed status read projects a sanitized `ERROR` state; credential material and backend error text do not cross the browser RPC boundary.
-
-Direct subscription OAuth initiation is disabled, and the surface that expressed it no longer exists: no begin/submit/cancel/logout endpoints, no client state machine, and no secret-typed prompt channel. A disabled mutation path that still accepts a secret is a liability rather than compatibility, so it was removed instead of left inert.
-
-Legacy DSH grants may still be detected for compatibility, but in-app destructive legacy-grant deletion is disabled. DSH `0.1.2-alpha.1` exposes credential read/modify/write plus unconditional delete operations, but no atomic compare-and-delete operation proving the record being removed is still the previously observed grant. A separate read-kind-then-delete sequence can erase a newer API-key record written by another process, so Core fails closed instead. The browser shows legacy grants as informational state and does not render an in-app destructive Sign Out action.
+The safety property that mattered here outlives the feature. Core never had an atomic compare-and-delete for credential records, so destructive legacy-grant deletion was always fail-closed; with the mutation surface deleted there is no path that could race a read-kind-then-delete sequence at all. Do not reintroduce one without a reviewed atomic-safe credential contract.
 
 ## DSH Connection compatibility seam
 

@@ -46,7 +46,7 @@ That range is now wider than the support policy and is retained only because ups
 |---|---|---|
 | `nishi-dsh-core` | host | publish registry and compose host services |
 | `nishi-dsh-core/web-search` | agent | routed `web_search` |
-| `nishi-dsh-core/client` | browser | Usage & Limits + Model Accounts |
+| `nishi-dsh-core/client` | browser | Usage & Limits |
 | `nishi-dsh-core/runtime` | library | shared vendor runtime + registration |
 | `nishi-dsh-core/usage` | library | normalized usage service/contracts |
 
@@ -69,17 +69,11 @@ The Connection compatibility boundary still accepts both shapes:
 
 alpha.1 is the only supported generation, so the `Function.length` probe is no longer retained compatibility — it is removal debt. It stays until the peer range that justifies it is narrowed, and removing it is that change, not a separate cleanup.
 
-### Model Accounts
+### Credentials
 
-The roster is registry-derived, exactly like Usage. A provider declares an optional `account` capability — credential scope, credential id, human-facing label — and Core builds one row per live provider that declares one. Core names no vendor, keeps no label table, and holds no credential namespace of its own; a provider that declares nothing gets no row, which is a legal declared state rather than a gap. Row identity is the canonical Nishi provider id, and the credential key is assembled from the provider's own declaration.
+Core has no Model Accounts surface. It was removed together with the provider-declared `account` capability that fed it — rows, browser section, host RPC handlers and the descriptor field alike — so no Core code path reads or mutates a vendor credential record.
 
-`account` is pure data: no factory, no secret, nothing executable. It is validated at registration alongside identity and routes, before any Core state is mutated.
-
-Credential backend failure is not ordinary account absence. A failed status read becomes a sanitized `ERROR` state, and credential/backend secret material does not cross RPC. The DTO carries only provider identity, label, whether a record is configured, its kind, and a status — the credential key itself no longer crosses the boundary.
-
-Direct subscription OAuth initiation is disabled, and the surface that once expressed it is gone rather than disabled in place: no begin/submit/cancel/logout endpoints, no client state machine, and in particular no secret-carrying prompt channel that could only ever end in a refusal.
-
-Legacy grants are read-only compatibility state. In-app destructive logout is disabled because the alpha.1 credential contract provides no atomic compare-and-delete operation. A separate `describeRecord()` kind check followed by unconditional `deleteRecord()` can erase a newer API-key record written by another process. Core therefore fails closed and does not expose a destructive Sign Out action for legacy grants.
+The removal is total rather than disabled, for the same reason the authorization mutation surface was removed rather than kept inert: a surface that still exists is a surface that can be re-enabled by accident. Sign-in belongs to each vendor's own CLI or app, which was already true for Antigravity and is now true everywhere.
 
 ### Provider registration
 
@@ -264,7 +258,7 @@ Simplified and accepted:
 - duplicate tool-layer Project Memory recovery;
 - implicit PID/pathname ownership replaced by explicit lock/transaction generations;
 - the Core authorization begin/submit/cancel/logout state machine, host and client alike. It was previously retained while disabled; a disabled mutation path that still carries a secret-typed prompt channel is a liability rather than compatibility, so it was removed instead of kept inert;
-- the hardcoded Model Accounts vendor roster, replaced by the provider-declared `account` capability.
+- the hardcoded Model Accounts vendor roster, first replaced by a provider-declared `account` capability and then removed outright with the whole Model Accounts surface.
 
 Intentionally retained until a separate compatibility review:
 
@@ -277,7 +271,7 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 ## Invariants
 
 1. Providers register through shared `registerProvider()`.
-2. Core has no provider-package dependency, and no vendor identity anywhere in its source: every provider-shaped surface — model routes, usage, presentation, Model Accounts — is derived from registry declarations.
+2. Core has no provider-package dependency, and no vendor identity anywhere in its source: every provider-shaped surface — model routes, usage, presentation — is derived from registry declarations.
 3. Provider ids/routes are canonical before mutation.
 4. Model capability implies at least one route; capability absence is legal.
 5. Browser provider identity comes from serialized presentation data.
@@ -324,7 +318,7 @@ What changed since the accepted checkpoint:
 - Project Memory bounds the two user-owned files initialization rewrites, and the writer-lock wait budget moved from 2 s to 10 s and became overridable per scope.
 - Core validates capability descriptors before their factories run, and the registration rollback boundary is now stated precisely rather than implied.
 - Core's browser usage controller can no longer strand an in-flight refresh record, and it disposes.
-- Model Accounts became registry-derived; the hardcoded vendor roster and the whole disabled authorization mutation surface — host and client — were removed. This is a public-surface removal in an unpublished `0.1.0-rc.3`.
+- Model Accounts was first made registry-derived and then removed entirely, together with the `account` capability and the disabled authorization mutation surface — host and client alike. This is a public-surface removal in an unpublished `0.1.0-rc.3`.
 - Codex routes every vendor-process diagnostic through `VendorFailure`, closing a path that put raw vendor stderr in front of the model. Its native search verifies the vendor runtime once per executable instead of once per query.
 
 Local gate on the current tree: PASS. `pnpm verify:local` 5/5 exit `0`; Core `209`, Project Memory `77`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`. It took one fix to get there: the first re-validation gave FAIL, PASS, PASS on a load-sensitive Project Memory recovery read race that violated invariant 25, and `HANDOFF.md` carries the reproduction and the remediation. A green local gate is not an acceptance: no independent validation, no live acceptance run, and no alpha.1 runtime probe has been repeated against this tree.

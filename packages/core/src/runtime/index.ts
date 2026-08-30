@@ -41,7 +41,6 @@ export {
   type SharedProviderDefaults,
 } from './registration.js'
 export {
-  type AccountCapability,
   type ModelCapability,
   type ProviderPresentation,
   type ProviderDescriptor,

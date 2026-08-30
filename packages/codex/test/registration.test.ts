@@ -57,18 +57,6 @@ test('Codex registration gives routed search the same configured executable envi
   assert.deepEqual(search.config.env, env)
 })
 
-test('Codex registration declares a Model Accounts row for the ChatGPT/Codex credential', async () => {
-  const fixture = fakeContext()
-  await codex.apply(fixture.ctx, { env: {}, disposeGraceMs: 3000 })
-
-  assert.equal(fixture.recorded.length, 1)
-  assert.deepEqual(fixture.recorded[0].descriptor.account, {
-    credentialScope: 'llm-pi-ai',
-    credentialId: 'openai-codex',
-    label: 'ChatGPT / Codex',
-  })
-})
-
 test('Codex package keeps the accepted plugin surface', () => {
   assert.equal(codex.name, 'codex')
   assert.deepEqual(codex.inject, [

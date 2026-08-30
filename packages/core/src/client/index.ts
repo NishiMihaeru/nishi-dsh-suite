@@ -1,4 +1,4 @@
-/** DSH Web Usage / Limits & Model Accounts Browser Plugin Entry. */
+/** DSH Web Usage / Limits Browser Plugin Entry. */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -18,20 +18,12 @@ import { UsageLimitsBrowserRpcClient } from './rpc-client.js'
 import { UsageLimitsFooterAction } from './ui/FooterAction.js'
 import { UsageLimitsSection } from './ui/SettingsSection.js'
 
-import type { AuthorizationControllerSnapshot } from './authorization/types.js'
-import { AuthorizationBrowserRpcClient } from './authorization/rpc-client.js'
-import { AuthorizationClientController } from './authorization/controller.js'
-import { authEn, authZh } from './authorization/locales.js'
-import { ModelsAccountsSection } from './authorization/ui/ModelsAccountsSection.js'
-
 export const NS_USAGE = 'usage-limits'
-export const NS_AUTH = 'model-accounts'
 export const NS = NS_USAGE
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'usage-limits': keyof typeof usageEn
-    'model-accounts': keyof typeof authEn
   }
 }
 
@@ -39,12 +31,6 @@ export interface UsageLimitsClientInjected {
   controller: UsageLimitsClientController
   useSnapshot: SnapshotSelectorHook<UsageLimitsControllerSnapshot>
   t: TranslateNS<'usage-limits'>
-}
-
-export interface ModelAccountsInjected {
-  controller: AuthorizationClientController
-  useSnapshot: SnapshotSelectorHook<AuthorizationControllerSnapshot>
-  t: TranslateNS<'model-accounts'>
 }
 
 export const inject = [
@@ -60,16 +46,11 @@ export function apply(ctx: ClientContext): void {
         zh: usageZh,
         en: usageEn,
       })
-      const u2 = ctx.locale.register(NS_AUTH, {
-        zh: authZh,
-        en: authEn,
-      })
       return () => {
         u1()
-        u2()
       }
     },
-    'usage-limits & model-accounts: copy dictionaries',
+    'usage-limits: copy dictionaries',
   )
 
   const connection = ctx.get('connection') as unknown as ConnectionHandle
@@ -78,25 +59,13 @@ export function apply(ctx: ClientContext): void {
   const useUsageSnapshot = bindSnapshotSelector(usageController)
   const tUsage = ctx.locale.bind(NS_USAGE)
 
-  const authRpcClient = new AuthorizationBrowserRpcClient(connection.rpc)
-  const authController = new AuthorizationClientController(authRpcClient)
-  const useAuthSnapshot = bindSnapshotSelector(authController)
-  const tAuth = ctx.locale.bind(NS_AUTH)
-
   const usageInjected = (): UsageLimitsClientInjected => ({
     controller: usageController,
     useSnapshot: useUsageSnapshot,
     t: tUsage,
   })
 
-  const authInjected = (): ModelAccountsInjected => ({
-    controller: authController,
-    useSnapshot: useAuthSnapshot,
-    t: tAuth,
-  })
-
   usageController.initialize().catch(() => {})
-  authController.load().catch(() => {})
 
   ctx.slots.inject('sidebar.footer.action', () =>
     ctx.slots.register(
@@ -122,29 +91,10 @@ export function apply(ctx: ClientContext): void {
       UsageLimitsSection,
     )
 
-    const unregAuth = ctx.slots.register(
-      {
-        name: 'settings.section',
-        id: 'model-accounts',
-        order: 11,
-        label: () => tAuth('nav'),
-        inject: authInjected,
-      },
-      ModelsAccountsSection,
-    )
-
     return () => {
       unregUsage()
-      unregAuth()
     }
   })
-
-  ctx.effect(
-    () => () => {
-      authController.dispose()
-    },
-    'model-accounts: dispose auth controller',
-  )
 
   ctx.effect(
     () => () => {
@@ -165,4 +115,3 @@ export * from './ui/UsageGroupDetails.js'
 export * from './ui/UsageRings.js'
 export * from './ui/SettingsSection.js'
 export * from './view-model.js'
-export * from './authorization/index.js'

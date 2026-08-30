@@ -29,7 +29,7 @@ Adding a provider must not require edits to Core, Project Memory, generic usage/
 
 ### Core
 
-The host entry publishes `NishiProvidersService`, then mounts an internal host child that injects `nishiProviders`, `connection` and `credentials`. The agent entry `nishi-dsh-core/web-search` routes search through the current model route on each call. The browser entry renders Usage & Limits and Model Accounts from serialized host data.
+The host entry publishes `NishiProvidersService`, then mounts an internal host child that injects `nishiProviders`, `connection` and `credentials`. The agent entry `nishi-dsh-core/web-search` routes search through the current model route on each call. The browser entry renders Usage & Limits from serialized host data.
 
 Provider plugins inject `nishiProviders` and use the shared `registerProvider()` transaction. Core does not depend on provider packages.
 
@@ -58,7 +58,7 @@ The Suite does not copy, broker, scrape, migrate or replay vendor credential/ses
 - Antigravity authentication stays in official `agy`.
 - Claude authentication stays in the installed official `claude` CLI.
 
-Core reads DSH credentials for the Model Accounts compatibility surface. It does not depend on `@deepseek-ai/dsh-authorization`; the Suite currently keeps the official authorization row only as a surrounding-profile compatibility seam.
+Core has no Model Accounts surface and reads no vendor credential records; that section and the `account` capability behind it were removed. Core does not depend on `@deepseek-ai/dsh-authorization`; the Suite keeps the official authorization row only as a surrounding-profile compatibility seam.
 
 No package bundles `@openai/codex*` or `@anthropic-ai/*` runtime packages.
 

@@ -84,16 +84,6 @@ export interface UsageCapability<TConfig> {
   create(ctx: Context, config: TConfig, hooks: UsageCapabilityHooks): UsageSnapshotCollector
 }
 
-/** The vendor credential record this provider's Model Accounts row reports on. */
-export interface AccountCapability {
-  /** Credential store scope, as the DSH credentials service namespaces it. */
-  readonly credentialScope: string
-  /** Credential record id inside that scope. */
-  readonly credentialId: string
-  /** Human-facing label for the row. */
-  readonly label: string
-}
-
 /**
  * One provider's registration recipe.
  *
@@ -116,13 +106,6 @@ export interface ProviderDescriptor<TConfig extends SharedProviderConfig> {
   readonly webSearch?: WebSearchCapability<TConfig>
   /** The provider's usage/limits source, if the vendor exposes anything to read. */
   readonly usage?: UsageCapability<TConfig>
-  /**
-   * The provider's Model Accounts row, if the vendor stores a credential Core
-   * can report on. Absent is legal: a provider whose sign-in never touches
-   * DSH-managed credential storage (e.g. Antigravity) gets no row at all,
-   * rather than a hardcoded blank one.
-   */
-  readonly account?: AccountCapability
   /** Anything else this provider needs wired up once the model is registered. */
   install?(ctx: Context, config: TConfig): void | Promise<void>
 }

@@ -26,7 +26,7 @@ Nishi DSH Suite does not intentionally collect, copy, store, migrate or persist 
 - Suite code must not copy credential stores, replace vendor homes to bridge authentication, scrape cookies/keyrings, or replay vendor tokens through custom HTTP clients.
 - Usage/quota projection must not expose raw account tokens, CSRF material, private identity data or equivalent secrets to browser-visible DTOs.
 
-The Core Model Accounts host reads the DSH credentials service directly. It does not import or inject the DSH authorization service; the Suite's authorization row is a surrounding-profile compatibility seam, not permission to broker vendor authentication.
+Core has no Model Accounts surface: it was removed along with the provider-declared `account` capability that fed it, so no Core code path reads or mutates a vendor credential record any more. Core still does not import or inject the DSH authorization service; the Suite's authorization row is a surrounding-profile compatibility seam, not permission to broker vendor authentication.
 
 Legacy DSH grants are compatibility state only. Destructive in-app legacy-grant deletion is disabled because the accepted DSH `0.1.2-alpha.1` credentials contract does not provide atomic compare-and-delete semantics. A read-kind-then-unconditional-delete flow must not be reintroduced without a separately reviewed atomic-safe credential contract.
 

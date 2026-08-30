@@ -1,12 +1,11 @@
 /**
- * Claude as a provider plugin: usage and limits plus a Model Accounts row,
- * and nothing else.
+ * Claude as a provider plugin: usage and limits, and nothing else.
  *
  * This package is the honest test of the connector. Claude serves no model
  * route here — DSH talks to Claude through no adapter of ours — and offers no
- * search backend. It declares only the capabilities it actually has, and the
+ * search backend. It declares only the capability it actually has, and the
  * core neither notices the absence of the others nor needs a branch for
- * them. If a two-capability provider needed anything beyond a descriptor,
+ * them. If a one-capability provider needed anything beyond a descriptor,
  * the contract would be wrong.
  *
  * Delegation to the Claude Code CLI was removed in `0.1.0-rc.2`; what remains
@@ -98,11 +97,6 @@ const claudeDescriptor: ProviderDescriptor<ResolvedClaudeConfig> = {
         spawn: (spec) => ctx.subprocess.spawn(spec),
       }).read(),
     }),
-  },
-  account: {
-    credentialScope: 'llm-pi-ai',
-    credentialId: 'anthropic',
-    label: 'Claude (Anthropic)',
   },
 }
 

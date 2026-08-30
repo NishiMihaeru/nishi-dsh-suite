@@ -22,17 +22,6 @@ import {
   type RefreshProviderRpcRequest,
   type UsageLimitsRpcHost,
 } from './host/rpc.js'
-import {
-  AUTHORIZATION_RPC_CHANNEL,
-  AUTH_GET_FLOWS_ENDPOINT,
-  AUTH_GET_STATUS_ENDPOINT,
-  AUTH_REFRESH_ENDPOINT,
-  AuthorizationHostController,
-  createAuthorizationRpcHandler,
-  type AuthorizationUiState,
-  type SafeAuthorizationFlowDto,
-  type RefreshRpcRequest,
-} from './host/authorization-rpc.js'
 
 export {
   USAGE_LIMITS_CHANNEL,
@@ -50,15 +39,6 @@ export {
   type UsageLimitsHostConfig,
   type UsageLimitsHostDependencies,
   DEFAULT_USAGE_REFRESH_POLICY,
-  AUTHORIZATION_RPC_CHANNEL,
-  AUTH_GET_FLOWS_ENDPOINT,
-  AUTH_GET_STATUS_ENDPOINT,
-  AUTH_REFRESH_ENDPOINT,
-  AuthorizationHostController,
-  createAuthorizationRpcHandler,
-  type AuthorizationUiState,
-  type SafeAuthorizationFlowDto,
-  type RefreshRpcRequest,
 }
 
 /**
@@ -191,13 +171,6 @@ function hostPlugin(config?: UsageLimitsHostConfig) {
         hostCtx.connection.rpc,
         USAGE_LIMITS_CHANNEL,
         createUsageLimitsRpcHandler(hostService),
-      )
-
-      const authController = new AuthorizationHostController(hostCtx)
-      registerConnectionRpcChannel(
-        hostCtx.connection.rpc,
-        AUTHORIZATION_RPC_CHANNEL,
-        createAuthorizationRpcHandler(authController),
       )
     },
   }

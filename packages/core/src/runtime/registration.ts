@@ -16,12 +16,9 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import type { AccountCapability, ProviderDescriptor } from '../registry/descriptor.js'
+import type { ProviderDescriptor } from '../registry/descriptor.js'
 import { canonicalProviderId, canonicalProviderRoute } from '../registry/identity.js'
 import { parseUsageRefreshPolicy, parseUsageSnapshotCollector } from '../usage/service.js'
-
-/** `AccountCapability` fields are credential-store keys and a display label, not free text. */
-const MAX_ACCOUNT_FIELD_LENGTH = 128
 
 /** Config fields every subscription-CLI provider plugin shares. */
 export interface SharedProviderConfig {
@@ -139,24 +136,6 @@ async function rollbackRegistration(
   throw originalError
 }
 
-/**
- * Validate `descriptor.account` before any registry mutation. It carries no
- * factory to guard — it is pure credential-store addressing data — so this
- * only has to reject the shapes that would otherwise surface as a broken
- * Model Accounts row or a malformed `credentialKey()` call much later.
- */
-function assertAccountCapability(providerId: string, account: AccountCapability): void {
-  for (const field of ['credentialScope', 'credentialId', 'label'] as const) {
-    const value = account[field]
-    if (typeof value !== 'string' || value.trim().length === 0) {
-      throw new Error(`${providerId}: account.${field} must be a non-empty string`)
-    }
-    if (value.length > MAX_ACCOUNT_FIELD_LENGTH) {
-      throw new Error(`${providerId}: account.${field} must be no longer than ${MAX_ACCOUNT_FIELD_LENGTH} characters`)
-    }
-  }
-}
-
 /** Validate a capability descriptor's own shape before its `create` runs. */
 function assertCapabilityDescriptor(
   providerId: string,
@@ -222,10 +201,6 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
 
   if (descriptor.model && routes.length === 0) {
     throw new Error(`${providerId}: a provider declaring a model capability must declare at least one route`)
-  }
-
-  if (descriptor.account !== undefined) {
-    assertAccountCapability(providerId, descriptor.account)
   }
 
   const refreshPolicy = descriptor.usage?.refreshPolicy === undefined
