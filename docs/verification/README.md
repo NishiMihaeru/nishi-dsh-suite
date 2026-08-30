@@ -16,7 +16,7 @@ DSH generations named in this ledger are historical run facts, not support claim
 
 Everything recorded in this section describes the implementation checkpoint named below. A later audit of Core, Project Memory and Codex reproduced defects in all three and changed behavior in each, so **this ledger no longer describes the working tree** and must not be promoted to it.
 
-The current tree does not even pass a local gate. A single `build`/`check`/`test` pass exits `0` (Core `209`, Project Memory `72`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`), but `pnpm verify:local` gave FAIL, PASS, PASS over three consecutive runs — a load-sensitive Project Memory recovery read race, itemized in `HANDOFF.md`. It also has no independent validation, no live acceptance run and no repeated alpha.1 runtime probe. Restoring a freeze claim requires fixing that defect and producing the evidence against the fixed tree.
+The current tree passes a local gate: `pnpm verify:local` 5/5 exit `0`, Core `209`, Project Memory `77`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`. Reaching that took one fix — the first re-validation returned FAIL, PASS, PASS on a load-sensitive Project Memory recovery read race, itemized in `HANDOFF.md`. A local gate is still not an acceptance: there is no independent validation, no live acceptance run and no repeated alpha.1 runtime probe. Restoring a freeze claim requires producing that evidence against this tree.
 
 The accepted evidence below is retained as history.
 

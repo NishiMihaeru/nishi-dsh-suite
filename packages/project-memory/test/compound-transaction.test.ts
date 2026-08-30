@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -331,5 +331,89 @@ test('committed recovery preserves both new participants and only cleans dead lo
     await assertMissing(transactionPath)
     await assertMissing(`${paths.memoryMd}.lock`)
     await assertMissing(`${topicPath}.lock`)
+  })
+})
+
+test('an unlocked pre-claim recovery probe re-observes rather than fails when the journal is atomically replaced mid-read', async () => {
+  // Before the fix, `readRegularFile` threw the same generic error for a
+  // benign atomic replacement (another regular file landing via rename) as
+  // it did for a symlink swap, so this unlocked pre-claim probe had no way
+  // to tell them apart and just failed -- taking an unrelated caller's
+  // compound topic write down with it. The hook lands the replacement
+  // deterministically inside the open/lstat race window instead of relying
+  // on real concurrent processes and timing.
+  await withTempProject(async (projectRoot) => {
+    const paths = resolveProjectMemoryPaths(projectRoot)
+    const topicPath = join(paths.memoryDir, 'architecture.md')
+    const beforeTopic = 'state=before\nkeep=exact\n'
+    await writeProjectMemoryBootstrap(projectRoot, BASE_MEMORY)
+    await writeTopicMemory(projectRoot, 'architecture', beforeTopic)
+    await mkdir(paths.localDir, { recursive: true })
+
+    const deadPid = 2_000_000_010
+    const transactionPath = pendingProjectMemoryTransactionPath(projectRoot)
+    const journalBytes = `${JSON.stringify(journalFixture({ phase: 'pending', ownerPid: deadPid, beforeTopic }))}\n`
+    await writeFile(transactionPath, journalBytes, 'utf8')
+    await writeFile(topicPath, 'state=partially-committed\n', 'utf8')
+    await writeFile(
+      paths.memoryMd,
+      BASE_MEMORY.replace('No topic memories yet.', '- `architecture` → `.dsh/memory/architecture.md`'),
+      'utf8',
+    )
+
+    let hookCalls = 0
+    const recovered = await recoverPendingProjectMemoryTransaction(projectRoot, undefined, async () => {
+      hookCalls += 1
+      if (hookCalls > 1) return
+      // A different regular file (fresh inode), same well-formed generation:
+      // exactly what a concurrent atomic rewrite of the fixed journal path
+      // looks like, and exactly the case that must not fail this probe.
+      const scratch = `${transactionPath}.swap`
+      await writeFile(scratch, journalBytes, 'utf8')
+      await rename(scratch, transactionPath)
+    })
+
+    assert.equal(recovered, true)
+    assert.equal(hookCalls, 2)
+    assert.equal(await readFile(topicPath, 'utf8'), beforeTopic)
+    assert.equal(await readFile(paths.memoryMd, 'utf8'), BASE_MEMORY)
+    await assertMissing(transactionPath)
+  })
+})
+
+test('the unlocked pre-claim probe stops re-observing after a bounded number of attempts instead of looping forever', async () => {
+  await withTempProject(async (projectRoot) => {
+    const paths = resolveProjectMemoryPaths(projectRoot)
+    const topicPath = join(paths.memoryDir, 'architecture.md')
+    const beforeTopic = 'state=before\n'
+    await writeProjectMemoryBootstrap(projectRoot, BASE_MEMORY)
+    await writeTopicMemory(projectRoot, 'architecture', beforeTopic)
+    await mkdir(paths.localDir, { recursive: true })
+
+    const deadPid = 2_000_000_011
+    const transactionPath = pendingProjectMemoryTransactionPath(projectRoot)
+    const journalBytes = `${JSON.stringify(journalFixture({ phase: 'pending', ownerPid: deadPid, beforeTopic }))}\n`
+    await writeFile(transactionPath, journalBytes, 'utf8')
+
+    let hookCalls = 0
+    const recovered = await recoverPendingProjectMemoryTransaction(projectRoot, undefined, async () => {
+      hookCalls += 1
+      // Every single attempt loses the race to a fresh atomic replacement, so
+      // the probe can never observe a stable journal.
+      const scratch = `${transactionPath}.swap.${hookCalls}`
+      await writeFile(scratch, journalBytes, 'utf8')
+      await rename(scratch, transactionPath)
+    })
+
+    assert.equal(recovered, false)
+    // MAX_RECOVERY_OBSERVATIONS in src/transaction.ts bounds this loop at 5;
+    // endless churn must hit that bound rather than loop forever.
+    assert.equal(hookCalls, 5)
+    assert.equal(await readFile(topicPath, 'utf8'), beforeTopic)
+    // Nothing was claimed or settled -- the (now churned) journal is still
+    // present, and `createPendingProjectMemoryTransaction` still fails
+    // closed on it later, so a real unresolved transaction never slips
+    // through unnoticed.
+    await access(transactionPath)
   })
 })

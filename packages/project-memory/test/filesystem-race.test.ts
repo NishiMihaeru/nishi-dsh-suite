@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import {
+  CanonicalRegularFileReplacedError,
   removeSafeRegularFile,
   withSafeDirectoryScope,
   withSafeFileWriterLock,
@@ -133,6 +134,99 @@ test('mandatory settlement on the same scope can restore a durable participant a
     }, controller.signal)
 
     assert.equal(await readFile(target, 'utf8'), 'before\n')
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('readRegularFile throws a distinguishable error when the target is atomically replaced by another regular file', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('descriptor-anchored open/lstat identity racing is a POSIX guarantee')
+    return
+  }
+
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-read-regular-swap-'))
+  const target = join(projectRoot, 'journal.json')
+  try {
+    await writeFile(target, 'before\n', 'utf8')
+
+    await assert.rejects(
+      withSafeDirectoryScope(projectRoot, (scope) => scope.readRegularFile(target, {
+        // Deterministically land the replacement inside the exact race
+        // window this hook exists for, instead of relying on real timing.
+        testOnlyAfterDescriptorStatHook: async () => {
+          const scratch = `${target}.swap`
+          await writeFile(scratch, 'before\n', 'utf8')
+          await rename(scratch, target)
+        },
+      })),
+      (error: unknown) => {
+        assert.ok(error instanceof CanonicalRegularFileReplacedError)
+        assert.equal(error.code, 'CANONICAL_REGULAR_FILE_REPLACED')
+        assert.match(error.message, /was replaced by a different regular file while it was being opened/)
+        return true
+      },
+    )
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('readRegularFile still fails closed with the original message when the target is replaced by a symlink', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('descriptor-anchored open/lstat identity racing is a POSIX guarantee')
+    return
+  }
+
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-read-symlink-swap-'))
+  const target = join(projectRoot, 'journal.json')
+  const decoyTarget = join(projectRoot, 'decoy.json')
+  try {
+    await writeFile(target, 'before\n', 'utf8')
+    await writeFile(decoyTarget, 'decoy\n', 'utf8')
+
+    await assert.rejects(
+      withSafeDirectoryScope(projectRoot, (scope) => scope.readRegularFile(target, {
+        testOnlyAfterDescriptorStatHook: async () => {
+          await rm(target)
+          await symlink(decoyTarget, target)
+        },
+      })),
+      (error: unknown) => {
+        assert.ok(!(error instanceof CanonicalRegularFileReplacedError))
+        assert.match((error as Error).message, /^Canonical target at ".*" changed while it was being opened$/)
+        return true
+      },
+    )
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('readRegularFile still fails closed with the original message when the target is replaced by a directory', async (t) => {
+  if (process.platform === 'win32') {
+    t.skip('descriptor-anchored open/lstat identity racing is a POSIX guarantee')
+    return
+  }
+
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-read-dir-swap-'))
+  const target = join(projectRoot, 'journal.json')
+  try {
+    await writeFile(target, 'before\n', 'utf8')
+
+    await assert.rejects(
+      withSafeDirectoryScope(projectRoot, (scope) => scope.readRegularFile(target, {
+        testOnlyAfterDescriptorStatHook: async () => {
+          await rm(target)
+          await mkdir(target)
+        },
+      })),
+      (error: unknown) => {
+        assert.ok(!(error instanceof CanonicalRegularFileReplacedError))
+        assert.match((error as Error).message, /^Canonical target at ".*" changed while it was being opened$/)
+        return true
+      },
+    )
   } finally {
     await rm(projectRoot, { recursive: true, force: true })
   }

@@ -59,7 +59,7 @@ projectRoot -> .dsh -> memory/local
 
 Each level validates device/inode identity and uses `/proc/self/fd/<fd>` or `/dev/fd/<fd>` when available. Reads open the final file once, use `O_NOFOLLOW` where available, validate the opened inode against the visible entry, and then read from that handle. Replacement writes, first-publication temp files, hard-link publication and rename operate relative to the same opened parent-directory identity.
 
-If a regular file was successfully opened but the canonical pathname is concurrently unlinked before the visible identity check, the read reports current namespace absence (`null`) rather than returning stale bytes from the now-unlinked inode. If the pathname instead resolves to another inode, a symlink or a non-file entry, the operation still fails closed.
+If a regular file was successfully opened but the canonical pathname is concurrently unlinked before the visible identity check, the read reports current namespace absence (`null`) rather than returning stale bytes from the now-unlinked inode. If the pathname instead resolves to a symlink or a non-file entry, the operation still fails closed with the same generic error. If it resolves to a *different regular file* — another process's atomic rename over the same path — the failure is raised as a distinguishable error type instead, so an unlocked, pre-claim caller can recognize exactly that case and re-observe rather than fail; see "Recovery semantics" below.
 
 Windows has no equivalent Node directory-fd/openat surface in this implementation; it uses fallback path operations plus identity revalidation and remains **NOT TESTED**. Strong descriptor-chain TOCTOU claims are POSIX-only.
 
@@ -129,8 +129,9 @@ Recovery semantics:
 - live matching owner -> cross the `MEMORY.md` writer barrier before deciding whether anything remains to settle;
 - recycled PID with mismatched process identity -> owner is stale, not live;
 - a journal is claimed only after a read taken under the journal lock proves its owner dead;
-- any pre-claim disagreement between that locked read and the caller's earlier unlocked read — journal gone, generation or phase replaced, owner transferred either way, owner alive again — is a stale observation rather than lost proof, since no participant has been touched. Recovery re-observes from scratch, up to a small bound, and the fresh read decides again whether to await a live owner or claim a dead one;
-- ownership/WAL mutation that makes coherent state unprovable *after* this process wrote its own claim -> fail closed.
+- any pre-claim disagreement between that locked read and the caller's earlier unlocked read — journal gone, generation or phase replaced, owner transferred either way, owner alive again, or the fixed journal pathname atomically replaced by a different regular file (another rename over the same path) — is a stale observation rather than lost proof, since no participant has been touched. Recovery re-observes from scratch, up to a small bound, and the fresh read decides again whether to await a live owner or claim a dead one;
+- that pre-claim re-observation never extends to replacement by a symlink or other non-regular entry — that stays a hard, fail-closed error regardless of claim state;
+- ownership/WAL mutation that makes coherent state unprovable *after* this process wrote its own claim -> fail closed, including the journal pathname being replaced by any other file, symlink or non-regular entry at that point.
 
 Concurrent recovery of the same abandoned journal is an ordinary outcome, not an error: one caller settles it and returns `true`, the others return `false`. A caller never has its own unrelated read or write fail because it lost that race. Past the observation bound recovery returns `false` instead of looping, which stays safe because a journal that genuinely remains still blocks the next transaction through its exclusive create.
 

@@ -1,6 +1,6 @@
 # Handoff
 
-Updated for `0.1.0-rc.3` after a follow-up audit of Core, Project Memory and Codex that reproduced defects in all three, the remediation of those defects, and a local re-validation of the remediated tree that **failed** on a new Project Memory defect.
+Updated for `0.1.0-rc.3` after a follow-up audit of Core, Project Memory and Codex that reproduced defects in all three, the remediation of those defects, a local re-validation of the remediated tree that failed on a further Project Memory defect, and the fix for that defect. The local gate is now green; independent validation, alpha.1 probes and Codex live acceptance are still missing.
 
 Core, Project Memory and Codex are **THAWED** — the previously accepted freeze no longer describes this tree. Each needs its own validation run before a freeze claim is restored. The Antigravity provider stage is unchanged and still queued behind that.
 
@@ -96,25 +96,25 @@ Fixed in this pass:
 - cleanup failure no longer replaces the real diagnostic;
 - a fatal `error` notification without a `threadId` fails the turn immediately instead of hanging until the 10-minute turn timeout.
 
-### Local gate on this tree — FAIL
+### Local gate on this tree — PASS after one fix
 
-Local re-validation at HEAD `7039913` found a defect. `pnpm verify:local` is **not reliably green**: three consecutive runs gave FAIL, PASS, PASS.
+Local re-validation first ran at HEAD `7039913` and **failed**: `pnpm verify:local` gave FAIL, PASS, PASS over three consecutive runs on a load-sensitive Project Memory recovery read race. That defect is now fixed (see below) and the gate is green.
 
-What was executed at this HEAD:
+Evidence on the fixed tree:
 
 | Evidence | Result |
 |---|---|
-| `pnpm verify:local` x3 | 1 FAIL, 2 PASS |
-| `pnpm build` / `check` / `test` | exit `0`; Core `209`, Project Memory `72`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12` |
-| `pnpm test` x3 (all packages concurrent) | 3/3 exit `0` |
-| Project Memory full suite x5 | 5/5 exit `0` |
-| `compound-transaction` + `transaction-recovery` + `atomic-write` + `filesystem-race` x10 | 10/10 exit `0` |
-| `compound-transaction` alone x8 | 8/8 exit `0` |
-| `compound-transaction` x18 under 6-way process contention | 18/18 exit `0` |
-| lock/WAL residue after the above | none created; three pre-existing `/tmp/dsh-memory-atomic-test-*` directories with `.lock` files predate this run and are unattributed |
-| upstream `dsh-atomic-write` lock interoperability | PASS (in-suite) |
+| `pnpm verify:local` x5 | 5/5 exit `0` |
+| workspace `build` / `check` / `test` | exit `0`; Core `209`, Project Memory `77`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12` |
+| new deterministic race tests x10 | 10/10 exit `0` |
 
-Not executed, and therefore still missing: independent validation, exact-commit alpha.1 runtime probes, and Codex live acceptance. Running them before the defect below is fixed would only produce evidence for a tree that must change.
+Project Memory went from `72` to `77` tests: five new deterministic regressions, no test removed or weakened.
+
+Pre-fix evidence, retained because it describes what the gate does and does not catch: `pnpm test` x3 all exit `0`; Project Memory full suite x5, `compound-transaction` alone x8, and `compound-transaction` x18 under 6-way process contention all passed. Only the full `verify:local` sequence ever reproduced it. A single green `build`/`check`/`test` is not evidence for this class of defect.
+
+Lock/WAL residue: none created by any of these runs. Three pre-existing `/tmp/dsh-memory-atomic-test-*` directories with `.lock` files predate the work and remain unattributed.
+
+Still missing, and required before any freeze claim: independent validation, exact-commit alpha.1 runtime probes, and Codex live acceptance.
 
 The environment for all three is already wired, so none of them needs a fresh build:
 
@@ -122,43 +122,31 @@ The environment for all three is already wired, so none of them needs a fresh bu
 - the global `dsh` on PATH reports `0.1.2-alpha.1` and is a symlink into that checkout's `apps/cli/lib/bin.js`;
 - the `web` profile at `~/.dsh/profiles/web/package.json` links `nishi-dsh-core`, `nishi-dsh-project-memory` and `nishi-dsh-codex` straight from this working tree.
 
-That is a live alpha.1 runtime over the working tree, not a disposable environment. It is the better probe target *and* the sharper hazard: it picks up whatever is in the tree, so a probe run proves nothing unless the tree state it ran against is recorded with it, and editing Foundation source changes the user's running DSH.
+That is a live alpha.1 runtime over the working tree, not a disposable environment. It is the better probe target *and* the sharper hazard: the profile resolves each package's **built** `lib/`, so a probe measures whatever was last built, not the current sources. Build first, record the exact tree state with the probe, or the run proves nothing.
 
-### Reproduced defect — Project Memory recovery read races a concurrent journal rewrite
+### Fixed defect — Project Memory recovery read raced a concurrent journal rewrite
 
-Failing test: `separate processes serialize compound writes through MEMORY.md and preserve every topic/map pair`, `packages/project-memory/test/compound-transaction.test.ts:201`. Rare and load-sensitive: it only appeared under the full `verify:local` sequence, never in ~60 targeted runs including deliberate 6-way contention.
+`recoverPendingProjectMemoryTransaction` probes the fixed-path journal `.dsh/local/project-memory-transaction.json` *unlocked* before doing anything else. A second live process rewriting that journal atomically in the same window left the post-open `lstat` seeing a different inode, and `readRegularFile` treated every identity change as fail-closed. The bounded re-observe loop that exists for exactly this case never saw it, because the condition was thrown from the filesystem layer instead of returned as `RETRY` — so an unrelated caller's memory operation failed. It violated invariant 25.
 
-Failure: a `topic-write-map` worker died with
+The fix splits one condition into two, in `src/filesystem.ts`:
 
-```text
-Error: Canonical target at ".../.dsh/local/project-memory-transaction.json" changed while it was being opened
-```
+- replacement by a symlink or other non-regular entry keeps the original error and stays fail-closed everywhere;
+- replacement by a different *regular* file — the ordinary result of another process's atomic rename — now throws the distinguishable `CanonicalRegularFileReplacedError`.
 
-from `readRegularFile` (`src/filesystem.ts:589`) via `readPendingTransactionFromScope` -> `readPendingTransaction` -> `recoverPendingProjectMemoryTransaction` (`src/transaction.ts:494`) -> `writeTopicMemoryWithMap`.
+`recoverPendingProjectMemoryTransaction` catches that error around the unlocked pre-claim read only, feeding the existing `MAX_RECOVERY_OBSERVATIONS` loop. `claimAndSettleDeadOwner` is untouched: reads after this process has durably claimed the journal still fail closed on any change, including the new error type.
 
-Mechanism: `recoverPendingProjectMemoryTransaction` probes the fixed-path journal *unlocked* before doing anything else. A second live process legitimately rewrote that journal atomically in the same window, so the post-open `lstat` saw a different inode. `readRegularFile` already special-cases concurrent unlink (returns `null`) but treats every identity change as fail-closed, conflating two different events:
+`SafeReadOptions` gained a documented test-only hook fired between the descriptor `stat()` and the pathname `lstat()`, so the regression is deterministic rather than load-dependent. No production call site sets it, and the hook does not cross the package's public boundary — `recoverPendingProjectMemoryTransaction` is not exported from `src/index.ts`.
 
-- replacement by a symlink or non-regular entry — a real security event, must keep failing closed;
-- replacement by another regular file — the ordinary, expected result of another process's atomic journal write.
+Coverage added: benign regular-file replacement re-observes and the caller still succeeds; symlink and directory replacement both still fail closed and are asserted *not* to be the new error type; endless churn stops at the observation bound with the journal intact.
 
-The bounded re-observe loop in `recoverPendingProjectMemoryTransaction` (`MAX_RECOVERY_OBSERVATIONS`) exists for exactly this case but never sees it: the condition is thrown from the filesystem layer instead of returned as `RETRY`, so it escapes the loop and fails an unrelated caller's memory operation.
+Invariants 24 and 25 in `ARCHITECTURE.md` and the Project Memory README were updated to state the sharper distinction.
 
-This violates invariant 25 in `ARCHITECTURE.md` — *a stale pre-claim observation is re-observed, never failed, and never lets an unrelated caller's operation fail* — and sits in the tension invariant 24 leaves open. It is the same defect class as the recovery race remediated in this pass, on the read path the remediation did not cover.
+## Immediate task — finish the validation the fix unblocks
 
-Direction for the fix (not applied):
+1. run an independent validation of Core, Project Memory and Codex against this tree;
+2. produce the evidence still missing: exact-commit alpha.1 runtime probes and Codex live acceptance, using the wired environment above — build the linked packages first;
+3. only then fold durable evidence into `docs/verification/README.md` and restore a freeze claim.
 
-1. in `readRegularFile`, distinguish benign regular-file replacement from symlink/non-regular replacement, and make the benign case distinguishable to callers rather than a bare `Error`;
-2. treat that case as `RETRY` inside the existing observation loop; keep symlink/non-regular replacement fail-closed;
-3. add deterministic coverage that rewrites the journal between open and `lstat`, so the regression does not depend on load;
-4. re-run the whole local gate from scratch afterwards — the evidence above describes the pre-fix tree only.
-
-## Immediate task — fix the defect above, then re-validate
-
-1. fix the Project Memory recovery read race and land its deterministic regression test;
-2. re-run the full local gate on the fixed tree — `pnpm verify:local` repeated enough times to be meaningful, not once;
-3. run an independent validation of Core, Project Memory and Codex against that tree;
-4. produce the evidence still missing: disposable exact-commit alpha.1 runtime probes and Codex live acceptance;
-5. only then fold durable evidence into `docs/verification/README.md` and restore a freeze claim.
 
 Known and deliberately not fixed in this pass: `packages/antigravity` still builds diagnostics from raw vendor stderr — `web-search-backend.ts` around the early-exit branch, and `antigravity-primary.ts` in model discovery (which forwards stderr *or stdout*) and in its collected-run path. This is the same defect class just removed from Codex, and `codexVendorFailure` in `packages/codex/src/codex-plugin-dsh/vendor-stderr.ts` is the working template for the fix.
 

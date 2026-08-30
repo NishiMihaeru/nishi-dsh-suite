@@ -8,7 +8,7 @@ This file owns task status and order only. Architecture belongs in `ARCHITECTURE
 
 A follow-up audit of Core, Project Memory and Codex reopened this freeze again. It reproduced a Project Memory recovery race that failed unrelated memory operations, a Codex path that put raw vendor stderr in front of the model, and a set of smaller correctness and architecture defects. All were remediated; see `docs/HANDOFF.md` for the itemized list.
 
-Local re-validation of this tree returned **FAIL**: `pnpm verify:local` gave FAIL, PASS, PASS over three consecutive runs, on a load-sensitive Project Memory recovery read race that fails an unrelated caller's memory operation. A single `build`/`check`/`test` pass still exits `0` (Core `209`, Project Memory `72`, Codex `61`), which is why the defect was missed. See `docs/HANDOFF.md` for the reproduction and fix direction. There is also **no** independent validation, live acceptance or alpha.1 runtime probe against this tree. The freeze claim below is history.
+Local re-validation of this tree first returned FAIL — `pnpm verify:local` gave FAIL, PASS, PASS over three runs, on a load-sensitive Project Memory recovery read race that failed an unrelated caller's memory operation. That defect is fixed and the gate is now green: `pnpm verify:local` 5/5, Core `209`, Project Memory `77`, Codex `61`. A single `build`/`check`/`test` pass exited `0` throughout, which is why the defect was missed — treat that as the weaker signal it is. See `docs/HANDOFF.md`. There is still **no** independent validation, live acceptance or alpha.1 runtime probe against this tree. The freeze claim below is history.
 
 Previously accepted implementation, now superseded:
 

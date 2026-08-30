@@ -2,9 +2,9 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / LOCAL GATE FAILING**
+Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION & CODEX THAWED PENDING RE-VALIDATION**
 
-Local re-validation of the current tree returned FAIL: `pnpm verify:local` gave FAIL, PASS, PASS over three consecutive runs, on a load-sensitive Project Memory recovery read race. Foundation and Codex remain thawed and pending re-validation, and the release gate cannot start until that defect is fixed and the gate is reliably green. See `HANDOFF.md`.
+The local gate is green again — `pnpm verify:local` 5/5 exit `0` — after fixing a load-sensitive Project Memory recovery read race that the first re-validation caught. Foundation and Codex remain thawed: a green local gate is not an acceptance, and independent validation, alpha.1 runtime probes and Codex live acceptance are all still missing. See `HANDOFF.md`.
 
 Current development baseline:
 

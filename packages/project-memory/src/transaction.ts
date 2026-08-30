@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import type { SafeDirectoryScope } from './filesystem.js'
+import { CanonicalRegularFileReplacedError, type SafeDirectoryScope } from './filesystem.js'
 import { resolveProjectMemoryPaths } from './paths.js'
 import { currentProcessIdentity, processOwnerIsAlive } from './process-identity.js'
 import {
@@ -159,10 +159,12 @@ export function pendingProjectMemoryTransactionPath(projectRoot: string): string
 async function readPendingTransactionFromScope(
   projectRoot: string,
   scope: SafeDirectoryScope,
+  /** TEST-ONLY seam, forwarded to `readRegularFile`. See `readPendingTransaction`. */
+  testOnlyAfterDescriptorStatHook?: () => Promise<void>,
 ): Promise<PendingProjectMemoryTransaction | null> {
   const buffer = await scope.readRegularFile(
     pendingProjectMemoryTransactionPath(projectRoot),
-    { maxBytes: MAX_PENDING_TRANSACTION_BYTES },
+    { maxBytes: MAX_PENDING_TRANSACTION_BYTES, testOnlyAfterDescriptorStatHook },
   )
   if (buffer === null) return null
   return parsePendingTransaction(buffer)
@@ -171,11 +173,18 @@ async function readPendingTransactionFromScope(
 async function readPendingTransaction(
   projectRoot: string,
   signal?: AbortSignal,
+  /**
+   * TEST-ONLY seam. Only ever wired in from the unlocked pre-claim probe in
+   * `recoverPendingProjectMemoryTransaction` -- never from a locked read --
+   * so tests can deterministically exercise that probe's benign-replacement
+   * re-observe path without relying on real concurrency/timing.
+   */
+  testOnlyAfterDescriptorStatHook?: () => Promise<void>,
 ): Promise<PendingProjectMemoryTransaction | null> {
   signal?.throwIfAborted()
   const result = await withExistingProjectLocalScope(
     projectRoot,
-    (localScope) => readPendingTransactionFromScope(projectRoot, localScope),
+    (localScope) => readPendingTransactionFromScope(projectRoot, localScope, testOnlyAfterDescriptorStatHook),
     signal,
   )
   return result ?? null
@@ -476,8 +485,12 @@ async function claimAndSettleDeadOwner(
  *
  * Concurrent callers observing the same dead-owner journal race harmlessly:
  * a benign pre-claim outcome (journal gone, generation/phase changed, owner
- * changed, or owner came back alive) re-observes from scratch instead of
- * failing, up to MAX_RECOVERY_OBSERVATIONS times. If observations keep
+ * changed, owner came back alive, or the journal pathname was atomically
+ * replaced by a different regular file out from under this unlocked probe)
+ * re-observes from scratch instead of failing, up to MAX_RECOVERY_OBSERVATIONS
+ * times. Replacement by a symlink or other non-regular entry still fails
+ * closed, as does any change to the journal after this process has durably
+ * claimed it (see `claimAndSettleDeadOwner`). If observations keep
  * churning past that bound, this returns `false` (nothing recovered by us)
  * rather than looping forever. That is safe for callers: any subsequent
  * `createPendingProjectMemoryTransaction` still fails closed via
@@ -488,10 +501,30 @@ async function claimAndSettleDeadOwner(
 export async function recoverPendingProjectMemoryTransaction(
   projectRoot: string,
   signal?: AbortSignal,
+  /**
+   * TEST-ONLY seam threaded down to the unlocked pre-claim journal read
+   * below. Lets a test deterministically replace the journal with a
+   * different regular file inside the open/lstat race window that read
+   * probes without holding a lock. Must never be set by production code.
+   */
+  testOnlyPreClaimReadHook?: () => Promise<void>,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < MAX_RECOVERY_OBSERVATIONS; attempt++) {
     signal?.throwIfAborted()
-    const initial = await readPendingTransaction(projectRoot, signal)
+    let initial: PendingProjectMemoryTransaction | null
+    try {
+      // This probe is unlocked: nothing has been claimed yet, so a benign
+      // concurrent atomic rewrite of the journal (another regular file
+      // replacing this one) is just a stale observation, not lost proof of
+      // ownership. Re-observe from scratch rather than failing an unrelated
+      // caller's operation. Replacement by a symlink or non-regular entry,
+      // and any change to a journal *after* this process has durably
+      // claimed it (see `claimAndSettleDeadOwner`), still fail closed.
+      initial = await readPendingTransaction(projectRoot, signal, testOnlyPreClaimReadHook)
+    } catch (error) {
+      if (error instanceof CanonicalRegularFileReplacedError) continue
+      throw error
+    }
     if (initial === null) return false
     if (await processOwnerIsAlive(initial.ownerPid, initial.ownerIdentity)) {
       return waitForLiveTransactionToFinish(projectRoot, signal)

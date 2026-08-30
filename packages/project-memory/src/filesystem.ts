@@ -58,6 +58,36 @@ export interface SafeReadOptions {
   readonly maxBytes?: number
   /** Read at most this prefix after validating the opened file identity. */
   readonly prefixBytes?: number
+  /**
+   * TEST-ONLY seam. When provided, invoked after the opened descriptor has
+   * been `stat()`'d but before the canonical pathname's current visibility
+   * is re-checked via `lstat()`. This is the narrow window in which another
+   * process can atomically replace the target, so a test can use this hook
+   * to deterministically land a replacement inside that window instead of
+   * relying on timing. Production code must never set this option.
+   */
+  readonly testOnlyAfterDescriptorStatHook?: () => Promise<void>
+}
+
+/**
+ * Thrown by `readRegularFile` when the canonical pathname was found, after
+ * open, to now resolve to a *different regular file* than the one that was
+ * opened (i.e. another process atomically replaced it, typically via
+ * `rename()` over the same path). This is distinct from replacement by a
+ * symlink or other non-regular entry, which stays a generic fail-closed
+ * `Error` -- that case is a genuine security-relevant event. Replacement by
+ * another regular file is the ordinary, expected result of a concurrent
+ * atomic rewrite and callers that read without holding a lock (a pre-claim
+ * probe, for example) may legitimately treat it as a signal to re-observe
+ * rather than fail.
+ */
+export class CanonicalRegularFileReplacedError extends Error {
+  readonly code = 'CANONICAL_REGULAR_FILE_REPLACED'
+
+  constructor(targetFilePath: string) {
+    super(`Canonical target at "${targetFilePath}" was replaced by a different regular file while it was being opened`)
+    this.name = 'CanonicalRegularFileReplacedError'
+  }
 }
 
 export interface WriterLockOwner {
@@ -574,6 +604,10 @@ function createDirectoryScope(
           )
         }
 
+        if (options.testOnlyAfterDescriptorStatHook !== undefined) {
+          await options.testOnlyAfterDescriptorStatHook()
+        }
+
         let visible: Stats
         try {
           visible = await lstat(targetPath)
@@ -585,8 +619,19 @@ function createDirectoryScope(
           if (error?.code === 'ENOENT') return null
           throw error
         }
-        if (visible.isSymbolicLink() || !visible.isFile() || !sameIdentity(opened, visible)) {
+        // Replacement by a symlink or other non-regular entry is a genuine
+        // security-relevant event and always fails closed with a generic
+        // error, regardless of whether anyone holds a lock.
+        if (visible.isSymbolicLink() || !visible.isFile()) {
           throw new Error(`Canonical target at "${targetFilePath}" changed while it was being opened`)
+        }
+        // Replacement by a *different regular file* (e.g. another process's
+        // atomic rename over the same path) is distinguished so an unlocked,
+        // pre-claim caller can recognise it and re-observe instead of failing
+        // an unrelated operation. Locked callers that need to fail closed on
+        // this too can still do so by checking the error type.
+        if (!sameIdentity(opened, visible)) {
+          throw new CanonicalRegularFileReplacedError(targetFilePath)
         }
         throwIfAborted(signal)
 
