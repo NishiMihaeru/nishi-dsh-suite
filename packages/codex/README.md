@@ -52,9 +52,9 @@ Foundation behavior is not duplicated here: generic provider registration, share
 
 ## Current DSH declaration
 
-The current Codex manifest still declares provider-specific DSH peers at `0.1.1-rc.2` (including `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`, `dsh-attachment`, `dsh-invariants` and `dsh-sdk-protocol`). Its direct `dsh-sdk-protocol` dependency is also `0.1.1-rc.2`.
+The Codex manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`, `dsh-attachment`, `dsh-invariants` and `dsh-sdk-protocol`). Its direct `dsh-sdk-protocol` dependency is the same version.
 
-Only `0.1.2-alpha.1` is a supported DSH generation for this suite; `0.1.1-rc.2` and earlier are unsupported. Those rc.2 peers are therefore unvalidated compatibility debt, not a supported target — Codex has never been probed against alpha.1, and the Foundation's accepted `0.1.2-alpha.1` compatibility does **not** extend to this provider package automatically. Any change to Codex DSH generation support must come from the active provider-specific audit and executable validation against the exact claimed upstream contracts.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Codex's own evidence for it is executable, not inherited: 61 unit tests plus a full 15-scenario live acceptance against real `codex-cli 0.150.0` processes, both on the alpha.1 baseline.
 
 ## Validation status — THAWED, PENDING RE-VALIDATION
 

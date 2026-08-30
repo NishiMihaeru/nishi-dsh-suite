@@ -35,9 +35,9 @@ Project Memory and DSH-native child-agent delegation are external to this provid
 
 ## Current DSH declaration
 
-The current Antigravity manifest declares its provider-specific DSH peers at `0.1.1-rc.2` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
+The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
 
-Only `0.1.2-alpha.1` is a supported DSH generation for this suite; `0.1.1-rc.2` and earlier are unsupported. Those rc.2 peers are therefore unvalidated compatibility debt, not a supported target. The Foundation's accepted `0.1.2-alpha.1` compatibility does **not** automatically validate this provider package. Antigravity compatibility must be established independently when its provider stage begins, and dependency/peer changes should be made only for generations proven by that audit and executable validation.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 38 unit tests plus 11 live scenarios against the real `agy 1.1.22` binary, both on the alpha.1 baseline.
 
 ## Validation status — PENDING PROVIDER STAGE
 

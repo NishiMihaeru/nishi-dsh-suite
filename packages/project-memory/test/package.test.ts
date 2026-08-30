@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const manifestUrl = new URL('../package.json', import.meta.url)
-const SUPPORTED_DSH_PEER_RANGE = '0.1.1-rc.2 || 0.1.2-alpha.1'
+const SUPPORTED_DSH_PEER_RANGE = '0.1.2-alpha.1'
 const LOCAL_DSH_DEV_BASELINE = '0.1.2-alpha.1'
 
 test('project-memory package exposes the public rc.3 package boundary', async () => {

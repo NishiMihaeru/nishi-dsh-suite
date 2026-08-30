@@ -6,10 +6,8 @@ import * as ts from 'typescript'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
 const AUTHORIZATION_PACKAGE = '@deepseek-ai/dsh-authorization'
-const SUPPORTED_DSH_PEER_RANGE = '0.1.1-rc.2 || 0.1.2-alpha.1'
+const SUPPORTED_DSH_PEER_RANGE = '0.1.2-alpha.1'
 const LOCAL_DSH_DEV_BASELINE = '0.1.2-alpha.1'
-/** Retired packages exist only in rc.2, so their dev fixtures cannot move with the baseline. */
-const RETIRED_DSH_DEV_PIN = '0.1.1-rc.2'
 const RETIRED_DSH_PACKAGES = [
   '@deepseek-ai/dsh-host-apiproxy',
   '@deepseek-ai/dsh-client-runtime',
@@ -125,11 +123,16 @@ test('retired alpha.1 DSH package seams are not runtime requirements', async () 
     'the browser manifest must not request the removed dsh-client-runtime plugin',
   )
 
-  // These two packages were retired before alpha.1 and exist only at rc.2, so
-  // their dev fixtures stay pinned there while the rest of the graph moves.
-  // Consumers never receive devDependencies.
-  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-client-runtime'], RETIRED_DSH_DEV_PIN)
-  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-host-apiproxy'], RETIRED_DSH_DEV_PIN)
+  // These two packages were retired before alpha.1 and exist nowhere in the
+  // supported graph, so their dev fixtures are removed outright rather than
+  // pinned to a range.
+  for (const retiredPackage of RETIRED_DSH_PACKAGES) {
+    assert.equal(
+      manifest.devDependencies?.[retiredPackage],
+      undefined,
+      `${retiredPackage} must stay absent from devDependencies`,
+    )
+  }
 })
 
 test('Core publishes only the two validated DSH generations while developing against alpha.1', async () => {
@@ -145,10 +148,6 @@ test('Core publishes only the two validated DSH generations while developing aga
     .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
   assert.ok(dshDevDependencies.length > 0)
   for (const [name, range] of dshDevDependencies) {
-    if (RETIRED_DSH_PACKAGES.includes(name as typeof RETIRED_DSH_PACKAGES[number])) {
-      assert.equal(range, RETIRED_DSH_DEV_PIN, `${name} was retired before alpha.1 and must stay pinned to rc.2`)
-      continue
-    }
     assert.equal(range, LOCAL_DSH_DEV_BASELINE, `${name} must develop against the only supported DSH generation`)
   }
 })

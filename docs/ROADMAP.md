@@ -52,13 +52,13 @@ Windows remains **NOT TESTED**. Unsupported process-identity seams remain conser
 
 Supported DSH generation: `0.1.2-alpha.1` only.
 
-Foundation production DSH peers are still declared wider than that:
+Foundation production DSH peers declare exactly that:
 
 ```text
-0.1.1-rc.2 || 0.1.2-alpha.1
+0.1.2-alpha.1
 ```
 
-The rc.2 side is unsupported compatibility surface, kept only because upstream has not published alpha.1 to npm; the devDependency graph is rc.2 for the same reason. The alpha.1 compatibility claim is supported by the accepted disposable exact-commit validation, not by rc.2 workspace tests alone.
+The devDependency graph matches, so the alpha.1 claim rests on the whole workspace suite running against alpha.1, not on a one-off probe.
 
 ## Architectural overcomplexity disposition
 
@@ -153,18 +153,20 @@ Automatic failover remains deferred.
 - [ ] managed Orchestrator preset install/status/update/remove;
 - [ ] Suite removal preserves unrelated profile/session/project/vendor state.
 
-## 7b. DSH support boundary — alpha.1 only
+## 7b. DSH support boundary — alpha.1 only — DONE except the upstream blocker
 
-Policy is decided and recorded in `docs/README.md`: `0.1.2-alpha.1` is the only supported DSH generation; `0.1.1-rc.2` and earlier are unsupported. The manifests do not implement it yet. Blocked on upstream, then gated:
+`0.1.2-alpha.1` is the only supported DSH generation, and the repository now says so everywhere rather than only in policy.
 
-- [x] move the Core and Project Memory devDependency/test baseline from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides. Whole workspace green: `pnpm verify:local` exit `0`, 375 tests. `pnpm install` now needs that checkout present;
-- [ ] **blocked**: upstream publishes `0.1.2-alpha.1` to npm. Today the newest published DSH is `0.1.1-rc.2`, so an alpha.1-only peer range would be uninstallable from the registry, and the dev graph cannot come from the registry either;
-- [ ] replace the local-checkout overrides with ordinary registry versions once that happens;
-- [ ] narrow Core and Project Memory peers from `0.1.1-rc.2 || 0.1.2-alpha.1` to `0.1.2-alpha.1`;
-- [ ] remove the `registerConnectionRpcChannel()` `Function.length` rc2/alpha probe in the same change;
-- [ ] decide provider peers (`codex`, `claude`, `antigravity`) per provider, from that provider's own audit — they still declare rc.2 and have never been probed against alpha.1, so they do not move with the Foundation.
+- [x] Foundation devDependency/test baseline moved from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides;
+- [x] Core and Project Memory peers narrowed to `0.1.2-alpha.1`;
+- [x] provider peers (`codex`, `antigravity`, `claude`) moved to `0.1.2-alpha.1`, each on its own evidence — Codex 61 unit tests plus 15 live scenarios, Antigravity 38 plus 11, Claude 7 unit tests only and correspondingly weaker;
+- [x] the Suite's `dsh-authorization` dependency and `DSH_COMPATIBILITY_VERSION` moved;
+- [x] `registerConnectionRpcChannel()`'s `Function.length` arity probe removed with the rc.2 branch it selected; the named seam stays because it records that Connection owns the disposer;
+- [x] Core's retired rc.2 dev fixtures (`dsh-client-runtime`, `dsh-host-apiproxy`) dropped; the invariant that they stay out of `dependencies`/`peerDependencies` and out of production imports remains;
+- [ ] **blocked on upstream**: publish `0.1.2-alpha.1` to npm. Until then the declared ranges are uninstallable from the registry, which gates publication rather than development;
+- [ ] once published, replace the local-checkout overrides in `pnpm-workspace.yaml` with ordinary registry versions and delete the *Local setup* note in `docs/README.md`.
 
-Each item is a published-contract change and needs its own validation evidence. Do not fold it into an unrelated pass.
+Two rc.2 literals survive on purpose: the provenance line in `packages/codex/THIRD_PARTY_NOTICES.md`, which is a historical fact about what the code was derived from, and a comment in `packages/suite/cordis.patch.yml` describing an rc.2 launcher bug. That second one is worth re-checking: if alpha.1 preserves third-party preset roots, the Suite's managed preset bridge is obsolete and should be removed rather than carried forward.
 
 ## 8. Release gate
 

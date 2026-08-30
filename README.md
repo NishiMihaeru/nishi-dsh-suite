@@ -6,7 +6,7 @@ The only supported DeepSeek Harness generation is `0.1.2-alpha.1` (upstream tag 
 
 The workspace builds and tests against alpha.1: Core and Project Memory develop against `0.1.2-alpha.1`, resolved from a local checkout of the upstream commit above, since alpha.1 is not on npm.
 
-The published contract has not moved with it, deliberately. Upstream has not published `0.1.2-alpha.1` to npm — the newest published DSH is `0.1.1-rc.2` — so the Foundation packages still declare the peer union `0.1.1-rc.2 || 0.1.2-alpha.1`, and provider packages still declare rc.2 peers. Narrowing those ranges is a published-contract change with its own validation gate; see `docs/README.md` for the full gap list. Provider packages do not inherit Foundation alpha.1 compatibility automatically.
+Every declared range says the same thing — Foundation peers, provider peers and the Suite's own DSH dependency are all `0.1.2-alpha.1`. Each provider moved on its own executable evidence rather than by inheriting the Foundation's. Those ranges cannot be installed from npm until upstream publishes alpha.1, which blocks publication, not development; see `docs/README.md`.
 
 The product goal is simple: switching subscription providers should be a route change, not an environment change. DSH keeps the same tools, project memory, Usage & Limits surface, profile and session context while vendor-specific protocol code stays behind one provider-independent core contract.
 
@@ -82,7 +82,7 @@ The packaged Orchestrator preset provides:
 
 Vendor-specific delegation tools are removed in rc.3.
 
-DSH `0.1.1-rc.2` does not reliably preserve third-party contributed preset roots, so the Suite currently uses an explicit managed bridge:
+DSH `0.1.1-rc.2` did not reliably preserve third-party contributed preset roots, so the Suite uses an explicit managed bridge. Whether alpha.1 still has that limitation has not been re-checked — if it does not, the bridge is obsolete:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install

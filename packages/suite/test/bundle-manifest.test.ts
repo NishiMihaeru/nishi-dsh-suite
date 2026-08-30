@@ -24,7 +24,7 @@ test('suite manifest is a DSH bundle with the exact prerelease package family', 
   assert.equal(manifest.bin?.['nishi-dsh-suite'], './lib/bin.js')
 
   const dependencies = manifest.dependencies ?? {}
-  assert.equal(dependencies['@deepseek-ai/dsh-authorization'], '0.1.1-rc.2')
+  assert.equal(dependencies['@deepseek-ai/dsh-authorization'], '0.1.2-alpha.1')
 
   const nishiDependencies = Object.keys(dependencies).filter((name) => name.startsWith('nishi-dsh-')).sort()
   assert.deepEqual(nishiDependencies, expectedNishiDependencies)

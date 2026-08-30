@@ -55,13 +55,13 @@ assert.equal(
 )
 assert.equal(
   codexManifest.peerDependencies?.['@deepseek-ai/dsh-attachment'],
-  '0.1.1-rc.2',
-  'nishi-dsh-codex: peerDependencies must pin @deepseek-ai/dsh-attachment to 0.1.1-rc.2',
+  '0.1.2-alpha.1',
+  'nishi-dsh-codex: peerDependencies must pin @deepseek-ai/dsh-attachment to 0.1.2-alpha.1',
 )
 assert.equal(
   codexManifest.peerDependencies?.['@deepseek-ai/dsh-session'],
-  '0.1.1-rc.2',
-  'nishi-dsh-codex: peerDependencies must pin @deepseek-ai/dsh-session to 0.1.1-rc.2',
+  '0.1.2-alpha.1',
+  'nishi-dsh-codex: peerDependencies must pin @deepseek-ai/dsh-session to 0.1.2-alpha.1',
 )
 assert.equal(
   await exists(new URL('src/codex-plugin-dsh/index.ts', codexRoot)),
@@ -82,7 +82,7 @@ assert.match(
 
 const suiteRoot = new URL('packages/suite/', root)
 const suite = JSON.parse(await readFile(new URL('package.json', suiteRoot), 'utf8'))
-assert.equal(suite.dependencies?.['@deepseek-ai/dsh-authorization'], '0.1.1-rc.2')
+assert.equal(suite.dependencies?.['@deepseek-ai/dsh-authorization'], '0.1.2-alpha.1')
 assert.equal(suite.bin?.['nishi-dsh-suite'], './lib/bin.js')
 assert.equal(await exists(new URL('src/bin.ts', suiteRoot)), true)
 assert.equal(await exists(new URL('src/cli.ts', suiteRoot)), true)

@@ -5,7 +5,7 @@ Nishi DSH Suite composes migrated derivative provider integrations originally ba
 ## DeepSeek Harness
 
 - Upstream: `deepseek-ai/deepseek-harness`
-- Compatibility baseline: `0.1.1-rc.2`
+- Compatibility baseline: `0.1.2-alpha.1`
 - License: MIT
 - Copyright: Copyright (c) 2026 DeepSeek
 

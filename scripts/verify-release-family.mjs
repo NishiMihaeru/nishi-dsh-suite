@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const VERSION = '0.1.0-rc.3'
-const DSH_VERSION = '0.1.1-rc.2'
+const DSH_VERSION = '0.1.2-alpha.1'
 const packages = [
   ['packages/core', 'nishi-dsh-core'],
   ['packages/codex', 'nishi-dsh-codex'],
@@ -46,7 +46,7 @@ assert.deepEqual(actualSuiteFamilyDeps, expectedSuiteFamilyDeps, 'suite must dep
 assert.equal(
   suite.dependencies?.['@deepseek-ai/dsh-authorization'],
   DSH_VERSION,
-  'suite must install the rc.2 authorization service required by Usage Limits Host',
+  'suite must install the alpha.1 authorization service required by Usage Limits Host',
 )
 assert.equal(suite.dsh?.bundle?.patch, './cordis.patch.yml', 'suite must export the DSH bundle patch')
 
@@ -61,7 +61,7 @@ for (const [name, manifest] of manifests) {
     for (const dependency of Object.keys(manifest[section] ?? {})) {
       assert.ok(
         !FORBIDDEN_VENDOR_RUNTIMES.includes(dependency),
-        `${name}: ${section}.${dependency} bundles a vendor runtime; rc.2 drives the installed CLI instead`,
+        `${name}: ${section}.${dependency} bundles a vendor runtime; DSH drives the installed CLI instead`,
       )
     }
   }

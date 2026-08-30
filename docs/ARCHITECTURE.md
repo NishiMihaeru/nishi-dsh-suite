@@ -2,7 +2,7 @@
 
 Status: canonical `0.1.0-rc.3` architecture. This document describes the current tree, which is **no longer the frozen accepted checkpoint**: a follow-up audit of Core, Project Memory and Codex found and fixed defects in all three, so Foundation and Codex are thawed and pending re-validation. See *Current implementation state* at the end for exactly what changed and what evidence does and does not exist.
 
-The only supported DSH generation is official `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported** and carry no compatibility claim. The manifests do not yet match that policy; `docs/README.md` owns the policy statement and the list of gaps still to be closed.
+The only supported DSH generation is official `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported** and carry no compatibility claim. The manifests, the dev graph and every test now say exactly that; `docs/README.md` owns the policy statement.
 
 ## Product contract
 
@@ -303,7 +303,7 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 25. A journal is claimed only after a lock-held read proves its owner dead; a stale pre-claim observation — including the fixed journal pathname being atomically replaced by a different regular file — is re-observed, never failed, and never lets an unrelated caller's operation fail. That re-observation is bounded and applies only to the unlocked pre-claim probe: replacement by a symlink or other non-regular entry still fails closed there, and any change to the journal after this process has durably claimed it still fails closed regardless of shape.
 26. Losing a recovery race is a normal outcome; only mutation of a claim this process already wrote fails closed.
 27. Every Project Memory read-modify-write path bounds the bytes it materializes, package-owned and user-owned files alike.
-28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. Core and Project Memory build and test against alpha.1 resolved from the local upstream checkout. The declared peer union is still `0.1.1-rc.2 || 0.1.2-alpha.1` because upstream has not published alpha.1 to npm; narrowing it is a published-contract change with its own gate.
+28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. Every declared range, the dev graph and the whole test suite say exactly that. The ranges are not installable from npm until upstream publishes alpha.1, which gates publication rather than development.
 29. Web search output is external, attacker-reachable text: every rendered `web_search` result leads with the untrusted-content notice and the registered system-prompt guidance says the same, so returned content is never presented to the model as instructions.
 30. Windows remains NOT TESTED.
 
