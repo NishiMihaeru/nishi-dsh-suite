@@ -43,7 +43,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 |---|---|
 | Core | remediated; Model Accounts surface removed outright; 182 tests |
 | Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
-| Codex | provider audit done, thread handling redesigned, live acceptance passing; 72 tests |
+| Codex | provider audit done, thread handling redesigned, live acceptance passing; 78 tests |
 | Antigravity | provider stage complete except the freeze; 62 tests |
 | Claude | usage-only stub, unchanged; 6 tests |
 | Suite | unchanged; 12 tests |
@@ -67,6 +67,7 @@ Ordered by how much it changes the contract.
 - **Project Memory recovery read race fixed** (`e38ce06`). A benign concurrent journal rewrite failed an unrelated caller's memory operation. Found only because `pnpm verify:local` was run repeatedly; a single pass stayed green throughout.
 - **Vendor-authored text no longer reaches the model or the user** anywhere in the suite. Antigravity gained `antigravityVendorFailure`; Codex's remaining two sites were closed, one of them only after a review caught that a commit had already declared the work finished.
 - **Antigravity provider stage**: audit, 7 → 62 tests, catalog parsing rewritten against the format the vendor really emits, vendor sandbox flag added, intra-package duplication removed, usage harvested from the provider's own turn process.
+- **Codex no longer fails a turn over a context block it cannot carry** (issue #4). A stopped subagent's settlement notice quotes the interrupted child's terminal output, `tool-call` blocks included, into a `user` message. The plugin rejected those blocks, which killed the live turn and — with no checkpoint written — every later replay of that session. They are now projected to text on the transient request; durable history is untouched. Covered by focused tests only: it landed after the Codex live acceptance run above.
 - **Web search left as it is, deliberately.** The investigation found the suite already routes search through the session's live primary model — the concern that prompted it was unfounded. What did change: search results now carry an untrusted-content notice (`81ca500`), which they previously did not.
 
 ## What remains

@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolCallId, ContentBlock, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import { projectedContentText } from './content-projection.js'
 
 /** Namespace that keeps DSH-owned tools distinct from Codex built-in tools. */
 export const DSH_TOOL_NAMESPACE = 'dsh'
@@ -153,9 +154,7 @@ export async function codexDynamicToolResult(
     if (block.type === 'image') {
       return { type: 'inputImage' as const, imageUrl: await resolveImageUrl(block.attachment) }
     }
-    throw new Error(
-      `codex-plugin-dsh: DSH tool result ${JSON.stringify(String(callId))} contains unsupported ${JSON.stringify(block.type)} content`,
-    )
+    return { type: 'inputText' as const, text: projectedContentText(block) }
   }))
   const steerInput = (await Promise.all(messages.slice(matched.index + 1).map(async (message) => {
     if (message.role === 'assistant' || message.source.kind === 'tool') {
@@ -164,9 +163,7 @@ export async function codexDynamicToolResult(
     return Promise.all(message.content.map(async (block) => {
       if (block.type === 'text') return { type: 'text' as const, text: block.text, text_elements: [] as const }
       if (block.type === 'image') return { type: 'image' as const, url: await resolveImageUrl(block.attachment) }
-      throw new Error(
-        `codex-plugin-dsh: context after tool result ${JSON.stringify(String(callId))} contains unsupported ${JSON.stringify(block.type)} content`,
-      )
+      return { type: 'text' as const, text: projectedContentText(block), text_elements: [] as const }
     }))
   }))).flat()
   return {

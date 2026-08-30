@@ -3,9 +3,11 @@
  *
  * The App Server adapter can import foreign assistant text and tool calls, but
  * its Responses history format is stricter than DSH's durable provider-neutral
- * history: foreign reasoning is not importable and Responses limits function-call
- * ids to 64 characters. DSH keeps the original messages unchanged; this bridge
- * projects only the transient request handed to Codex.
+ * history: foreign reasoning is not importable, Responses limits function-call
+ * ids to 64 characters, and user/system input carries only text and images
+ * while producer-supplied context may quote any block a plugin emitted. DSH
+ * keeps the original messages unchanged; this bridge projects only the
+ * transient request handed to Codex.
  *
  * Runtime selection is intentionally not handled here. RC2 uses the external
  * Codex CLI boundary configured by the provider itself.
@@ -19,6 +21,7 @@ import {
   type GenerateOptions,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import { projectedContentText } from './codex-plugin-dsh/content-projection.js'
 import {
   CODEX_APP_SERVER_PROVIDER,
   CodexAppServerAdapter,
@@ -84,8 +87,23 @@ export function projectCodexPrimaryHistory(options: GenerateOptions): GenerateOp
       && source?.kind === 'model'
       && source?.provider !== CODEX_APP_SERVER_PROVIDER
 
+    // Producer-supplied context is provider-neutral and may quote blocks
+    // Responses input cannot carry -- a stopped subagent's settlement notice
+    // repeats the child's terminal output, `tool-call` blocks included. Those
+    // are projected to text here so the notice reaches Codex instead of
+    // failing the turn and every later replay of the session. A tool-sourced
+    // user message is exempt: its `tool-result` block is the one App Server
+    // does import, as `function_call_output`.
+    const projectableContext = (message.role === 'user' || message.role === 'system')
+      && source?.kind !== 'tool'
+
     let messageChanged = false
     const content = message.content.flatMap((block) => {
+      if (projectableContext && block.type !== 'text' && block.type !== 'image') {
+        messageChanged = true
+        return [{ type: 'text' as const, text: projectedContentText(block) }]
+      }
+
       if (foreignAssistant && block.type === 'reasoning') {
         messageChanged = true
         return []

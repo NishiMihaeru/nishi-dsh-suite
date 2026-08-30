@@ -60,9 +60,17 @@ The Codex manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (
 
 `nishi-dsh-codex` previously passed independent validation, focused test gates, and live acceptance against official `codex-cli 0.150.0`. A follow-up audit then changed this package: vendor diagnostics are sanitized through Core's `VendorFailure` contract, native-search runtime verification is cached per executable instead of run per query, an unsupported App Server version reports `UNAVAILABLE` rather than `ERROR`, the Windows batch shim covers `codex exec`, cleanup failure no longer replaces the real diagnostic, a thread-less fatal `error` notification fails the turn instead of hanging, and — later in the same stage — the vendor thread is resumed instead of forked every turn (see *Vendor threads and prompt caching* below).
 
-That original acceptance therefore describes a tree this one no longer matches. On the current tree, focused tests pass (69/69), `pnpm verify:local` exits `0` on three consecutive runs, and Codex live acceptance passes: primary, the full 15-scenario suite, and both web-search suites (`test:live:web-search`, `test:live:web-search-routed`). The two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL` to be set and fail a precondition assertion — not a product defect — without it. What is still missing is independent validation by a party that did not write the code, and a repeated exact-commit alpha.1 runtime probe.
+That original acceptance therefore describes a tree this one no longer matches. On the current tree, focused tests pass (78/78), `pnpm verify:local` exits `0` on three consecutive runs, and Codex live acceptance passes: primary, the full 15-scenario suite, and both web-search suites (`test:live:web-search`, `test:live:web-search-routed`). The two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL` to be set and fail a precondition assertion — not a product defect — without it. What is still missing is independent validation by a party that did not write the code, and a repeated exact-commit alpha.1 runtime probe.
 
 Accepted evidence and verification history live in `docs/verification/README.md` and `docs/verification/gemini/LATEST.md`.
+
+## Context blocks Codex input cannot carry
+
+DSH's durable history is provider-neutral, so a `user` or `system` message may quote any block a producer emitted. App Server input carries only text and images. Where the two disagree — a stopped subagent's settlement notice repeats the interrupted child's terminal output, `tool-call` blocks included — the block is **projected to text** (`[dsh: tool call read({"path":"/etc/hosts"})]`) on the transient request, in history replay, in a dynamic tool's result, and in context steered into a live turn. Durable DSH history is never rewritten.
+
+Rejecting those blocks instead is what this replaced: it failed the active turn and, because no App Server checkpoint was then written, every later replay of that session as well. One case is lossy and deliberately so: an image nested inside a projected `tool-result` becomes a marker, because no input item is being emitted to attach its bytes to.
+
+This landed after the live acceptance run described above and has focused-test coverage only.
 
 ## Vendor threads and prompt caching
 

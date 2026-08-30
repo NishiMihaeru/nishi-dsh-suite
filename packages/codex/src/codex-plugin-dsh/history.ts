@@ -2,6 +2,7 @@
 
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
+import { projectedContentText } from './content-projection.js'
 
 /** Replay data persisted on each successful DSH assistant message. */
 export interface CodexReplayState {
@@ -87,16 +88,23 @@ function textBlocks(blocks: readonly ContentBlock[], label: string): string[] {
   })
 }
 
+/**
+ * A trailing non-tool user message is this turn's input rather than history.
+ *
+ * Content type does not enter the decision: blocks App Server input cannot
+ * carry are projected to text (see {@link projectedContentText}). Deciding on
+ * content instead would push a settlement notice whose last block is a
+ * `tool-call` back into history, and a turn woken by nothing but that notice
+ * would then have no input at all.
+ */
 function isCurrentTurnInput(message: Message): boolean {
   return message.role === 'user'
     && message.source.kind !== 'tool'
     && message.content.length > 0
-    && message.content.every(block => block.type === 'text' || block.type === 'image')
 }
 
 async function inputContent(
   blocks: readonly ContentBlock[],
-  label: string,
   resolveImageUrl: CodexImageUrlResolver,
 ): Promise<Record<string, unknown>[]> {
   return Promise.all(blocks.map(async (block) => {
@@ -104,7 +112,7 @@ async function inputContent(
     if (block.type === 'image') {
       return { type: 'input_image', image_url: await resolveImageUrl(block.attachment) }
     }
-    throw new Error(`codex-plugin-dsh: ${label} contains unsupported ${JSON.stringify(block.type)} content`)
+    return { type: 'input_text', text: projectedContentText(block) }
   }))
 }
 
@@ -116,7 +124,7 @@ async function toolOutput(
   if (block.content.every(item => item.type === 'text')) {
     return textBlocks(block.content, label).join('\n')
   }
-  return inputContent(block.content, label, resolveImageUrl)
+  return inputContent(block.content, resolveImageUrl)
 }
 
 async function userHistoryItem(
@@ -137,7 +145,7 @@ async function userHistoryItem(
   return [{
     type: 'message',
     role: message.role,
-    content: await inputContent(message.content, 'user history', resolveImageUrl),
+    content: await inputContent(message.content, resolveImageUrl),
   }]
 }
 
@@ -230,9 +238,7 @@ export async function prepareCodexHistory(
     if (block.type === 'image') {
       return { type: 'image' as const, url: await resolveImageUrl(block.attachment) }
     }
-    throw new Error(
-      `codex-plugin-dsh: current user input contains unsupported ${JSON.stringify(block.type)} content`,
-    )
+    return { type: 'text' as const, text: projectedContentText(block), text_elements: [] as const }
   }))))).flat()
   if (turnInput.every(input => input.type === 'text' && input.text.trim().length === 0)) {
     throw new Error('codex-plugin-dsh: the current Codex turn is empty')
