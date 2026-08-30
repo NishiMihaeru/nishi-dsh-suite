@@ -28,6 +28,8 @@ The package registers:
 
 Named-topic model-facing writes/edits use a journaled compound transaction so topic content and the canonical `MEMORY.md` map entry move together across ordinary errors and process death.
 
+There is intentionally no destructive `memory_delete` tool. Retiring or removing a topic is a two-step operation: remove the topic file under `.dsh/memory/<topic>.md`, and remove its mapping line from `## Memory map` in `.dsh/memory/MEMORY.md` using `memory_edit(topic="memory", ...)` (or run `/consolidate`).
+
 Topic ids are flat lowercase ASCII identifiers containing letters, digits and hyphens, at most 64 characters. `memory` and Windows reserved device names are rejected.
 
 Limits:

@@ -78,7 +78,8 @@ Fixed in this pass:
 
 - **the reproduced defect**: two callers recovering the same abandoned journal made the loser throw, and the tool layer turned that into a failed memory operation for a completely unrelated topic. Benign pre-claim races now re-observe instead of failing; fail-closed narrowed to mutation of a claim this process already wrote;
 - `.dsh/project.json` and `.gitignore` are read under explicit bounds like every other read-modify-write path in the package;
-- the writer-lock wait budget moved from 2 s to 10 s, sized for what the holder actually does under one lock, and became overridable per scope via `lockWaitMs`.
+- the writer-lock wait budget moved from 2 s to 10 s, sized for what the holder actually does under one lock, and became overridable per scope via `lockWaitMs`;
+- documented explicit topic retirement/removal rules in `DSH.md`, `INITIAL_DSH_MD_CONTENT`, and package README (removing topic file and editing `MEMORY.md` memory map via `memory_edit` without native `memory_delete`).
 
 One previously documented invariant was deliberately weakened: pre-claim owner transfer no longer fails closed, it re-observes. The safety property behind it is intact — a journal is still claimed only after a lock-held read proves its owner dead. `docs/ARCHITECTURE.md` and the package README were updated accordingly.
 
