@@ -160,6 +160,7 @@ export class AntigravitySearchBackend {
         '--output-format', 'stream-json',
         '--json-schema', schemaPath,
         '--agent', AGENT_NAME,
+        '--sandbox',
         '--model', route.model,
         ...effortArgs(route.reasoningEffort),
         '--print-timeout', `${Math.max(1, Math.ceil(this.config.timeoutMs / 1000))}s`,

@@ -5,12 +5,15 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 
 /**
- * Regression net for `BLOCKED_NATIVE_TOOLS` (antigravity-primary.ts:48),
+ * Regression net for `BLOCKED_NATIVE_TOOLS` (antigravity-primary.ts:58),
  * checked in `stream()` right after `runTurn()` resolves
- * (antigravity-primary.ts:456). This check is post-hoc: it inspects the
- * turn's already-collected event stream for a blocked native tool
- * invocation after the vendor CLI has already run it. It does not, and
- * cannot, prevent the vendor CLI from invoking the tool in the first place.
+ * (antigravity-primary.ts:499). This check is a backstop, not prevention: it
+ * inspects the turn's already-collected event stream for a blocked native
+ * tool invocation after the vendor CLI has already run it. It sits behind
+ * two preventive layers -- the `finish`-only tool allowlist declared in the
+ * bridge agent markdown, and the vendor's own `--sandbox` terminal
+ * restrictions passed to every turn invocation -- and exists in case either
+ * of those is bypassed or the vendor CLI changes behaviour.
  */
 
 const config = {

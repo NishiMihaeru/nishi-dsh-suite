@@ -46,6 +46,15 @@ const BRIDGE_SCHEMA = {
   required: ['kind', 'text', 'tool_calls'],
 } as const
 
+/**
+ * Backstop, not prevention: checked in `stream()` only after `runTurn()`
+ * resolves, so it inspects an already-collected event stream for a blocked
+ * native tool invocation after the vendor CLI has already run it. The two
+ * preventive layers are the `finish`-only tool allowlist in
+ * {@link bridgeAgentMarkdown} and the vendor's own `--sandbox` terminal
+ * restrictions passed to every turn invocation; this set exists in case
+ * either of those is bypassed or the vendor CLI changes behaviour.
+ */
 const BLOCKED_NATIVE_TOOLS = new Set([
   'call_mcp_tool',
   'grep_search',
@@ -418,11 +427,28 @@ function isSuccess(result: AgyTurnResult): boolean {
   return result.status === 'SUCCESS'
 }
 
+/**
+ * result.error is vendor-authored free text like any other vendor output, so
+ * it is sanitised here rather than forwarded -- this is the last of the five
+ * sites in this package where a failed vendor process could otherwise leak
+ * into an ordinary DSH diagnostic. `status` is a safe, caller-controlled
+ * enum value and may still be named directly.
+ *
+ * Known cost, accepted the same way at the other four sites: until
+ * `ANTIGRAVITY_STDERR_RECOGNIZERS` grows, an ordinary turn failure reports
+ * an unrecognized category instead of the vendor's own words. Safe and
+ * uninformative beats informative and leaking.
+ */
 function resultFailure(result: AgyTurnResult): LlmError {
-  const detail = typeof result.error === 'string' && result.error.length > 0
-    ? result.error
-    : `status ${String(result.status)}`
-  return new LlmError(`Antigravity CLI turn failed: ${detail}`, 'ANTIGRAVITY_CLI')
+  const failure = antigravityVendorFailure({
+    stage: 'turn',
+    stderrText: typeof result.error === 'string' ? result.error : undefined,
+  })
+  return new LlmError(
+    `Antigravity CLI turn failed (status ${String(result.status)}). ${failure.message}`,
+    'ANTIGRAVITY_CLI',
+    { cause: failure },
+  )
 }
 
 export class AntigravityCliAdapter extends LlmAdapter {
@@ -715,6 +741,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       '--output-format', 'stream-json',
       '--json-schema', workspace.files[BRIDGE_SCHEMA_FILE],
       '--agent', AGENT_NAME,
+      '--sandbox',
       '--model', options.model,
       ...(options.reasoningEffort === undefined
         ? []

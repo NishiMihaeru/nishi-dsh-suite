@@ -7,14 +7,16 @@ import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { AntigravitySearchBackend, AntigravityWebSearchBackendError } from '../src/web-search-backend.ts'
 
 /**
- * Regression net for the four sites that used to forward raw vendor stdio to
+ * Regression net for the five sites that used to forward raw vendor stdio to
  * a caller:
  *   - web-search-backend.ts  (exited before a result event -> antigravityVendorFailure, stage 'web-search-exit')
  *   - web-search-backend.ts  (status !== SUCCESS -> antigravityVendorFailure, stage 'web-search')
  *   - antigravity-primary.ts (model discovery failure -> antigravityVendorFailure, stage 'model-discovery')
  *   - antigravity-primary.ts (turn exited before a result event -> antigravityVendorFailure, stage 'turn')
+ *   - antigravity-primary.ts (resultFailure(): an ordinary turn result reporting
+ *     status !== SUCCESS -> antigravityVendorFailure, stage 'turn')
  *
- * All four now route through Core's `VendorFailure` sanitization contract
+ * All five now route through Core's `VendorFailure` sanitization contract
  * (see ../src/vendor-stderr.ts). Every test here drives a failing vendor run
  * whose stderr/error carries an unmistakable marker, asserts the error
  * type/code a caller actually receives (unchanged from before), and then
@@ -218,6 +220,32 @@ test('B4 (antigravity-primary.ts, stage turn): a turn exiting before a result ev
     assert.equal(error.cause.stage, 'turn')
     assert.equal(error.cause.category, 'unrecognized')
     assert.equal(error.cause.exitCode, 1)
+    return true
+  })
+})
+
+// --- antigravity-primary.ts: resultFailure() -----------------------------
+
+test('C1 (antigravity-primary.ts, resultFailure, stage turn): an ordinary turn result reporting failure surfaces ANTIGRAVITY_CLI with no vendor text', async () => {
+  const resultLine = JSON.stringify({ event: 'result', result: { status: 'FAILED', error: MARKER } })
+  const ctx = turnCtx({ lines: [resultLine], stderr: '', exitCode: 0 })
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_CLI')
+    // result.error is vendor-authored free text carried in the structured
+    // result rather than stderr -- the secret path and fake token planted in
+    // it must never reach the message, only the sanitised category text and
+    // the safe, caller-controlled status enum may.
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+    assert.ok(error.message.length < 500, 'message stays small')
+    assert.match(error.message, /status FAILED/)
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.stage, 'turn')
+    assert.equal(error.cause.category, 'unrecognized')
     return true
   })
 })
