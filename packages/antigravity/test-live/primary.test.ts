@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, {
-  CallId,
+  ToolCallId,
   LlmError,
   createUserMessage,
   createAssistantMessage,
@@ -46,13 +46,13 @@ function assistantText(text: string, model = 'gemini-3.7-flash-medium') {
 
 function assistantToolCall(callId: string, name: string, args: Record<string, unknown>, model = 'gemini-3.7-flash-medium') {
   return createAssistantMessage({
-    content: [{ type: 'tool-call', id: CallId(callId), name, arguments: JSON.stringify(args) }],
+    content: [{ type: 'tool-call', id: ToolCallId(callId), name, arguments: JSON.stringify(args) }],
     source: { provider: ANTIGRAVITY_PRIMARY_PROVIDER, model },
   })
 }
 
 function toolResult(callId: string, text: string) {
-  return createToolResultMessage({ callId: CallId(callId), content: [{ type: 'text', text }] })
+  return createToolResultMessage({ callId: ToolCallId(callId), content: [{ type: 'text', text }] })
 }
 
 function createTestContext() {
