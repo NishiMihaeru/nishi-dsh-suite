@@ -2,30 +2,36 @@
 
 Current target: `0.1.0-rc.3`
 
-Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION & CODEX THAWED PENDING RE-VALIDATION**
+Status: **IN REPOSITORY / UNPUBLISHED / LOCAL GATE FAILING**
+
+Local re-validation of the current tree returned FAIL: `pnpm verify:local` gave FAIL, PASS, PASS over three consecutive runs, on a load-sensitive Project Memory recovery read race. Foundation and Codex remain thawed and pending re-validation, and the release gate cannot start until that defect is fixed and the gate is reliably green. See `HANDOFF.md`.
 
 Current development baseline:
 
 - Node `24.19.0` accepted Foundation baseline;
 - pnpm `11.21.0`;
-- local package devDependency graph: DSH `0.1.1-rc.2`;
+- local package devDependency graph: DSH `0.1.1-rc.2` — the newest generation upstream actually publishes, and unsupported;
 - Linux/CachyOS development environment;
 - Windows: **NOT TESTED**.
 
-Accepted authoritative Foundation compatibility target:
+Only supported DSH generation:
 
 ```text
 dsh-v0.1.2-alpha.1
 cd5ef8148158c3a752a658978873241fdf8e2bbc
 ```
 
-Core and Project Memory publish:
+`0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence. `docs/README.md` owns that policy.
+
+Core and Project Memory still publish the wider peer union:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The main workspace graph remains rc.2, so alpha.1 support is accepted because the changed Foundation was separately exercised against the exact official alpha.1 checkout/runtime.
+Releasing an alpha.1-only peer range is currently impossible: upstream has not published `0.1.2-alpha.1` to npm — `0.1.1-rc.2` is the newest published DSH — so an alpha.1-only range would be uninstallable for consumers. The workspace build/test graph is rc.2 for the same reason. Narrowing the range is a published-contract change and is a release gate of its own, not part of the current re-validation.
+
+alpha.1 support for the Foundation rests on the disposable exact-commit probe against the official alpha.1 checkout/runtime, not on rc.2 workspace tests.
 
 ## rc.3 family
 

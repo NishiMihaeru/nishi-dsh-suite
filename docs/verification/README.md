@@ -10,11 +10,13 @@ docs/verification/gemini/LATEST.md
 
 `LATEST.md` is overwritten on every validation run. After a PASS, durable facts are folded here. Superseded raw detail remains available through git history.
 
+DSH generations named in this ledger are historical run facts, not support claims. The only supported DSH generation is `0.1.2-alpha.1`; `0.1.1-rc.2` and earlier are unsupported. Evidence recorded against an rc.2 baseline documents what was actually executed at that checkpoint and never establishes rc.2 as a supported target. `docs/README.md` owns the policy.
+
 ## Current validation status — SUPERSEDED, RE-VALIDATION REQUIRED
 
 Everything recorded in this section describes the implementation checkpoint named below. A later audit of Core, Project Memory and Codex reproduced defects in all three and changed behavior in each, so **this ledger no longer describes the working tree** and must not be promoted to it.
 
-The current tree passes only a local workspace gate (`build`/`check`/`test` exit `0`; Core `209`, Project Memory `72`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`). It has no independent validation, no live acceptance run and no repeated alpha.1 runtime probe. Restoring a freeze claim requires producing that evidence against the current tree and folding it in here.
+The current tree does not even pass a local gate. A single `build`/`check`/`test` pass exits `0` (Core `209`, Project Memory `72`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`), but `pnpm verify:local` gave FAIL, PASS, PASS over three consecutive runs — a load-sensitive Project Memory recovery read race, itemized in `HANDOFF.md`. It also has no independent validation, no live acceptance run and no repeated alpha.1 runtime probe. Restoring a freeze claim requires fixing that defect and producing the evidence against the fixed tree.
 
 The accepted evidence below is retained as history.
 

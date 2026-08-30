@@ -42,12 +42,12 @@ Legacy DSH grants may still be detected for compatibility, but in-app destructiv
 
 Core RPC handlers depend on `@deepseek-ai/dsh-client-connection`'s carrier-neutral `ConnectionRpcHandler` contract.
 
-The registration seam currently supports:
+The registration seam still accepts both shapes:
 
 - DSH `0.1.1-rc.2`: `rpc.handle(channel, handler, { authority: 'trusted-host' })`;
 - DSH `0.1.2-alpha.1`: `rpc.handle(channel, handler)`.
 
-`registerConnectionRpcChannel()` isolates this transition. The current `Function.length` compatibility probe is intentionally retained while rc.2 remains a supported published peer; removing it is a future support-boundary decision.
+`registerConnectionRpcChannel()` isolates this transition. Only `0.1.2-alpha.1` is supported, so the `Function.length` probe is removal debt rather than retained compatibility: it survives until the declared peer range is narrowed, and it must be removed in that same change.
 
 ## Provider registry and registration
 
@@ -83,13 +83,17 @@ Browser refreshes remain roster-generation-aware so stale async work cannot resu
 
 ## Supported DSH peer family
 
-Production DSH peers remain intentionally restricted to:
+The only supported DSH generation is `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
+
+Declared production DSH peers are still wider than that:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The package devDependency graph remains pinned to the reproducible rc.2 development baseline. The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`; ordinary rc.2 workspace tests alone are not that evidence.
+Upstream has not published `0.1.2-alpha.1` to npm, so an alpha.1-only range would be uninstallable and the package devDependency graph stays pinned to the reproducible rc.2 development baseline. Narrowing the range is a published-contract change with its own gate; see the repository `docs/README.md`.
+
+The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at that commit; ordinary rc.2 workspace tests alone are not that evidence.
 
 ## Current status — THAWED, PENDING RE-VALIDATION
 

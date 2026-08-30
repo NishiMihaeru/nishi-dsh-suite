@@ -36,22 +36,27 @@ If canonical documents disagree, treat that as a documentation bug and fix the d
 - Package README files describe only their package's current public/runtime boundary.
 - Use git history when superseded detail is genuinely needed.
 
-## Compatibility discipline
+## Supported DSH generation
 
-Official DSH compatibility truth for the accepted Foundation is:
+The only supported DSH generation is:
 
 ```text
 dsh-v0.1.2-alpha.1
 cd5ef8148158c3a752a658978873241fdf8e2bbc
 ```
 
-Core and Project Memory publish:
+`0.1.1-rc.2` and every earlier DSH generation are **not supported**. They carry no compatibility claim, receive no fixes, and no new evidence will be produced against them. A defect reproduced only on an unsupported generation is not a defect of this suite.
 
-```text
-0.1.1-rc.2 || 0.1.2-alpha.1
-```
+This is a support-policy statement about which DSH generation the suite targets. It is not a claim that the tree already matches it. The following gaps are known, deliberate, and each must be closed by its own gated change, not by editing this document:
 
-Their normal local devDependency graph remains rc.2, so alpha.1 support is accepted only because the changed Foundation was also exercised in a disposable environment against the exact official alpha.1 commit.
+- Core and Project Memory still declare the peer union `0.1.1-rc.2 || 0.1.2-alpha.1`; provider packages still declare provider-specific peers at `0.1.1-rc.2` alone. Narrowing either is a published-contract change and needs its own validation.
+- `0.1.2-alpha.1` is not published to npm. The newest published DSH is `0.1.1-rc.2` (dist-tag `next`), so alpha.1 is reachable only as the upstream commit above. Until upstream publishes it, an alpha.1-only peer range would be uninstallable from the registry.
+- The local devDependency and test baseline is therefore still rc.2. Workspace test runs exercise rc.2 runtime packages, not alpha.1. A live alpha.1 runtime does exist on this machine — the global `dsh` resolves into the built `.artifacts/upstream/dsh-alpha1` checkout, and the `~/.dsh/profiles/web` profile links Core, Project Memory and Codex from the working tree — but that is a probe target, not the package graph the suite declares or tests against.
+- The rc2/alpha `Function.length` Connection compatibility shim in Core is now removal debt rather than retained compatibility. It stays until the peer range that justifies it is narrowed.
+
+Provider packages do **not** inherit Foundation compatibility automatically. Alpha.1 support for Core and Project Memory rests on the disposable exact-commit probe recorded in `verification/README.md`; no provider package has ever been probed against alpha.1.
+
+## Compatibility discipline
 
 Last Foundation acceptance, now superseded by a follow-up audit and its remediation:
 
@@ -64,8 +69,6 @@ Codex: THAWED, pending re-validation
 ```
 
 That evidence describes a tree this one no longer matches. Do not cite it for the current implementation; see `HANDOFF.md` for what changed and `verification/README.md` for the durable ledger.
-
-Provider packages do **not** inherit Foundation compatibility automatically.
 
 ## Change discipline
 

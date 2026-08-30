@@ -6,7 +6,9 @@ The current Suite family is `0.1.0-rc.3`, Node.js 24, and remains unpublished wh
 
 ## Compatibility status
 
-The current bundle/provider dependency graph remains based on DeepSeek Harness `0.1.1-rc.2`. In particular, the Suite still carries `@deepseek-ai/dsh-authorization@0.1.1-rc.2`, and the Codex, Antigravity and Claude provider manifests currently declare provider-specific DSH peers at rc.2.
+The only supported DeepSeek Harness generation is `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
+
+The dependency graph does not implement that policy yet, and the gap is deliberate. Upstream has not published `0.1.2-alpha.1` to npm, so the bundle/provider graph is still based on rc.2: the Suite still carries `@deepseek-ai/dsh-authorization@0.1.1-rc.2`, and the Codex, Antigravity and Claude provider manifests still declare provider-specific DSH peers at rc.2. Moving them is a published-contract change with its own gate, per provider; see the repository `docs/README.md`.
 
 The provider-independent Foundation packages are broader:
 

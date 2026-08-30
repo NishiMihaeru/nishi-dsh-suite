@@ -142,13 +142,17 @@ The transaction/lock generation fields are intentional correctness complexity: t
 
 ## Supported DSH peer family
 
-Production DSH peers remain restricted to:
+The only supported DSH generation is `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
+
+Declared production DSH peers are still wider than that:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The package devDependency graph remains pinned to rc.2. The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`.
+Upstream has not published `0.1.2-alpha.1` to npm, so an alpha.1-only range would be uninstallable and the package devDependency graph stays pinned to rc.2. Narrowing the range is a published-contract change with its own gate; see the repository `docs/README.md`.
+
+The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at that commit.
 
 ## Current status — THAWED, PENDING RE-VALIDATION
 

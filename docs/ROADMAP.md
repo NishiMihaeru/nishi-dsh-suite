@@ -1,6 +1,6 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after accepted Foundation revalidation against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`).
+Status updated for `0.1.0-rc.3` after accepted Foundation revalidation against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`), which is the only supported DSH generation; rc.2 and earlier are unsupported. `docs/README.md` owns that policy.
 
 This file owns task status and order only. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
@@ -8,7 +8,7 @@ This file owns task status and order only. Architecture belongs in `ARCHITECTURE
 
 A follow-up audit of Core, Project Memory and Codex reopened this freeze again. It reproduced a Project Memory recovery race that failed unrelated memory operations, a Codex path that put raw vendor stderr in front of the model, and a set of smaller correctness and architecture defects. All were remediated; see `docs/HANDOFF.md` for the itemized list.
 
-The tree is locally green (workspace `build`/`check`/`test` exit `0`; Core `209`, Project Memory `72`, Codex `61`) but has **no** independent validation, live acceptance or alpha.1 runtime probe against it. The freeze claim below is history.
+Local re-validation of this tree returned **FAIL**: `pnpm verify:local` gave FAIL, PASS, PASS over three consecutive runs, on a load-sensitive Project Memory recovery read race that fails an unrelated caller's memory operation. A single `build`/`check`/`test` pass still exits `0` (Core `209`, Project Memory `72`, Codex `61`), which is why the defect was missed. See `docs/HANDOFF.md` for the reproduction and fix direction. There is also **no** independent validation, live acceptance or alpha.1 runtime probe against this tree. The freeze claim below is history.
 
 Previously accepted implementation, now superseded:
 
@@ -50,13 +50,15 @@ Accepted Foundation gates:
 
 Windows remains **NOT TESTED**. Unsupported process-identity seams remain conservative.
 
-Foundation production DSH peers remain:
+Supported DSH generation: `0.1.2-alpha.1` only.
+
+Foundation production DSH peers are still declared wider than that:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-The main devDependency graph remains rc.2; the alpha.1 compatibility claim is supported by the accepted disposable exact-commit validation, not by rc.2 workspace tests alone.
+The rc.2 side is unsupported compatibility surface, kept only because upstream has not published alpha.1 to npm; the devDependency graph is rc.2 for the same reason. The alpha.1 compatibility claim is supported by the accepted disposable exact-commit validation, not by rc.2 workspace tests alone.
 
 ## Architectural overcomplexity disposition
 
@@ -68,7 +70,7 @@ The main devDependency graph remains rc.2; the alpha.1 compatibility claim is su
 ### Intentionally retained
 
 - [ ] Core authorization client begin/submit/cancel/polling state machine: exported client API; consider removal only as a separately reviewed compatibility cleanup.
-- [ ] `registerConnectionRpcChannel()` `Function.length` rc2/alpha compatibility probe: retain while rc2 remains a declared peer.
+- [ ] `registerConnectionRpcChannel()` `Function.length` rc2/alpha compatibility probe: **removal debt**, not retained compatibility — rc2 is unsupported. Remove it together with the peer-range narrowing, in that gated change.
 - [ ] Usage invalidation generation token: retain; it fences pre-invalidation observations.
 - [ ] Project Memory fixed journal pathname: retain; explicit transaction generation + locking closes the audited cross-generation race without a larger WAL-directory migration.
 
@@ -147,6 +149,18 @@ Automatic failover remains deferred.
 - [ ] preserve unrelated existing links/state;
 - [ ] managed Orchestrator preset install/status/update/remove;
 - [ ] Suite removal preserves unrelated profile/session/project/vendor state.
+
+## 7b. DSH support boundary — alpha.1 only
+
+Policy is decided and recorded in `docs/README.md`: `0.1.2-alpha.1` is the only supported DSH generation; `0.1.1-rc.2` and earlier are unsupported. The manifests do not implement it yet. Blocked on upstream, then gated:
+
+- [ ] **blocked**: upstream publishes `0.1.2-alpha.1` to npm. Today the newest published DSH is `0.1.1-rc.2`, so an alpha.1-only peer range would be uninstallable from the registry.
+- [ ] narrow Core and Project Memory peers from `0.1.1-rc.2 || 0.1.2-alpha.1` to `0.1.2-alpha.1`;
+- [ ] move the workspace devDependency/test baseline from rc.2 to alpha.1;
+- [ ] remove the `registerConnectionRpcChannel()` `Function.length` rc2/alpha probe in the same change;
+- [ ] decide provider peers (`codex`, `claude`, `antigravity`) per provider, from that provider's own audit — they still declare rc.2 and have never been probed against alpha.1, so they do not move with the Foundation.
+
+Each item is a published-contract change and needs its own validation evidence. Do not fold it into an unrelated pass.
 
 ## 8. Release gate
 

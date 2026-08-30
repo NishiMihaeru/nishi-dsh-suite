@@ -32,7 +32,7 @@ Generic usage caching/invalidation/projection belongs to Core; this package owns
 
 The current Claude manifest declares its provider-specific DSH peers at `0.1.1-rc.2` (`dsh-invariants`, `dsh-subprocess`, `dsh-timeout`).
 
-The Foundation's accepted `0.1.2-alpha.1` compatibility does **not** automatically validate this provider package. Claude compatibility remains provider-specific and must be established from the exact manifest/runtime contracts during its own acceptance stage.
+Only `0.1.2-alpha.1` is a supported DSH generation for this suite; `0.1.1-rc.2` and earlier are unsupported. Those rc.2 peers are therefore unvalidated compatibility debt, not a supported target. The Foundation's accepted `0.1.2-alpha.1` compatibility does **not** automatically validate this provider package. Claude compatibility remains provider-specific and must be established from the exact manifest/runtime contracts during its own acceptance stage.
 
 ## Validation status — PENDING PROVIDER STAGE
 

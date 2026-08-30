@@ -54,12 +54,12 @@ Foundation behavior is not duplicated here: generic provider registration, share
 
 The current Codex manifest still declares provider-specific DSH peers at `0.1.1-rc.2` (including `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`, `dsh-attachment`, `dsh-invariants` and `dsh-sdk-protocol`). Its direct `dsh-sdk-protocol` dependency is also `0.1.1-rc.2`.
 
-The Foundation's accepted `0.1.2-alpha.1` compatibility does **not** extend this provider package automatically. Any change to Codex DSH generation support must come from the active provider-specific audit and executable validation against the exact claimed upstream contracts.
+Only `0.1.2-alpha.1` is a supported DSH generation for this suite; `0.1.1-rc.2` and earlier are unsupported. Those rc.2 peers are therefore unvalidated compatibility debt, not a supported target — Codex has never been probed against alpha.1, and the Foundation's accepted `0.1.2-alpha.1` compatibility does **not** extend to this provider package automatically. Any change to Codex DSH generation support must come from the active provider-specific audit and executable validation against the exact claimed upstream contracts.
 
 ## Validation status — THAWED, PENDING RE-VALIDATION
 
 `nishi-dsh-codex` previously passed independent validation, focused test gates, and live acceptance against official `codex-cli 0.150.0`. A follow-up audit then changed this package: vendor diagnostics are sanitized through Core's `VendorFailure` contract, native-search runtime verification is cached per executable instead of run per query, an unsupported App Server version reports `UNAVAILABLE` rather than `ERROR`, the Windows batch shim covers `codex exec`, cleanup failure no longer replaces the real diagnostic, and a thread-less fatal `error` notification fails the turn instead of hanging.
 
-That acceptance therefore describes a tree this one no longer matches. The current tree is locally green but has had no live acceptance run.
+That acceptance therefore describes a tree this one no longer matches. Codex's own suites pass on the current tree, but the workspace local gate fails on an unrelated Project Memory defect, and Codex has had no live acceptance run against this tree.
 
 Accepted evidence and verification history live in `docs/verification/README.md` and `docs/verification/gemini/LATEST.md`.

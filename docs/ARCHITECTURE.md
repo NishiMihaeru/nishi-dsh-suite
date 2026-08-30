@@ -2,7 +2,7 @@
 
 Status: canonical `0.1.0-rc.3` architecture. This document describes the current tree, which is **no longer the frozen accepted checkpoint**: a follow-up audit of Core, Project Memory and Codex found and fixed defects in all three, so Foundation and Codex are thawed and pending re-validation. See *Current implementation state* at the end for exactly what changed and what evidence does and does not exist.
 
-The DSH compatibility target is unchanged: official `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`).
+The only supported DSH generation is official `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported** and carry no compatibility claim. The manifests do not yet match that policy; `docs/README.md` owns the policy statement and the list of gaps still to be closed.
 
 ## Product contract
 
@@ -28,13 +28,15 @@ A new provider must not require provider-specific Core, Project Memory or browse
 5. `nishi-dsh-project-memory`
 6. `nishi-dsh-suite`
 
-Core and Project Memory publish:
+Supported DSH generation: `0.1.2-alpha.1` only. rc.2 and earlier are unsupported.
+
+Core and Project Memory still publish the wider peer union:
 
 ```text
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Their local devDependency graph remains rc.2. The alpha.1 side of that peer claim is accepted because the frozen Foundation was separately exercised against the official exact alpha.1 checkout/runtime. Provider packages do not inherit that compatibility automatically.
+That range is now wider than the support policy and is retained only because upstream has not published alpha.1 to npm; the local devDependency and test graph is still rc.2 for the same reason. Narrowing it is a published-contract change with its own gate. The alpha.1 side of the claim rests on the disposable exact-commit probe against the official alpha.1 checkout/runtime; the rc.2 side is now unsupported compatibility surface, not a supported target. Provider packages do not inherit alpha.1 compatibility automatically and have never been probed against it.
 
 ## Core
 
@@ -60,12 +62,12 @@ The outer Core publishes `NishiProvidersService`; the internal host child inject
 
 Core does not import or inject `@deepseek-ai/dsh-authorization`.
 
-The Connection compatibility boundary currently supports:
+The Connection compatibility boundary still accepts both shapes:
 
 - rc.2: three-argument `rpc.handle(channel, handler, { authority: 'trusted-host' })`;
 - alpha.1: authenticated two-argument `rpc.handle(channel, handler)`.
 
-The current `Function.length` compatibility probe is intentionally retained while rc.2 remains a supported peer. It is compatibility debt, but removing it before the support boundary changes is unrelated to current correctness.
+alpha.1 is the only supported generation, so the `Function.length` probe is no longer retained compatibility — it is removal debt. It stays until the peer range that justifies it is narrowed, and removing it is that change, not a separate cleanup.
 
 ### Model Accounts
 
@@ -266,7 +268,7 @@ Simplified and accepted:
 
 Intentionally retained until a separate compatibility review:
 
-- rc2/alpha Connection `Function.length` compatibility shim;
+- rc2/alpha Connection `Function.length` compatibility shim, now reclassified as removal debt: rc.2 is unsupported, and the shim survives only until the peer range is narrowed;
 - usage invalidation generation tokens, because they fence real in-flight observation races;
 - one fixed Project Memory journal pathname, because generation identity + lock order closes the audited race without requiring a larger WAL-directory migration.
 
@@ -301,7 +303,7 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 25. A journal is claimed only after a lock-held read proves its owner dead; a stale pre-claim observation is re-observed, never failed, and never lets an unrelated caller's operation fail.
 26. Losing a recovery race is a normal outcome; only mutation of a claim this process already wrote fails closed.
 27. Every Project Memory read-modify-write path bounds the bytes it materializes, package-owned and user-owned files alike.
-28. Core and Project Memory peer support remains exactly `0.1.1-rc.2 || 0.1.2-alpha.1` until another generation passes its own gate.
+28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. The declared Core and Project Memory peer union is still `0.1.1-rc.2 || 0.1.2-alpha.1` because upstream has not published alpha.1 to npm, and narrowing it is a published-contract change with its own gate.
 29. Windows remains NOT TESTED.
 
 ## Current implementation state — THAWED, PENDING RE-VALIDATION
@@ -324,6 +326,6 @@ What changed since the accepted checkpoint:
 - Model Accounts became registry-derived; the hardcoded vendor roster and the whole disabled authorization mutation surface — host and client — were removed. This is a public-surface removal in an unpublished `0.1.0-rc.3`.
 - Codex routes every vendor-process diagnostic through `VendorFailure`, closing a path that put raw vendor stderr in front of the model. Its native search verifies the vendor runtime once per executable instead of once per query.
 
-Local gate on the current tree: workspace `build`, `check` and `test` all exit `0` — Core `209`, Project Memory `72`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12`. That is a local gate, not an acceptance: no independent validation, no live acceptance run, and no alpha.1 runtime probe has been repeated against this tree.
+Local gate on the current tree: **FAIL**. A single `pnpm build`/`check`/`test` pass exits `0` — Core `209`, Project Memory `72`, Codex `61`, Claude `7`, Antigravity `7`, Suite `12` — but `pnpm verify:local` is not reliably green: three consecutive runs gave FAIL, PASS, PASS. The failure is a load-sensitive Project Memory recovery read race that violates invariant 25; `HANDOFF.md` carries the reproduction, the mechanism and the fix direction. Beyond that, no independent validation, no live acceptance run, and no alpha.1 runtime probe has been repeated against this tree.
 
 Windows remains NOT TESTED, and `packages/antigravity` still carries the raw-vendor-stderr pattern that Codex just had removed.
