@@ -43,7 +43,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 |---|---|
 | Core | remediated; Model Accounts surface removed outright; 182 tests |
 | Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
-| Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; one open defect on a mid-turn route switch; 78 tests |
+| Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; mid-turn route-switch defect fixed and covered live; 81 tests |
 | Antigravity | provider stage complete except the freeze; 62 tests |
 | Claude | usage-only stub, unchanged; 6 tests |
 | Suite | Orchestrator preset now allows cross-route subagents; 16 tests |
@@ -53,7 +53,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 - `pnpm verify:local` exits `0` on three consecutive runs;
 - Codex live, re-run in full on 2026-08-31 against this tree: primary, the full 15-scenario acceptance suite, `test:live:web-search` and `test:live:web-search-routed` all pass. This run covers the issue #4 projection fix, which the previous one (taken at Codex 72 tests) did not. The two web-search suites need `DSH_LIVE_CODEX_SEARCH_MODEL` set — `gpt-5.6-sol` was used — and fail a **precondition assertion** without it: a harness prerequisite, not a product defect. Do not read that exit code as a regression;
 - Antigravity live, re-run the same day: primary (8 scenarios), native search and routed search all pass, against real `agy 1.1.22`;
-- cross-route delegation, exercised end to end in the real `web` profile for the first time: parent Codex -> child Antigravity, parent Antigravity -> child Codex, and one parent turn with two concurrent background Codex children. All pass, evidenced by each child session's own `request/header` route in the durable log rather than by the model's report. Up to six concurrent `codex app-server` processes were observed, with no residue afterwards. The same run found one open Codex defect (below);
+- cross-route delegation, exercised end to end in the real `web` profile for the first time: parent Codex -> child Antigravity, parent Antigravity -> child Codex, and one parent turn with two concurrent background Codex children. All pass, evidenced by each child session's own `request/header` route in the durable log rather than by the model's report. Up to six concurrent `codex app-server` processes were observed, with no residue afterwards. The same run found the mid-turn route-switch defect, which is now fixed (`ROADMAP.md` §2) and covered by `test:live:tool-result-continuation` — a live probe that asserts the model actually saw the tool result, not merely that the turn survived;
 - an adversarial code review and a documentation audit were run over the whole change set. Both found real defects; all are fixed.
 
 A green gate plus live suites is **not** an acceptance. See *What remains*.
@@ -78,7 +78,7 @@ Ordered by how much it changes the contract.
 2. **`thread/inject_items` is unverified.** The call succeeds but its effect is invisible through both `thread/read` and `thread/resume`, so nothing has confirmed it reaches the model. The Codex adapter depends on it for history that follows a checkpoint. Closing this needs one live turn.
 3. **alpha.1 runtime probe as separate evidence.** It has effectively dissolved into the ordinary test run now that the whole workspace builds and tests against alpha.1, but it has not been repeated as a distinct artifact.
 4. **Suite preset bridge may be obsolete.** It exists to work around an rc.2 launcher bug that overwrites third-party preset roots. Nobody has checked whether alpha.1 still has that bug. If it does not, remove the bridge rather than carry it.
-5. **A mid-turn route switch into Codex fails the turn.** Found by the delegation run on 2026-08-31, not by delegation itself: when one turn's first step runs on another provider and emits tool calls, the step that consumes those tool results on `codex-app-server` throws `codex-plugin-dsh: the current Codex turn has no user input`. `prepareCodexHistory` decides current-turn input by position and excludes tool results, so with no Codex checkpoint in that session the pending tail is tool results alone. The session is not poisoned — the next turn ran normally — but the turn is lost. Unfixed, and no focused test reproduces it yet; see `ROADMAP.md` §2.
+5. **`thread/inject_items` matters more now.** The tool-result continuation fix leans on it for the `function_call`/`function_call_output` pairing, and deliberately duplicates the results into the turn input so the turn still works if injection is a no-op. That belt-and-braces is only there because item 2 above is still unverified; closing item 2 would let one of the two paths go.
 6. **Accepted debts**, recorded with reasoning and revisit conditions in `ROADMAP.md` §3: no vendor version verification for Antigravity, and the `usage-source.ts` loopback TLS trust model.
 7. **Blocked on upstream**: publishing `0.1.2-alpha.1` to npm. Until then the declared ranges are uninstallable from the registry, which gates publication rather than development, and the local-checkout overrides stay.
 

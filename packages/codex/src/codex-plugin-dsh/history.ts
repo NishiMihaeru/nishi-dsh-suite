@@ -103,6 +103,26 @@ function isCurrentTurnInput(message: Message): boolean {
     && message.content.length > 0
 }
 
+/** A DSH tool message: the result of a call some earlier step made. */
+function isToolResultMessage(message: Message): boolean {
+  return message.role === 'user'
+    && message.source.kind === 'tool'
+    && message.content.length > 0
+}
+
+/**
+ * Input for a turn whose only pending work is tool results.
+ *
+ * The active-turn path answers a Codex dynamic tool call with its own result
+ * and never reaches this module. A turn arrives here holding nothing but tool
+ * results when no Codex turn is open to answer: the step that made the calls
+ * ran on another primary route, or the vendor turn was lost. Those results are
+ * real work the model must see, so they become this turn's input rather than a
+ * reason to fail it, and this line says why the input looks like that.
+ */
+const TOOL_RESULT_CONTINUATION_NOTICE =
+  '[dsh: this turn continues from tool results produced outside the Codex thread]'
+
 async function inputContent(
   blocks: readonly ContentBlock[],
   resolveImageUrl: CodexImageUrlResolver,
@@ -210,6 +230,10 @@ export async function responseItems(
  * @param expectedSessionId - Current DSH session id; mismatched checkpoints are never reused.
  * @param ignoreCheckpoint - Rebuild from DSH history instead of reusing a persisted Codex thread.
  * @returns Work required to construct the matching App Server thread.
+ * @throws when the request carries neither turn input nor tool results to continue from.
+ *
+ * A request whose pending tail is tool results alone continues from them; see
+ * {@link TOOL_RESULT_CONTINUATION_NOTICE}.
  */
 export async function prepareCodexHistory(
   messages: readonly Message[],
@@ -226,12 +250,24 @@ export async function prepareCodexHistory(
   const pending = checkpoint === undefined ? messages : messages.slice(checkpoint.index + 1)
   let inputStart = pending.length
   while (inputStart > 0 && isCurrentTurnInput(pending[inputStart - 1] as Message)) inputStart -= 1
-  const historical = pending.slice(0, inputStart)
-  const current = pending.slice(inputStart)
+  let historical: readonly Message[] = pending.slice(0, inputStart)
+  let current: readonly Message[] = pending.slice(inputStart)
+  let continuesFromToolResults = false
   if (current.length === 0) {
-    throw new Error('codex-plugin-dsh: the current Codex turn has no user input')
+    let resultsStart = pending.length
+    while (resultsStart > 0 && isToolResultMessage(pending[resultsStart - 1] as Message)) resultsStart -= 1
+    if (resultsStart === pending.length) {
+      throw new Error('codex-plugin-dsh: the current Codex turn has no user input')
+    }
+    // The results stay in the imported history too, where they pair with the
+    // `function_call` items of the step that made them. Sending them as input
+    // as well is deliberate: it costs one repetition and keeps the turn
+    // working whether or not `thread/inject_items` reaches the model.
+    historical = pending
+    current = pending.slice(resultsStart)
+    continuesFromToolResults = true
   }
-  const turnInput = (await Promise.all(current.map(message => Promise.all(message.content.map(async (block) => {
+  const projected = (await Promise.all(current.map(message => Promise.all(message.content.map(async (block) => {
     if (block.type === 'text') {
       return { type: 'text' as const, text: block.text, text_elements: [] as const }
     }
@@ -240,6 +276,12 @@ export async function prepareCodexHistory(
     }
     return { type: 'text' as const, text: projectedContentText(block), text_elements: [] as const }
   }))))).flat()
+  const turnInput = continuesFromToolResults
+    ? [
+        { type: 'text' as const, text: TOOL_RESULT_CONTINUATION_NOTICE, text_elements: [] as const },
+        ...projected,
+      ]
+    : projected
   if (turnInput.every(input => input.type === 'text' && input.text.trim().length === 0)) {
     throw new Error('codex-plugin-dsh: the current Codex turn is empty')
   }

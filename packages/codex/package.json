@@ -26,7 +26,8 @@
     "test:live:primary": "tsx --test test-live/primary-live.test.ts",
     "test:live:web-search": "tsx --test test-live/web-search.test.ts",
     "test:live:web-search-routed": "tsx --test test-live/web-search-routed.test.ts",
-    "test:live:acceptance": "tsx --test test-live/codex-acceptance-full.test.ts"
+    "test:live:acceptance": "tsx --test test-live/codex-acceptance-full.test.ts",
+    "test:live:tool-result-continuation": "tsx --test test-live/tool-result-continuation.test.ts"
   },
   "dependencies": {
     "@deepseek-ai/dsh-sdk-protocol": "0.1.2-alpha.1",

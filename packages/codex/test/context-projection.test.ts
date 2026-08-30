@@ -193,3 +193,109 @@ test('the primary bridge leaves a text-and-image context request untouched', () 
 
   assert.equal(projectCodexPrimaryHistory(options), options)
 })
+
+/** One assistant tool call and its result, as another primary route left them. */
+function toolCallAndResult(callId: string, from: string) {
+  return [
+    {
+      role: 'assistant',
+      source: { kind: 'model', provider: from },
+      content: [{ type: 'tool-call', id: callId, name: 'subagent', arguments: '{"description":"scout"}' }],
+    },
+    {
+      role: 'user',
+      source: { kind: 'tool', callId },
+      content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text: 'started' }] }],
+    },
+  ]
+}
+
+test('a turn holding only tool results continues from them instead of failing', async () => {
+  const history = await prepareCodexHistory(
+    [
+      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'delegate this' }] },
+      ...toolCallAndResult('call_a', 'antigravity-cli'),
+    ] as any,
+    provider,
+    noImages,
+    'session-a',
+  )
+
+  // The results are this turn's input, prefixed by the line that says why.
+  assert.deepEqual(history.turnInput, [
+    {
+      type: 'text',
+      text: '[dsh: this turn continues from tool results produced outside the Codex thread]',
+      text_elements: [],
+    },
+    { type: 'text', text: '[dsh: tool result for call_a]\nstarted', text_elements: [] },
+  ])
+  // They also stay in the imported history, paired with the call that made them.
+  assert.deepEqual(history.injectItems.slice(-2), [
+    {
+      type: 'function_call',
+      call_id: 'call_a',
+      name: 'subagent',
+      arguments: '{"description":"scout"}',
+      status: 'completed',
+    },
+    { type: 'function_call_output', call_id: 'call_a', output: 'started' },
+  ])
+})
+
+/**
+ * The live repro: one step on another route emitted two parallel `subagent`
+ * calls, and the step that consumed their results resolved on Codex.
+ */
+test('two parallel tool results from one assistant message both reach the continued turn', async () => {
+  const history = await prepareCodexHistory(
+    [
+      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'delegate twice' }] },
+      {
+        role: 'assistant',
+        source: { kind: 'model', provider: 'antigravity-cli' },
+        content: [
+          { type: 'tool-call', id: 'call_a', name: 'subagent', arguments: '{"description":"a"}' },
+          { type: 'tool-call', id: 'call_b', name: 'subagent', arguments: '{"description":"b"}' },
+        ],
+      },
+      {
+        role: 'user',
+        source: { kind: 'tool', callId: 'call_a' },
+        content: [{ type: 'tool-result', toolCallId: 'call_a', content: [{ type: 'text', text: 'started a' }] }],
+      },
+      {
+        role: 'user',
+        source: { kind: 'tool', callId: 'call_b' },
+        content: [{ type: 'tool-result', toolCallId: 'call_b', content: [{ type: 'text', text: 'started b' }] }],
+      },
+    ] as any,
+    provider,
+    noImages,
+  )
+
+  assert.deepEqual(history.turnInput.slice(1), [
+    { type: 'text', text: '[dsh: tool result for call_a]\nstarted a', text_elements: [] },
+    { type: 'text', text: '[dsh: tool result for call_b]\nstarted b', text_elements: [] },
+  ])
+  assert.equal(
+    history.injectItems.filter(item => item.type === 'function_call_output').length,
+    2,
+    'both results must reach the imported history',
+  )
+})
+
+test('a request with neither input nor tool results still fails loud', async () => {
+  await assert.rejects(
+    prepareCodexHistory(
+      [{
+        role: 'assistant',
+        source: { kind: 'model', provider: 'antigravity-cli' },
+        content: [{ type: 'text', text: 'done' }],
+      }] as any,
+      provider,
+      noImages,
+    ),
+    /the current Codex turn has no user input/,
+  )
+})
