@@ -22,7 +22,8 @@ import {
 import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
 import { AntigravitySearchBackend } from './web-search-backend.js'
 import { AntigravityUsageCollector } from './usage.js'
-import { HostAntigravityLocalUsageSource } from './usage-source.js'
+import { createHostPlatformDiscovery, HostAntigravityLocalUsageSource } from './usage-source.js'
+import { AntigravityQuotaFallbackUsageSource, AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 
 export const name = 'antigravity'
 export const inject = ['nishiProviders', 'subprocess', 'llm']
@@ -88,50 +89,76 @@ interface ResolvedAntigravityConfig extends SharedProviderDefaults {
 }
 
 /**
- * The Antigravity registration recipe contributes three capabilities through
- * one descriptor: the `antigravity-cli` primary model route, native
- * `agy search_web`, and the local usage-visibility source.
+ * Builds one Antigravity registration recipe, contributing three
+ * capabilities through one descriptor: the `antigravity-cli` primary model
+ * route, native `agy search_web`, and the local usage-visibility source.
  *
  * The primary adapter has a clean `create(): LlmAdapter` — it is built by
  * `createAntigravityPrimaryAdapter(ctx, config)` — while the shared core
  * registration path owns route registration and rollback. Search and usage
  * are likewise constructed from this provider's context, so their subprocess
  * lifetimes remain provider-owned.
+ *
+ * This is a function rather than a module-level constant specifically so
+ * `quotaHarvestCache` can be constructed fresh per `apply()` call and closed
+ * over by both `model.create` (which feeds it from the primary adapter's own
+ * `agy` child) and `usage.create` (which reads it as a fallback): a
+ * module-level singleton here would leak a harvested reading between
+ * separate plugin instances (e.g. two independent `apply()` calls in tests,
+ * or if this provider were ever registered twice), which is exactly the kind
+ * of cross-instance state this package otherwise avoids.
  */
-const antigravityDescriptor: ProviderDescriptor<ResolvedAntigravityConfig> = {
-  id: 'antigravity',
-  presentation: {
+function buildAntigravityDescriptor(): ProviderDescriptor<ResolvedAntigravityConfig> {
+  const platformDiscovery = createHostPlatformDiscovery()
+  const quotaHarvestCache = new AntigravityQuotaHarvestCache({
+    // PID-scoped only: this resolves listeners for one PID this package
+    // itself just spawned, never by scanning other processes' command
+    // lines. See quota-harvest-cache.ts's module doc for the full trust
+    // argument.
+    discoverListeners: (pid) => platformDiscovery.discoverListeners?.(pid) ?? Promise.resolve([]),
+  })
+
+  return {
     id: 'antigravity',
-    displayName: 'Antigravity',
-    brandColor: '#4E82EE',
-    iconPath: 'M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z',
-    // One Antigravity account is really several vendor pools, and its usage
-    // reports them as BUCKET-scoped windows with their own names.
-    bucketsAsPools: true,
-  },
-  executable: ANTIGRAVITY_DESCRIPTOR,
-  model: {
-    routes: [ANTIGRAVITY_PRIMARY_PROVIDER],
-    create: (ctx, config) => createAntigravityPrimaryAdapter(ctx, config),
-  },
-  usage: {
-    /**
-     * Antigravity exposes no official machine-readable usage, so this source
-     * reports an observation about what it could see locally and the
-     * normalizer turns that into an honest `UNSUPPORTED_NUMERIC_USAGE` row
-     * rather than an error or a fabricated number.
-     */
-    create: () => new AntigravityUsageCollector(new HostAntigravityLocalUsageSource()),
-  },
-  webSearch: {
-    create: (ctx, config) => new AntigravitySearchBackend(ctx, {
-      executable: config.executable,
-      env: config.env,
-      timeoutMs: config.searchTimeoutMs,
-      disposeGraceMs: config.disposeGraceMs,
-      stderrMaxBytes: config.stderrMaxBytes,
-    }),
-  },
+    presentation: {
+      id: 'antigravity',
+      displayName: 'Antigravity',
+      brandColor: '#4E82EE',
+      iconPath: 'M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z',
+      // One Antigravity account is really several vendor pools, and its usage
+      // reports them as BUCKET-scoped windows with their own names.
+      bucketsAsPools: true,
+    },
+    executable: ANTIGRAVITY_DESCRIPTOR,
+    model: {
+      routes: [ANTIGRAVITY_PRIMARY_PROVIDER],
+      create: (ctx, config) => createAntigravityPrimaryAdapter(ctx, config, quotaHarvestCache),
+    },
+    usage: {
+      /**
+       * Antigravity exposes no official machine-readable usage, so the
+       * primary source reports an observation about what it could see
+       * locally and the normalizer turns that into an honest
+       * `UNSUPPORTED_NUMERIC_USAGE` row rather than an error or a
+       * fabricated number. `AntigravityQuotaFallbackUsageSource` only steps
+       * in when that primary source finds no running Antigravity surface at
+       * all (`UNAVAILABLE`): see quota-harvest-cache.ts for exactly when it
+       * does and does not override the primary result.
+       */
+      create: () => new AntigravityUsageCollector(
+        new AntigravityQuotaFallbackUsageSource(new HostAntigravityLocalUsageSource(), quotaHarvestCache),
+      ),
+    },
+    webSearch: {
+      create: (ctx, config) => new AntigravitySearchBackend(ctx, {
+        executable: config.executable,
+        env: config.env,
+        timeoutMs: config.searchTimeoutMs,
+        disposeGraceMs: config.disposeGraceMs,
+        stderrMaxBytes: config.stderrMaxBytes,
+      }),
+    },
+  }
 }
 
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
@@ -147,5 +174,5 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
 
   const config: ResolvedAntigravityConfig = { ...shared, executable, searchTimeoutMs }
 
-  await registerProvider(ctx, antigravityDescriptor, config)
+  await registerProvider(ctx, buildAntigravityDescriptor(), config)
 }

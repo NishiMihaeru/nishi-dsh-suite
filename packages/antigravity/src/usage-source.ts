@@ -419,6 +419,39 @@ class MacOsPlatformDiscovery implements AntigravityPlatformDiscovery {
   }
 }
 
+export interface AntigravityHostPlatformDiscoveryConfig {
+  procReader?: ProcFsReader;
+  execCommand?: (cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
+  timeoutMs?: number;
+}
+
+/**
+ * Builds the platform-appropriate {@link AntigravityPlatformDiscovery} for
+ * the current OS. Extracted out of {@link HostAntigravityLocalUsageSource}'s
+ * constructor so a second caller (the opportunistic own-child quota harvest
+ * in `quota-harvest-cache.ts`) can reuse the exact same, already-tested
+ * per-platform listener resolution -- `discoverListeners(pid)`, which reads
+ * only the sockets owned by one given pid -- without depending on
+ * `HostAntigravityLocalUsageSource` itself or duplicating its per-OS
+ * plumbing. `discoverCandidates()` (the part of this object that scans every
+ * process on the machine) is untouched either way; the harvest caller only
+ * ever invokes `discoverListeners`.
+ */
+export function createHostPlatformDiscovery(config?: AntigravityHostPlatformDiscoveryConfig): AntigravityPlatformDiscovery {
+  const timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const execFn = config?.execCommand ?? (async (cmd, args) => execFileAsync(cmd, args, { timeout: timeoutMs }));
+  if (process.platform === 'win32') return new WindowsPlatformDiscovery(execFn);
+  if (process.platform === 'linux') {
+    const procReader: ProcFsReader = config?.procReader ?? {
+      readdir: (p) => readdir(p), readFile: (p) => readFile(p, 'utf8'), readlink: (p) => readlink(p),
+      getuid: typeof process.getuid === 'function' ? () => process.getuid!() : undefined,
+    };
+    return new LinuxPlatformDiscovery(procReader);
+  }
+  if (process.platform === 'darwin') return new MacOsPlatformDiscovery(execFn, typeof process.getuid === 'function' ? () => process.getuid!() : undefined);
+  return { discoverCandidates: async () => [] };
+}
+
 export class HostAntigravityLocalUsageSource implements AntigravityUsageCapabilitySource {
   private readonly platformDiscovery: AntigravityPlatformDiscovery;
   private readonly requestTransport: AntigravityRequestTransport;
@@ -433,17 +466,11 @@ export class HostAntigravityLocalUsageSource implements AntigravityUsageCapabili
     this.timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxResponseBytes = config?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
     this.requestTransport = config?.requestTransport ?? createDefaultTransport(this.timeoutMs, this.maxResponseBytes);
-    const execFn = config?.execCommand ?? (async (cmd, args) => execFileAsync(cmd, args, { timeout: this.timeoutMs }));
-    if (config?.platformDiscovery) this.platformDiscovery = config.platformDiscovery;
-    else if (process.platform === 'win32') this.platformDiscovery = new WindowsPlatformDiscovery(execFn);
-    else if (process.platform === 'linux') {
-      const procReader: ProcFsReader = config?.procReader ?? {
-        readdir: (p) => readdir(p), readFile: (p) => readFile(p, 'utf8'), readlink: (p) => readlink(p),
-        getuid: typeof process.getuid === 'function' ? () => process.getuid!() : undefined,
-      };
-      this.platformDiscovery = new LinuxPlatformDiscovery(procReader);
-    } else if (process.platform === 'darwin') this.platformDiscovery = new MacOsPlatformDiscovery(execFn, typeof process.getuid === 'function' ? () => process.getuid!() : undefined);
-    else this.platformDiscovery = { discoverCandidates: async () => [] };
+    this.platformDiscovery = config?.platformDiscovery ?? createHostPlatformDiscovery({
+      procReader: config?.procReader,
+      execCommand: config?.execCommand,
+      timeoutMs: this.timeoutMs,
+    });
   }
 
   getDiagnostics(): AntigravityDiagnostics { return { ...this.diagnostics }; }

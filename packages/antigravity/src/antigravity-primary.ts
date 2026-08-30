@@ -16,6 +16,7 @@ import {
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
 import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
+import type { AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 import { antigravityVendorFailure } from './vendor-stderr.js'
 
 export const ANTIGRAVITY_PRIMARY_PROVIDER = 'antigravity-cli'
@@ -438,6 +439,15 @@ export class AntigravityCliAdapter extends LlmAdapter {
   constructor(
     private readonly ctx: Context,
     private readonly config: AntigravityPrimaryConfig,
+    /**
+     * Optional: when provided, every primary turn opportunistically feeds
+     * this cache from its own `agy` child's loopback ports (see
+     * `runTurn()` and `quota-harvest-cache.ts`). Left undefined by default
+     * so every existing unit test that constructs this adapter directly
+     * keeps working unchanged; `createAntigravityPrimaryAdapter` is what
+     * actually wires a real cache in from `index.ts`.
+     */
+    private readonly quotaHarvestCache?: AntigravityQuotaHarvestCache,
   ) {
     super()
   }
@@ -722,6 +732,18 @@ export class AntigravityCliAdapter extends LlmAdapter {
     })
     this.activeChildren.add(child)
 
+    // Opportunistic, best-effort: while this turn's own `agy` child is
+    // alive, try to read its quota from the loopback ports it happens to
+    // expose during a real turn (see quota-harvest-cache.ts for why, and
+    // for the PID-scoped trust boundary this relies on). `harvest()` never
+    // throws or rejects by construction, and is deliberately NOT awaited
+    // here -- the `.catch()` below is pure defense in depth, not something
+    // expected to ever fire. Nothing about this call may affect `result`,
+    // `events`, timing, or error handling for the turn itself.
+    if (this.quotaHarvestCache) {
+      void this.quotaHarvestCache.harvest(child.pid).catch(() => {})
+    }
+
     try {
       const stdin = child.stdin
       const stdout = child.stdout
@@ -829,8 +851,9 @@ export class AntigravityCliAdapter extends LlmAdapter {
 export function createAntigravityPrimaryAdapter(
   ctx: Context,
   config: AntigravityPrimaryConfig,
+  quotaHarvestCache?: AntigravityQuotaHarvestCache,
 ): AntigravityCliAdapter {
-  const adapter = new AntigravityCliAdapter(ctx, config)
+  const adapter = new AntigravityCliAdapter(ctx, config, quotaHarvestCache)
   ctx.effect(
     function* () {
       yield () => { void adapter.dispose() }
