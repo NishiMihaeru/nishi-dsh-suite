@@ -1,8 +1,8 @@
 import { createInterface } from 'node:readline'
-import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
+import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
 import { antigravityVendorFailure } from './vendor-stderr.js'
 
 const AGENT_NAME = 'dsh-web-search'
@@ -66,22 +66,11 @@ export interface AntigravitySearchBackendConfig {
   readonly stderrMaxBytes: number
 }
 
-interface Invocation {
-  readonly argv: readonly string[]
-  readonly env: Readonly<Record<string, string>>
-}
-
 interface AgyResult {
   readonly status?: unknown
   readonly response?: unknown
   readonly error?: unknown
   readonly structured_output?: unknown
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
 }
 
 function bounded(value: unknown): string {
@@ -106,18 +95,6 @@ function promptFor(query: string): string {
 
 function effortArgs(value: string | undefined): string[] {
   return value === 'low' || value === 'medium' || value === 'high' ? ['--effort', value] : []
-}
-
-function nativeToolNames(events: readonly Record<string, unknown>[]): string[] {
-  const names: string[] = []
-  for (const event of events) {
-    const step = record(event.step_update) ?? event
-    if (step.step_type !== 'tool') continue
-    const toolInfo = record(step.tool_info)
-    const name = step.tool_name ?? toolInfo?.tool_name ?? toolInfo?.name
-    if (typeof name === 'string') names.push(name)
-  }
-  return names
 }
 
 function structuredResult(result: AgyResult): unknown {
@@ -284,16 +261,14 @@ export class AntigravitySearchBackend {
     }
   }
 
-  private async invocation(args: readonly string[], signal: AbortSignal): Promise<Invocation> {
-    const executable = await this.ctx.subprocess.resolveExecutable(this.config.executable, { ...this.config.env }, signal)
-    const extension = extname(executable).toLowerCase()
-    if (process.platform !== 'win32' || (extension !== '.cmd' && extension !== '.bat')) {
-      return { argv: [executable, ...args], env: this.config.env }
-    }
-    const cmd = await this.ctx.subprocess.resolveExecutable('cmd.exe', { ...this.config.env }, signal)
-    return {
-      argv: [cmd, '/d', '/v:off', '/s', '/c', `%${WINDOWS_EXECUTABLE_ENV}%`, ...args],
-      env: { ...this.config.env, [WINDOWS_EXECUTABLE_ENV]: `"${executable}"` },
-    }
+  private async invocation(args: readonly string[], signal: AbortSignal): Promise<VendorInvocation> {
+    return await resolveVendorInvocation(
+      this.ctx,
+      this.config.executable,
+      this.config.env,
+      args,
+      signal,
+      WINDOWS_EXECUTABLE_ENV,
+    )
   }
 }

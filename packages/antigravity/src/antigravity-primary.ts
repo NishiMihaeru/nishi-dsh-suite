@@ -1,4 +1,3 @@
-import { extname } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -16,6 +15,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
+import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
 import { antigravityVendorFailure } from './vendor-stderr.js'
 
 export const ANTIGRAVITY_PRIMARY_PROVIDER = 'antigravity-cli'
@@ -105,11 +105,6 @@ interface AgyTurnResult {
   readonly usage?: unknown
 }
 
-interface AgyInvocation {
-  readonly argv: readonly string[]
-  readonly env: Readonly<Record<string, string>>
-}
-
 interface StreamTurnResult {
   readonly result: AgyTurnResult
   readonly events: readonly Record<string, unknown>[]
@@ -121,12 +116,6 @@ function bridgeAgentMarkdown(): string {
 
 function stripAnsi(value: unknown): string {
   return String(value ?? '').replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
 }
 
 /**
@@ -403,18 +392,6 @@ function usageFrom(value: unknown): TokenUsage | undefined {
   }
 }
 
-function nativeToolNames(events: readonly Record<string, unknown>[]): string[] {
-  const names: string[] = []
-  for (const event of events) {
-    const step = record(event.step_update) ?? event
-    if (step.step_type !== 'tool') continue
-    const toolInfo = record(step.tool_info)
-    const name = step.tool_name ?? toolInfo?.tool_name ?? toolInfo?.name
-    if (typeof name === 'string') names.push(name)
-  }
-  return names
-}
-
 function isEffortUnsupported(result: AgyTurnResult): boolean {
   return typeof result.error === 'string' && (
     /--effort is not supported/i.test(result.error) ||
@@ -660,33 +637,15 @@ export class AntigravityCliAdapter extends LlmAdapter {
     return parent === undefined ? timeout : AbortSignal.any([parent, timeout])
   }
 
-  private async invocation(args: readonly string[], signal?: AbortSignal): Promise<AgyInvocation> {
-    const executable = await this.ctx.subprocess.resolveExecutable(
+  private async invocation(args: readonly string[], signal: AbortSignal): Promise<VendorInvocation> {
+    return await resolveVendorInvocation(
+      this.ctx,
       this.config.executable,
       this.config.env,
+      args,
       signal,
+      WINDOWS_EXECUTABLE_ENV,
     )
-    const extension = extname(executable).toLowerCase()
-    if (process.platform !== 'win32' || (extension !== '.cmd' && extension !== '.bat')) {
-      return { argv: [executable, ...args], env: this.config.env }
-    }
-    const commandInterpreter = await this.ctx.subprocess.resolveExecutable(
-      'cmd.exe',
-      this.config.env,
-      signal,
-    )
-    return {
-      argv: [
-        commandInterpreter,
-        '/d',
-        '/v:off',
-        '/s',
-        '/c',
-        `%${WINDOWS_EXECUTABLE_ENV}%`,
-        ...args,
-      ],
-      env: { ...this.config.env, [WINDOWS_EXECUTABLE_ENV]: `"${executable}"` },
-    }
   }
 
   private async runCollected(
