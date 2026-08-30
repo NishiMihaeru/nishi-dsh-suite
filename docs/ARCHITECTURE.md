@@ -304,7 +304,8 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 26. Losing a recovery race is a normal outcome; only mutation of a claim this process already wrote fails closed.
 27. Every Project Memory read-modify-write path bounds the bytes it materializes, package-owned and user-owned files alike.
 28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. The declared Core and Project Memory peer union is still `0.1.1-rc.2 || 0.1.2-alpha.1` because upstream has not published alpha.1 to npm, and narrowing it is a published-contract change with its own gate.
-29. Windows remains NOT TESTED.
+29. Web search output is external, attacker-reachable text: every rendered `web_search` result leads with the untrusted-content notice and the registered system-prompt guidance says the same, so returned content is never presented to the model as instructions.
+30. Windows remains NOT TESTED.
 
 ## Current implementation state — THAWED, PENDING RE-VALIDATION
 

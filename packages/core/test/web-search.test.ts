@@ -6,7 +6,7 @@ import { normalizeProviderResult } from '../src/web-search/result.js'
 import { resolvePrimarySearchRoute, type PrimarySearchRoute } from '../src/web-search/route.js'
 import { dispatchPrimarySearch } from '../src/web-search/providers.js'
 import type { PrimarySearchBackendResolver } from '../src/web-search/types.js'
-import { formatSearchOutput, mergeSearchResults, parseSearchArgs, searchMetaFromValue } from '../src/web-search/tool.js'
+import { EXTERNAL_WEB_CONTENT_NOTICE, formatSearchOutput, mergeSearchResults, parseSearchArgs, searchMetaFromValue } from '../src/web-search/tool.js'
 
 function execFixture(input: { cwd?: string; config?: Record<string, unknown> } = {}): any {
   let currentConfig = input.config
@@ -207,4 +207,38 @@ test('copied web_search consumer keeps query and presentation semantics', () => 
     sources: [{ url: 'https://example.com/' }],
     truncated: false,
   })
+})
+
+test('formatSearchOutput always leads with the external-content notice', () => {
+  // Normal case: both a provider answer and sources.
+  const normal = formatSearchOutput({
+    content: 'The answer is 42.',
+    sources: [{ url: 'https://example.com/', title: 'Example' }],
+    truncated: false,
+  })
+  assert.equal(normal.startsWith(EXTERNAL_WEB_CONTENT_NOTICE), true)
+
+  // No-results case: neither content nor sources.
+  const noResults = formatSearchOutput({ sources: [], truncated: false })
+  assert.equal(noResults.startsWith(EXTERNAL_WEB_CONTENT_NOTICE), true)
+  assert.match(noResults, /No results found\./)
+
+  // Truncated case.
+  const truncated = formatSearchOutput({
+    sources: [{ url: 'https://example.com/1' }],
+    truncated: true,
+  })
+  assert.equal(truncated.startsWith(EXTERNAL_WEB_CONTENT_NOTICE), true)
+  assert.match(truncated, /Showing the first 1 sources/)
+
+  // Content only, no sources.
+  const contentOnly = formatSearchOutput({ content: 'Just an answer.', sources: [], truncated: false })
+  assert.equal(contentOnly.startsWith(EXTERNAL_WEB_CONTENT_NOTICE), true)
+
+  // Sources only, no content.
+  const sourcesOnly = formatSearchOutput({
+    sources: [{ url: 'https://example.com/2', title: 'Two' }],
+    truncated: false,
+  })
+  assert.equal(sourcesOnly.startsWith(EXTERNAL_WEB_CONTENT_NOTICE), true)
 })
