@@ -1,6 +1,6 @@
 # Handoff
 
-Rewritten for a fresh session at HEAD `28883af`, kept current through HEAD `81c6ec1` plus the uncommitted subagent-model-route change described below. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
+Rewritten for a fresh session at HEAD `28883af`, kept current through the subagent-model-route change (`b023d21`) and the documentation pass on top of it. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
 
 This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
@@ -10,7 +10,7 @@ This is the only session handoff file. Update it in place when the active task c
 feat/core-provider-plugins-rc3
 ```
 
-Six packages at `0.1.0-rc.3`, unpublished. The branch is pushed and its committed history is in sync with origin; the working tree additionally carries the uncommitted subagent-model-route change (preset flag, `packages/suite/test/preset-delegation.test.ts`, and this documentation pass). Pushing this branch is all that has happened: nothing is merged, tagged, released or published.
+Six packages at `0.1.0-rc.3`, unpublished. Working tree clean. History through `81c6ec1` is pushed; the subagent-model-route change (`b023d21`) and this documentation commit are **local only** and have not been pushed. Nothing is merged, tagged, released or published.
 
 Only supported DSH generation:
 
