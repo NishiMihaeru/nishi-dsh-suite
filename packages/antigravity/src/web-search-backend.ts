@@ -3,6 +3,7 @@ import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
+import { antigravityVendorFailure } from './vendor-stderr.js'
 
 const AGENT_NAME = 'dsh-web-search'
 const WINDOWS_EXECUTABLE_ENV = 'DSH_PRIMARY_WEB_SEARCH_AGY_EXECUTABLE'
@@ -229,7 +230,17 @@ export class AntigravitySearchBackend {
             void child.done.then((outcome) => {
               if (settled) return
               const stderr = child.collected.stderr?.readFrom(0).text ?? ''
-              fail(new AntigravityWebSearchBackendError('WEB_SEARCH_PROVIDER_ERROR', `Antigravity web_search exited before a result event (exit ${String(outcome.exitCode)})${stderr ? `: ${bounded(stderr)}` : ''}`))
+              const failure = antigravityVendorFailure({
+                stage: 'web-search-exit',
+                stderrText: stderr,
+                exitCode: outcome.exitCode,
+                signal: outcome.signal,
+              })
+              fail(new AntigravityWebSearchBackendError(
+                'WEB_SEARCH_PROVIDER_ERROR',
+                `Antigravity web_search exited before a result event. ${failure.message}`,
+                { cause: failure },
+              ))
             }).catch(fail)
           })
         })
@@ -240,7 +251,19 @@ export class AntigravitySearchBackend {
         try { stdin.end() } catch {}
 
         if (result.status !== 'SUCCESS') {
-          throw new AntigravityWebSearchBackendError('WEB_SEARCH_PROVIDER_ERROR', `Antigravity native web_search failed for model ${JSON.stringify(route.model)}: ${bounded(result.error || `status ${String(result.status)}`)}`)
+          // result.error is a structured, vendor-authored application-error field (not
+          // process stderr), but it is still arbitrary text supplied by the vendor
+          // process -- treat it the same way as stderr for sanitisation purposes so
+          // nothing vendor-authored reaches the caller unrecognised.
+          const failure = antigravityVendorFailure({
+            stage: 'web-search',
+            stderrText: typeof result.error === 'string' ? result.error : undefined,
+          })
+          throw new AntigravityWebSearchBackendError(
+            'WEB_SEARCH_PROVIDER_ERROR',
+            `Antigravity native web_search failed for model ${JSON.stringify(route.model)} (status ${String(result.status)}). ${failure.message}`,
+            { cause: failure },
+          )
         }
         const tools = nativeToolNames(events)
         if (!tools.includes('search_web')) {

@@ -2,24 +2,25 @@ import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
+import { VendorFailure } from 'nishi-dsh-core/runtime'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { AntigravitySearchBackend, AntigravityWebSearchBackendError } from '../src/web-search-backend.ts'
 
 /**
- * Regression net for the four sites that forward raw vendor stdio to a
- * caller today:
- *   - web-search-backend.ts:227  (exited before a result event -> bounded(stderr))
- *   - web-search-backend.ts:242  (status !== SUCCESS -> bounded(result.error))
- *   - antigravity-primary.ts:550 (model discovery failure -> stripAnsi(stderr || stdout))
- *   - antigravity-primary.ts:751 (turn exited before a result event -> raw stderr, unbounded)
+ * Regression net for the four sites that used to forward raw vendor stdio to
+ * a caller:
+ *   - web-search-backend.ts  (exited before a result event -> antigravityVendorFailure, stage 'web-search-exit')
+ *   - web-search-backend.ts  (status !== SUCCESS -> antigravityVendorFailure, stage 'web-search')
+ *   - antigravity-primary.ts (model discovery failure -> antigravityVendorFailure, stage 'model-discovery')
+ *   - antigravity-primary.ts (turn exited before a result event -> antigravityVendorFailure, stage 'turn')
  *
- * A change queued right behind this suite routes all four through Core's
- * `VendorFailure` sanitization contract. Every test here drives a failing
- * vendor run whose stderr/error carries an unmistakable marker, asserts the
- * error type/code a caller actually receives, and then asserts -- as a
- * CHARACTERIZATION -- that the raw marker currently leaks into the message.
- * The sanitization change is expected to invert only the CHARACTERIZATION
- * assertions; the type/code assertions must keep passing unchanged.
+ * All four now route through Core's `VendorFailure` sanitization contract
+ * (see ../src/vendor-stderr.ts). Every test here drives a failing vendor run
+ * whose stderr/error carries an unmistakable marker, asserts the error
+ * type/code a caller actually receives (unchanged from before), and then
+ * asserts that the raw marker is ABSENT from the resulting message -- only a
+ * recognised, caller-authored sentence or an unattributed category plus safe
+ * exit/signal metadata may appear.
  */
 
 const SECRET_PATH = '/home/secret-user/private/path'
@@ -123,7 +124,7 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
 
 // --- web-search-backend.ts:227 ------------------------------------------
 
-test('B1 (web-search-backend.ts:227): a search exiting before a result event surfaces WEB_SEARCH_PROVIDER_ERROR', async () => {
+test('B1 (web-search-backend.ts, stage web-search-exit): a search exiting before a result event surfaces WEB_SEARCH_PROVIDER_ERROR with no vendor text', async () => {
   const ctx = turnCtx({ lines: [], stderr: MARKER, exitCode: 1 })
   const backend = new AntigravitySearchBackend(ctx, searchConfig)
 
@@ -132,11 +133,15 @@ test('B1 (web-search-backend.ts:227): a search exiting before a result event sur
     (error: unknown) => {
       assert.ok(error instanceof AntigravityWebSearchBackendError)
       assert.equal(error.code, 'WEB_SEARCH_PROVIDER_ERROR')
-      // CHARACTERIZATION: raw vendor stderr, including the secret path and
-      // fake token, reaches the caller today. Expected to invert once
-      // VendorFailure sanitization lands.
-      assert.match(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
-      assert.match(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+      // The secret path and fake token are unrecognised vendor stderr and must
+      // never reach the message -- only VendorFailure's sanitised category text may.
+      assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+      assert.doesNotMatch(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+      assert.ok(error.message.length < 500, 'message stays small')
+      assert.ok(error.cause instanceof VendorFailure)
+      assert.equal(error.cause.stage, 'web-search-exit')
+      assert.equal(error.cause.category, 'unrecognized')
+      assert.equal(error.cause.exitCode, 1)
       return true
     },
   )
@@ -144,7 +149,7 @@ test('B1 (web-search-backend.ts:227): a search exiting before a result event sur
 
 // --- web-search-backend.ts:242 ------------------------------------------
 
-test('B2 (web-search-backend.ts:242): status !== SUCCESS surfaces WEB_SEARCH_PROVIDER_ERROR', async () => {
+test('B2 (web-search-backend.ts, stage web-search): status !== SUCCESS surfaces WEB_SEARCH_PROVIDER_ERROR with no vendor text', async () => {
   const resultLine = JSON.stringify({ event: 'result', result: { status: 'FAILED', error: MARKER } })
   const ctx = turnCtx({ lines: [resultLine], stderr: '', exitCode: 0 })
   const backend = new AntigravitySearchBackend(ctx, searchConfig)
@@ -154,11 +159,14 @@ test('B2 (web-search-backend.ts:242): status !== SUCCESS surfaces WEB_SEARCH_PRO
     (error: unknown) => {
       assert.ok(error instanceof AntigravityWebSearchBackendError)
       assert.equal(error.code, 'WEB_SEARCH_PROVIDER_ERROR')
-      // CHARACTERIZATION: raw result.error, including the secret path and
-      // fake token, reaches the caller today. Expected to invert once
-      // VendorFailure sanitization lands.
-      assert.match(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
-      assert.match(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+      // result.error is vendor-authored application text -- treated the same as
+      // stderr for sanitisation. The secret path and fake token must not leak.
+      assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+      assert.doesNotMatch(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+      assert.ok(error.message.length < 500, 'message stays small')
+      assert.ok(error.cause instanceof VendorFailure)
+      assert.equal(error.cause.stage, 'web-search')
+      assert.equal(error.cause.category, 'unrecognized')
       return true
     },
   )
@@ -166,7 +174,7 @@ test('B2 (web-search-backend.ts:242): status !== SUCCESS surfaces WEB_SEARCH_PRO
 
 // --- antigravity-primary.ts:550 -----------------------------------------
 
-test('B3 (antigravity-primary.ts:550): model discovery failure surfaces ANTIGRAVITY_CLI', async () => {
+test('B3 (antigravity-primary.ts, stage model-discovery): model discovery failure surfaces ANTIGRAVITY_CLI with no vendor text', async () => {
   const ctx = modelCatalogCtx([
     { stdout: '', stderr: '', exitCode: 1 }, // JSON path fails -> forces the text fallback
     { stdout: '', stderr: MARKER, exitCode: 1 }, // text fallback also fails
@@ -176,18 +184,22 @@ test('B3 (antigravity-primary.ts:550): model discovery failure surfaces ANTIGRAV
   await assert.rejects(adapter.listModels('antigravity-cli'), (error: unknown) => {
     assert.ok(error instanceof LlmError)
     assert.equal(error.code, 'ANTIGRAVITY_CLI')
-    // CHARACTERIZATION: raw vendor stderr, including the secret path and
-    // fake token, reaches the caller today. Expected to invert once
-    // VendorFailure sanitization lands.
-    assert.match(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
-    assert.match(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+    // The secret path and fake token are unrecognised vendor stderr and must
+    // never reach the message -- only VendorFailure's sanitised category text may.
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+    assert.ok(error.message.length < 500, 'message stays small')
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.stage, 'model-discovery')
+    assert.equal(error.cause.category, 'unrecognized')
+    assert.equal(error.cause.exitCode, 1)
     return true
   })
 })
 
 // --- antigravity-primary.ts:751 -----------------------------------------
 
-test('B4 (antigravity-primary.ts:751): a turn exiting before a result event surfaces ANTIGRAVITY_CLI, with raw stderr and no truncation at all', async () => {
+test('B4 (antigravity-primary.ts, stage turn): a turn exiting before a result event surfaces ANTIGRAVITY_CLI, with no vendor text and a small message', async () => {
   const hugeMarker = `${MARKER} ${'x'.repeat(200_000)}`
   const ctx = turnCtx({ lines: [], stderr: hugeMarker, exitCode: 1 })
   const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
@@ -196,14 +208,99 @@ test('B4 (antigravity-primary.ts:751): a turn exiting before a result event surf
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
     assert.ok(error instanceof LlmError)
     assert.equal(error.code, 'ANTIGRAVITY_CLI')
-    // CHARACTERIZATION: raw vendor stderr reaches the caller today, and
-    // unlike the other three sites it is not even bounded/truncated first
-    // -- the entire (here, 200KB+) stderr text is appended verbatim. Expected
-    // to invert (both the leak and the lack of any bound) once VendorFailure
-    // sanitization lands.
-    assert.match(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
-    assert.match(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
-    assert.ok(error.message.length > 200_000, 'the raw stderr is forwarded with no truncation at all')
+    // Unlike before, the entire (here, 200KB+) stderr payload -- including
+    // the secret path and fake token -- must never reach the message, and the
+    // message must stay small regardless of how large the vendor stderr was.
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+    assert.ok(error.message.length < 500, 'the message stays small no matter how large the vendor stderr was')
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.stage, 'turn')
+    assert.equal(error.cause.category, 'unrecognized')
+    assert.equal(error.cause.exitCode, 1)
+    return true
+  })
+})
+
+// --- recognizer coverage: network-unavailable ---------------------------
+
+test('network-unavailable recognizer authors its own message and drops the surrounding vendor text', async () => {
+  const stderr = `connect failed: ECONNREFUSED at ${SECRET_PATH} token=${FAKE_TOKEN}`
+  const ctx = turnCtx({ lines: [], stderr, exitCode: 1 })
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_CLI')
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.category, 'network-unavailable')
+    assert.match(error.message, /could not reach the network \(ECONNREFUSED\)/)
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+    return true
+  })
+})
+
+test('network-unavailable recognizer also fires for the web-search backend', async () => {
+  const stderr = `lookup failed: EAI_AGAIN at ${SECRET_PATH}`
+  const ctx = turnCtx({ lines: [], stderr, exitCode: 1 })
+  const backend = new AntigravitySearchBackend(ctx, searchConfig)
+
+  await assert.rejects(
+    backend.search({ provider: 'antigravity-cli', model: 'gemini-1.5-pro' }, { query: 'q', maxResults: 3 }, AbortSignal.timeout(5_000)),
+    (error: unknown) => {
+      assert.ok(error instanceof AntigravityWebSearchBackendError)
+      assert.equal(error.code, 'WEB_SEARCH_PROVIDER_ERROR')
+      assert.ok(error.cause instanceof VendorFailure)
+      assert.equal(error.cause.category, 'network-unavailable')
+      assert.match(error.message, /could not reach the network \(EAI_AGAIN\)/)
+      assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+      return true
+    },
+  )
+})
+
+// --- recognizer coverage: model-unsupported ------------------------------
+
+const REAL_MODEL_UNSUPPORTED_STDERR =
+  'Error: invalid model selection (--model "definitely-not-a-model" --effort ""): ' +
+  'model definitely-not-a-model is not recognized as a known model or custom model in settings'
+
+test('model-unsupported recognizer authors its own message for the confirmed real CLI wording (model discovery)', async () => {
+  const ctx = modelCatalogCtx([
+    { stdout: '', stderr: '', exitCode: 1 },
+    { stdout: '', stderr: REAL_MODEL_UNSUPPORTED_STDERR, exitCode: 1 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+
+  await assert.rejects(adapter.listModels('antigravity-cli'), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_CLI')
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.category, 'model-unsupported')
+    assert.match(error.message, /rejected the requested model or reasoning effort as unsupported/)
+    // The vendor's own wording (the invalid model name, the quoted flags) must not leak.
+    assert.doesNotMatch(error.message, /definitely-not-a-model/)
+    assert.doesNotMatch(error.message, /--effort/)
+    return true
+  })
+})
+
+test('model-unsupported recognizer also fires at the turn-exit site when no reasoningEffort was requested', async () => {
+  const ctx = turnCtx({ lines: [], stderr: REAL_MODEL_UNSUPPORTED_STDERR, exitCode: 1 })
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  // No reasoningEffort set, so the earlier effort-unsupported branch (UNSUPPORTED
+  // code) is skipped entirely and this falls through to the generic VendorFailure path.
+  const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_CLI')
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.category, 'model-unsupported')
+    assert.match(error.message, /rejected the requested model or reasoning effort as unsupported/)
+    assert.doesNotMatch(error.message, /definitely-not-a-model/)
     return true
   })
 })

@@ -158,7 +158,7 @@ Invariants 24 and 25 in `ARCHITECTURE.md` and the Project Memory README were upd
 3. only then fold durable evidence into `docs/verification/README.md` and restore a freeze claim.
 
 
-Known and deliberately not fixed in this pass: `packages/antigravity` still builds diagnostics from raw vendor stderr — `web-search-backend.ts` around the early-exit branch, and `antigravity-primary.ts` in model discovery (which forwards stderr *or stdout*) and in its collected-run path. This is the same defect class just removed from Codex, and `codexVendorFailure` in `packages/codex/src/codex-plugin-dsh/vendor-stderr.ts` is the working template for the fix.
+`packages/antigravity` no longer builds diagnostics from raw vendor output. All four sites — the two in `web-search-backend.ts`, model discovery and the turn close handler in `antigravity-primary.ts` — go through `antigravityVendorFailure` in `packages/antigravity/src/vendor-stderr.ts`, mirroring the Codex module. The recognizer list has two entries: platform errno tokens, and the one agy wording confirmed against the real CLI. Everything else reports `unrecognized` with exit/signal only, which is deliberate: agy's wording for login and credential failures is unverified, and a guessed recognizer produces a confidently wrong diagnostic.
 
 ## Next stage — Antigravity provider stage
 

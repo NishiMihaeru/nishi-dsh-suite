@@ -16,6 +16,7 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
+import { antigravityVendorFailure } from './vendor-stderr.js'
 
 export const ANTIGRAVITY_PRIMARY_PROVIDER = 'antigravity-cli'
 const AGENT_NAME = 'dsh-primary'
@@ -546,9 +547,15 @@ export class AntigravityCliAdapter extends LlmAdapter {
 
     const text = await this.runCollected(['models'], this.config.catalogTimeoutMs, signal)
     if (text.exitCode !== 0) {
+      const failure = antigravityVendorFailure({
+        stage: 'model-discovery',
+        stderrText: stripAnsi(text.stderr),
+        exitCode: text.exitCode,
+      })
       throw new LlmError(
-        `Antigravity model discovery failed: ${stripAnsi(text.stderr || text.stdout)}`,
+        `Antigravity model discovery failed. ${failure.message}`,
         'ANTIGRAVITY_CLI',
+        { cause: failure },
       )
     }
     const models = parseModelRows(text.stdout)
@@ -732,14 +739,15 @@ export class AntigravityCliAdapter extends LlmAdapter {
           void child.done.then(outcome => {
             if (settled) return
             settled = true
+            // This subprocess spawns stdout as a plain 'pipe' (consumed line-by-line
+            // above via readline), not a collect stream, so child.collected.stdout is
+            // always undefined here. Only stderr is ever actually collected.
             const stderr = child.collected.stderr?.readFrom(0).text ?? ''
-            const stdoutText = child.collected.stdout?.readFrom(0).text ?? ''
-            const combinedOutput = `${stdoutText}\n${stderr}`
             if (
               options.reasoningEffort !== undefined &&
-              (/--effort is not supported/i.test(combinedOutput) ||
-               /effort.*not supported/i.test(combinedOutput) ||
-               /invalid model selection.*--effort/i.test(combinedOutput))
+              (/--effort is not supported/i.test(stderr) ||
+               /effort.*not supported/i.test(stderr) ||
+               /invalid model selection.*--effort/i.test(stderr))
             ) {
               reject(new LlmError(
                 `Antigravity model ${JSON.stringify(options.model)} does not support reasoning effort ${JSON.stringify(String(options.reasoningEffort))}`,
@@ -747,9 +755,16 @@ export class AntigravityCliAdapter extends LlmAdapter {
               ))
               return
             }
+            const failure = antigravityVendorFailure({
+              stage: 'turn',
+              stderrText: stderr,
+              exitCode: outcome.exitCode,
+              signal: outcome.signal,
+            })
             reject(new LlmError(
-              `Antigravity CLI exited before a result event (exit ${String(outcome.exitCode)})${stderr ? `: ${stderr}` : ''}`,
+              `Antigravity CLI exited before a result event. ${failure.message}`,
               'ANTIGRAVITY_CLI',
+              { cause: failure },
             ))
           }, () => {})
         })

@@ -101,11 +101,15 @@ Independent from-scratch audit, remediation, and live acceptance testing complet
 
 Next stage:
 
-- [ ] provider-specific DSH compatibility audit;
+- [x] provider-specific audit of source, tests and manifest;
+- [x] regression net before changing anything: 7 -> 26 unit tests, driven through the public seam with a fake subprocess, characterizing catalog, vendor-diagnostic and native-tool behaviour;
+- [x] route every vendor-process diagnostic through `VendorFailure`; raw stderr and stdout no longer reach a message (30 tests);
+- [ ] remove hardcoded model-family catalog filtering while preserving malformed-entry rejection. Live output shows this is larger than it looks: `agy --output-format json models` returns the list as a **string** inside `{"status":"SUCCESS","response":"id\tName\n..."}`, with none of the keys `collectModels()` looks for, so the JSON path yields zero models against the real vendor and the text fallback always runs. There, the family regex is simultaneously the filter, the id extractor and the skipper for the `Fetching available models...` progress line. The filter currently drops nothing — the live catalog is 15 models across `claude`/`gemini`/`gpt` — so this is future-proofing, best done together with parsing the real `id\tname` format and either fixing or deleting the dead JSON path;
 - [ ] remove genuinely provider-neutral duplication;
-- [ ] remove hardcoded model-family catalog filtering while preserving malformed-entry rejection;
-- [ ] catalog/model-list parser coverage;
-- [ ] focused test/check/build + live primary/model-switch/search acceptance;
+- [ ] no vendor runtime version verification exists at all, unlike Codex's pinned `0.150.0` App Server check — decide whether agy needs an equivalent gate;
+- [ ] decide the `usage-source.ts` trust model: it sets `rejectUnauthorized = false` for loopback HTTPS quota probes and discovers port/CSRF token by scanning process command lines (534 lines, no unit tests);
+- [ ] blocked-native-tool isolation is detective, not preventive: `BLOCKED_NATIVE_TOOLS` is checked only after the turn resolves, so a blocked write has already happened when it throws;
+- [x] live acceptance: primary 8/8 (catalog, real turn, tool loop, shared memory, session reopen, model switch, isolation, failure semantics), routed search 1/1, native search 1/1 — all against the real `agy 1.1.22` with no permission-config changes;
 - [ ] freeze Antigravity.
 
 ## 4. Claude
