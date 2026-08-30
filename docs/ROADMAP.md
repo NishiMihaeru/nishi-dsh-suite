@@ -153,6 +153,19 @@ Automatic failover remains deferred.
 - [ ] managed Orchestrator preset install/status/update/remove;
 - [ ] Suite removal preserves unrelated profile/session/project/vendor state.
 
+## 7a. Codex thread handling — evidence gathered, decision open
+
+Measured against real `codex-cli 0.150.0`; the numbers and the protocol facts are in `ARCHITECTURE.md` under *Codex vendor threads*.
+
+The current fork-per-turn design gets **zero** prompt-cache credit on every turn, while resuming one thread gets cache credit for ~90% of input, and a partial `thread/rollback` does not disturb it. Forking also leaves one persisted vendor thread per DSH message in the user's own vendor account, each carrying that turn's runtime context and project contract.
+
+- [ ] verify that `thread/inject_items` actually reaches the model. It succeeds but is invisible through `thread/read` and `thread/resume`, and the current adapter already depends on it. This blocks the redesign and is worth knowing regardless;
+- [ ] decide whether to replace fork-per-turn with `thread/resume` plus `thread/rollback` for divergence. It would keep the cache, keep exact-turn semantics, and leave one vendor thread per session — but it rewrites the turn path in a provider that has just passed audit and live acceptance, and `rollback` discards where `fork` branched;
+- [ ] independently of that, decide whether this suite should clean up the vendor threads it creates (`thread/delete` / `thread/archive` exist). Deletion touches data in the user's vendor account and must not be default behaviour without explicit consent;
+- [ ] whatever is decided, record the reason for the chosen thread strategy in the code. The original fork choice left no rationale, which is why this took three live measurement runs to reconstruct.
+
+Note on cost framing: the measurements are token counts the vendor reports. ChatGPT/Codex subscription limits are message-weighted rather than token-metered, so a large cached-token saving does not automatically translate into the same saving on the user's `5h`/`Weekly` counters. Do not promise that it does.
+
 ## 7b. DSH support boundary — alpha.1 only — DONE except the upstream blocker
 
 `0.1.2-alpha.1` is the only supported DSH generation, and the repository now says so everywhere rather than only in policy.

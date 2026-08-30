@@ -63,3 +63,14 @@ The Codex manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (
 That acceptance therefore describes a tree this one no longer matches. Codex's own suites pass on the current tree, but the workspace local gate fails on an unrelated Project Memory defect, and Codex has had no live acceptance run against this tree.
 
 Accepted evidence and verification history live in `docs/verification/README.md` and `docs/verification/gemini/LATEST.md`.
+
+## Vendor threads and prompt caching
+
+Every DSH turn creates a new vendor thread: `thread/start` for the first, `thread/fork { threadId, lastTurnId }` for the rest, all with `ephemeral: false`. Only the delta since the last checkpoint is sent — prior turns are not re-transmitted.
+
+Two consequences are measured facts, not estimates, against real `codex-cli 0.150.0`:
+
+- forking gets **no** prompt-cache credit at all, so every turn re-bills the whole accumulated context as fresh input. Resuming a single thread instead gets credit for roughly 90% of input;
+- one vendor thread per DSH message is persisted in the user's own vendor account, each carrying that turn's runtime context and project contract. DSH cannot currently clean these up.
+
+The repository `docs/ARCHITECTURE.md` records the numbers and the protocol facts under *Codex vendor threads*, and `docs/ROADMAP.md` §7a tracks the open decision about changing this.

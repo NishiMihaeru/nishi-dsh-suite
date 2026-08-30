@@ -112,6 +112,42 @@ Core reads the current session request header and dispatches only the backend re
 
 A backend error keeps its own message when Core re-shapes it into the tool taxonomy, so whatever a provider puts in that message reaches the model. That is why the `VendorFailure` contract in `nishi-dsh-core/runtime` is the required construction path for a provider diagnostic built from a failed vendor process: raw vendor stderr is never forwarded, only a recognized and provider-authored sentence, or an unattributed category with exit/signal metadata. Codex is the reference consumer of that contract.
 
+## Codex vendor threads
+
+Every DSH turn currently creates a **new vendor thread**. The adapter calls `thread/start` for the first turn and `thread/fork { threadId, lastTurnId }` for each one after, and sets `ephemeral: false` on all of them. Only the delta since the last checkpoint crosses the wire — `prepareCodexHistory` slices the messages after the checkpoint, so prior turns are never re-transmitted.
+
+`fork` was chosen over `resume` for a reason the code never recorded, and the protocol schema makes it visible: `thread/fork` accepts `lastTurnId` ("fork through, inclusive") while `thread/resume` takes only `threadId`. DSH owns durable history, so branching from an exact turn matters whenever DSH's history and the vendor thread disagree.
+
+### Measured vendor behaviour
+
+These numbers were measured against real `codex-cli 0.150.0`, not inferred. They are recorded here because they were expensive to obtain and are not discoverable from the code.
+
+| Thread handling | Cache credit per turn |
+|---|---|
+| `thread/fork` every turn (current design) | **0**, on every turn of a 5-turn run |
+| `thread/resume` on one thread | ~3840 of ~4200 input tokens, from the second or third turn onward |
+| `thread/resume` after `thread/rollback` of the newest turn | **unchanged** — 3840 before and after |
+
+Forking therefore re-bills the entire accumulated context as fresh input on every turn; resuming does not. The prefix — system prompt plus tool catalog, roughly 1950-4050 tokens depending on the run — is identical across turns and is exactly what goes uncached under fork.
+
+Also established from the live protocol:
+
+- `thread/resume`'s own response carries `thread.turns`, so the vendor thread's tip is known without a separate `thread/read`;
+- `thread/rollback { threadId, numTurns }` genuinely truncates turns and clamps gracefully when asked to drop more than exist;
+- `thread/delete` and `thread/archive` exist, so vendor-side threads this suite created can be cleaned up.
+
+Fork and resume runs used `gpt-5.6-sol`; the rollback run used `gpt-5.6-luna`. Absolute magnitudes are therefore not comparable across runs — the load-bearing comparisons are within-run: fork's zero against resume's non-zero at the same turn positions, and turn 4's credit against turn 3's across the rollback.
+
+### Consequences of the current design
+
+One vendor thread per DSH turn is persisted in the user's own vendor account, each carrying that turn's DSH runtime context and project contract. This is durable storage outside DSH's control that DSH cannot clean up today. Anyone reading `docs/` before changing thread handling should know this is a privacy property, not only clutter.
+
+### Candidate redesign — not implemented
+
+`thread/resume` for the ordinary turn, with `thread/rollback` to realign when DSH's history has diverged, would keep the prompt cache and the exact-turn semantics, and would leave one vendor thread per session instead of one per message.
+
+Before implementing it, one gap must be closed: **`thread/inject_items` is unverified**. The call succeeds, but injected items are invisible through both `thread/read` and `thread/resume`, so nothing has confirmed they reach the model. The current adapter already depends on it for history that follows a checkpoint. Note also that `rollback` is destructive where `fork` was not: it discards the truncated turns rather than leaving a branch behind.
+
 ## Project Memory
 
 ### Root and context
