@@ -124,6 +124,30 @@ function poolLabel(scopeId: string, windowLabel: string): string | undefined {
   return fromId.length > 0 ? fromId : undefined;
 }
 
+/**
+ * Cadence-independent identity for one vendor pool.
+ *
+ * The vendor buckets quota per pool *and* per cadence, so one pool arrives as
+ * several bucket ids -- `legacy-gemini-session` for the 5-hour window and a
+ * separate id for the weekly one. The browser groups bucket windows by
+ * `scope.id`, so using the raw bucket id there splits a single pool into one
+ * group per cadence: the same pool listed twice, once with each window.
+ *
+ * The label was already cadence-stripped; the id was not, which is exactly
+ * why the two disagreed. Both now come from the same stripped text, so they
+ * cannot drift apart again. Two pools collapse into one only if their
+ * cadence-free names are identical, in which case they were indistinguishable
+ * to the reader anyway.
+ *
+ * `LimitWindow.id` keeps the raw bucket id: windows must stay unique per
+ * cadence even when their pool is one.
+ */
+function poolScopeId(scopeId: string, label: string | undefined): string {
+  const base = label ?? withoutCadence(scopeId.replace(/^legacy-/, '').replace(/-/g, ' '));
+  const slug = base.toLowerCase().replace(/\s+/g, '-');
+  return slug.length > 0 ? slug : scopeId;
+}
+
 export function normalizeAntigravityCapability(observation: unknown, observedAtMs: number): ProviderUsageSnapshot {
   if (typeof observedAtMs !== 'number' || !Number.isFinite(observedAtMs) || !Number.isInteger(observedAtMs) || observedAtMs < 0) {
     throw new UsageContractError(`observedAtMs must be a non-negative finite integer number (got ${observedAtMs})`);
@@ -151,6 +175,7 @@ export function normalizeAntigravityCapability(observation: unknown, observedAtM
         // every new vendor pool needed a browser edit.
         const label = poolLabel(scopeId, String(wObj.label ?? ''));
         if (label !== undefined) scope.label = label;
+        scope.id = poolScopeId(scopeId, label);
       }
       const win: LimitWindow = {
         id: `antigravity-${scopeId}`,
