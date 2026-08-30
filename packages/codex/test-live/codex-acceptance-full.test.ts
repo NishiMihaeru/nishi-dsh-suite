@@ -543,7 +543,7 @@ test('SCENARIOS 12 & 13: Stale checkpoint / deleted vendor thread recovery from 
       },
     ]
 
-    // Adapter should attempt thread/fork, catch thread-not-found, rebuild from DSH history and succeed!
+    // Adapter should attempt thread/resume, catch thread-not-found, rebuild from DSH history and succeed!
     const chunks = await collectChunks(adapter.stream({
       provider: 'codex-app-server',
       model: 'gpt-5.6-sol',

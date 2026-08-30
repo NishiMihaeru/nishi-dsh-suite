@@ -425,7 +425,19 @@ function disabledCodexSkills(value: unknown): readonly { readonly path: string; 
   return [...paths].map(path => ({ path, enabled: false as const }))
 }
 
-function recoverableCheckpointForkError(error: unknown, checkpoint: CodexReplayState): boolean {
+/**
+ * Recognize a checkpoint-realignment failure that DSH can safely recover
+ * from by rebuilding a fresh thread from its own durable history.
+ *
+ * The three `thread not found` / `no rollout found` / `failed to load
+ * thread` shapes surface from `thread/resume` (and `thread/fork`) when the
+ * whole vendor thread is gone; the three `lastTurnId '...'` shapes surface
+ * only from `thread/fork`, when the thread exists but the specific turn does
+ * not (already gone, not yet canonical, or still in-progress). Both families
+ * land in the same rebuild, because DSH has no other anchor to resume from
+ * once either is missing.
+ */
+function recoverableCheckpointError(error: unknown, checkpoint: CodexReplayState): boolean {
   if (!(error instanceof JsonRpcResponseError) || error.code !== -32600) return false
   return error.message === `thread not found: ${checkpoint.threadId}`
     || error.message === `no rollout found for thread id ${checkpoint.threadId}`
@@ -433,6 +445,17 @@ function recoverableCheckpointForkError(error: unknown, checkpoint: CodexReplayS
     || error.message === `lastTurnId '${checkpoint.turnId}' was not found in the source thread`
     || error.message === `lastTurnId '${checkpoint.turnId}' is not a persisted canonical turn in the source thread`
     || error.message === `lastTurnId '${checkpoint.turnId}' identifies an in-progress turn`
+}
+
+/**
+ * Chronological turn ids from a `thread/resume` (or `thread/start` /
+ * `thread/fork`) response's `thread.turns`. Turn ids are UUIDv7, so arrival
+ * order in this array is also creation order; the last entry is the
+ * thread's current tip.
+ */
+function resumedTurnIds(thread: Record<string, unknown>): readonly string[] {
+  if (!Array.isArray(thread.turns)) throw new Error('codex-plugin-dsh: App Server returned invalid thread.turns')
+  return thread.turns.map(turn => string(object(turn, 'thread/resume turn').id, 'thread/resume turn id'))
 }
 
 /** Local Codex App Server route with session-aware history, permissions, and process ownership. */
@@ -767,13 +790,62 @@ export class CodexAppServerAdapter extends LlmAdapter {
       } else {
         const checkpoint = history.checkpoint
         try {
-          threadResult = await connection.request('thread/fork', {
-            ...this.threadParams(options, cwd, isolationConfig),
+          // Resume the persisted vendor thread instead of forking a new one
+          // every turn. Forking every turn earns zero prompt-cache credit
+          // (each turn re-bills the whole accumulated context as fresh
+          // input, measured against real codex-cli 0.150.0); resuming one
+          // thread gets credit for ~90% of input (e.g. 3840 cached of
+          // 4249). `thread/resume`'s response carries `thread.turns`, so the
+          // vendor thread's tip is known here without a `thread/read` round
+          // trip. The same configuration overrides thread/start and
+          // thread/fork send go along with the resume, via
+          // threadConfigOverrides -- baseInstructions/model/sandbox/config
+          // are per-turn DSH state (e.g. the runtime-context snapshot),
+          // not one-time thread-creation state, and must keep landing on
+          // every resumed turn, not just the turn that created the thread.
+          const resumeResult = await connection.request('thread/resume', {
             threadId: checkpoint.threadId,
-            lastTurnId: checkpoint.turnId,
+            ...this.threadConfigOverrides(options, cwd, isolationConfig),
           }, signal)
+          const resumedThread = object(resumeResult.thread, 'thread/resume thread')
+          const turns = resumedTurnIds(resumedThread)
+          const tipIndex = turns.indexOf(checkpoint.turnId)
+          if (tipIndex !== -1 && tipIndex === turns.length - 1) {
+            // In sync: the vendor thread's tip is exactly DSH's checkpoint.
+            // This is the common case, and the one that keeps the cache.
+            threadResult = resumeResult
+          } else if (tipIndex !== -1) {
+            // Ahead: the checkpoint is an ancestor of the tip, not the tip
+            // itself (DSH history was rolled back or edited after this
+            // checkpoint was taken). Realign by dropping exactly the turns
+            // after the checkpoint. Unlike fork, thread/rollback is
+            // destructive -- it discards the trailing turns outright rather
+            // than leaving them on a branch -- but that is acceptable here
+            // because DSH's own history no longer reaches them either, and
+            // rollback does not cost the cache (measured: 3840 cached
+            // tokens both before and after dropping one turn).
+            await connection.request('thread/rollback', {
+              threadId: checkpoint.threadId,
+              numTurns: turns.length - 1 - tipIndex,
+            }, signal)
+            threadResult = resumeResult
+          } else {
+            // Not found: the checkpoint's turn is neither the tip nor an
+            // ancestor of it, so no rollback trim reaches it -- resume and
+            // rollback can only address a turn by its position relative to
+            // the tip. thread/fork is kept for exactly this: it takes
+            // lastTurnId and addresses a turn by id (fork "through, i.e.
+            // inclusive of it") regardless of the thread's current tip. If
+            // the turn is genuinely gone, fork fails with the same named
+            // errors the rebuild below already recovers from.
+            threadResult = await connection.request('thread/fork', {
+              ...this.threadParams(options, cwd, isolationConfig),
+              threadId: checkpoint.threadId,
+              lastTurnId: checkpoint.turnId,
+            }, signal)
+          }
         } catch (error) {
-          if (!recoverableCheckpointForkError(error, checkpoint)) throw error
+          if (!recoverableCheckpointError(error, checkpoint)) throw error
           history = await prepareCodexHistory(
             options.messages,
             CODEX_APP_SERVER_PROVIDER,
@@ -870,11 +942,25 @@ export class CodexAppServerAdapter extends LlmAdapter {
     await Promise.all([...this.activeTurns.values()].map(active => this.closeTurn(active)))
   }
 
-  private threadParams(
+  /**
+   * Configuration overrides shared by every thread-establishing request
+   * (`thread/start`, `thread/fork`, `thread/resume`). Single source so
+   * `thread/resume` cannot silently drift from what a fresh or forked
+   * thread would get: `options.system` genuinely changes turn to turn (the
+   * DSH runtime-context snapshot supersedes the previous one), so a resumed
+   * thread must receive the current `baseInstructions`/`model`/`sandbox`/
+   * `config` on every turn, not just the turn that created the thread.
+   *
+   * `ThreadResumeParams` accepts exactly this field set plus
+   * `approvalsReviewer`, `modelProvider`, `personality`, `serviceTier` (none
+   * of which this adapter sets); it does NOT accept `ephemeral` or
+   * `dynamicTools`, and the App Server rejects unknown fields, so those two
+   * are added only by {@link threadParams} for `thread/start`/`thread/fork`.
+   */
+  private threadConfigOverrides(
     options: GenerateOptions,
     cwd: string,
     isolationConfig: Record<string, unknown>,
-    dynamicTools?: readonly unknown[],
   ): Record<string, unknown> {
     return {
       cwd,
@@ -882,9 +968,20 @@ export class CodexAppServerAdapter extends LlmAdapter {
       approvalPolicy: 'never',
       sandbox: 'read-only',
       config: isolationConfig,
-      ephemeral: false,
       baseInstructions: options.system ?? '',
       developerInstructions: CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS,
+    }
+  }
+
+  private threadParams(
+    options: GenerateOptions,
+    cwd: string,
+    isolationConfig: Record<string, unknown>,
+    dynamicTools?: readonly unknown[],
+  ): Record<string, unknown> {
+    return {
+      ...this.threadConfigOverrides(options, cwd, isolationConfig),
+      ephemeral: false,
       ...dynamicTools === undefined ? {} : { dynamicTools },
     }
   }

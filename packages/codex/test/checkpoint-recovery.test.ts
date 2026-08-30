@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { JsonRpcResponseError } from '@deepseek-ai/dsh-sdk-protocol'
-import { CodexAppServerAdapter } from '../src/codex-plugin-dsh/adapter.ts'
+import { CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS, CodexAppServerAdapter } from '../src/codex-plugin-dsh/adapter.ts'
 import { codexToolSignature } from '../src/codex-plugin-dsh/tools.ts'
 
 const config = {
@@ -52,14 +52,188 @@ function messages() {
   ] as any
 }
 
-test('missing Codex checkpoint rebuilds a new thread from canonical DSH history', async () => {
+/** No-checkpoint message list: a single current-turn user message. */
+function messagesWithoutCheckpoint() {
+  return [
+    { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'first question' }] },
+  ] as any
+}
+
+/**
+ * Same checkpoint as `messages()`, but with one durable tool-result message
+ * between the checkpoint and the current turn, so `injectItems` is
+ * non-empty: proof that `thread/inject_items` still runs correctly after a
+ * `thread/resume` (not only after a `thread/fork`).
+ */
+function messagesWithHistoricalToolResult() {
+  const list = messages()
+  list.splice(2, 0, {
+    role: 'user',
+    source: { kind: 'tool' },
+    content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'tool output text' }] }],
+  })
+  return list
+}
+
+function startTurnWith(connection: unknown, messageList: unknown, optionOverrides: Record<string, unknown> = {}) {
+  const adapter = new CodexAppServerAdapter({ attachments: {} } as any, config)
+  ;(adapter as any).openConnection = async () => connection
+  ;(adapter as any).isolationConfig = async () => ({ isolated: true })
+  return { adapter, promise: (adapter as any).startTurn({
+    provider: 'codex-app-server',
+    model: 'gpt-5.6-sol',
+    messages: messageList,
+    ...optionOverrides,
+  }, 'session-a', '/workspace') }
+}
+
+test('no checkpoint starts a brand new thread', async () => {
+  const requests: string[] = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      requests.push(method)
+      if (method === 'thread/start') return { thread: { id: 'thread-fresh', turns: [] } }
+      if (method === 'turn/start') return { turn: { id: 'turn-fresh' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messagesWithoutCheckpoint())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-fresh')
+  assert.equal(active.turnId, 'turn-fresh')
+  assert.deepEqual(requests, ['thread/start', 'turn/start'])
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
+test('checkpoint at the tip resumes the thread and never forks', async () => {
   const requests: Array<{ method: string; params: any }> = []
   let closeCalls = 0
   const connection = {
     async initialize() {},
     async request(method: string, params: any) {
       requests.push({ method, params })
-      if (method === 'thread/fork') {
+      if (method === 'thread/resume') return { thread: { id: 'thread-a', turns: [{ id: 'turn-a' }] } }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-b' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messagesWithHistoricalToolResult())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-a')
+  assert.equal(active.turnId, 'turn-b')
+  assert.deepEqual(requests.map(request => request.method), [
+    'thread/resume',
+    'thread/inject_items',
+    'turn/start',
+  ])
+  assert.equal(requests[0]?.params.threadId, 'thread-a')
+  // thread/inject_items still carries the durable history DSH holds since
+  // the checkpoint (here, one tool result) into the resumed thread.
+  assert.deepEqual(requests[1]?.params, {
+    threadId: 'thread-a',
+    items: [{ type: 'function_call_output', call_id: 'call-1', output: 'tool output text' }],
+  })
+  assert.ok(!requests.some(request => request.method === 'thread/fork'), 'the tip case must never fork')
+  assert.ok(!requests.some(request => request.method === 'thread/rollback'), 'the tip case must never roll back')
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
+test('checkpoint behind the tip rolls back exactly the trailing turns, then runs the turn', async () => {
+  const requests: Array<{ method: string; params: any }> = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string, params: any) {
+      requests.push({ method, params })
+      if (method === 'thread/resume') {
+        return { thread: { id: 'thread-a', turns: [{ id: 'turn-a' }, { id: 'turn-b' }, { id: 'turn-c' }] } }
+      }
+      if (method === 'thread/rollback') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-d' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-a')
+  assert.equal(active.turnId, 'turn-d')
+  assert.deepEqual(requests.map(request => request.method), [
+    'thread/resume',
+    'thread/rollback',
+    'turn/start',
+  ])
+  assert.equal(requests[1]?.params.threadId, 'thread-a')
+  // The checkpoint (turn-a) is at index 0 of 3 turns; drop the 2 turns after it.
+  assert.equal(requests[1]?.params.numTurns, 2)
+  assert.ok(!requests.some(request => request.method === 'thread/fork'), 'a trim-reachable checkpoint must never fork')
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
+test('checkpoint turn absent from the resumed thread falls back to thread/fork', async () => {
+  const requests: Array<{ method: string; params: any }> = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string, params: any) {
+      requests.push({ method, params })
+      if (method === 'thread/resume') {
+        return { thread: { id: 'thread-a', turns: [{ id: 'turn-unrelated-1' }, { id: 'turn-unrelated-2' }] } }
+      }
+      if (method === 'thread/fork') return { thread: { id: 'thread-forked' } }
+      if (method === 'turn/start') return { turn: { id: 'turn-forked' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-forked')
+  assert.equal(active.turnId, 'turn-forked')
+  assert.deepEqual(requests.map(request => request.method), [
+    'thread/resume',
+    'thread/fork',
+    'turn/start',
+  ])
+  assert.equal(requests[1]?.params.threadId, 'thread-a')
+  assert.equal(requests[1]?.params.lastTurnId, 'turn-a')
+  assert.ok(!requests.some(request => request.method === 'thread/rollback'), 'an unreachable checkpoint must never roll back')
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
+test('a resume-time thread-not-found error rebuilds a new thread from canonical DSH history', async () => {
+  const requests: Array<{ method: string; params: any }> = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string, params: any) {
+      requests.push({ method, params })
+      if (method === 'thread/resume') {
         throw new JsonRpcResponseError(-32600, 'thread not found: thread-a')
       }
       if (method === 'thread/start') return { thread: { id: 'thread-rebuilt' } }
@@ -71,26 +245,18 @@ test('missing Codex checkpoint rebuilds a new thread from canonical DSH history'
     async close() { closeCalls += 1 },
   }
 
-  const adapter = new CodexAppServerAdapter({ attachments: {} } as any, config)
-  ;(adapter as any).openConnection = async () => connection
-  ;(adapter as any).isolationConfig = async () => ({ isolated: true })
-
-  const active = await (adapter as any).startTurn({
-    provider: 'codex-app-server',
-    model: 'gpt-5.6-sol',
-    messages: messages(),
-  }, 'session-a', '/workspace')
+  const { adapter, promise } = startTurnWith(connection, messages())
+  const active = await promise
 
   assert.equal(active.threadId, 'thread-rebuilt')
   assert.equal(active.turnId, 'turn-rebuilt')
   assert.deepEqual(requests.map(request => request.method), [
-    'thread/fork',
+    'thread/resume',
     'thread/start',
     'thread/inject_items',
     'turn/start',
   ])
   assert.equal(requests[0]?.params.threadId, 'thread-a')
-  assert.equal(requests[0]?.params.lastTurnId, 'turn-a')
   assert.deepEqual(requests[1]?.params.dynamicTools, [])
   assert.deepEqual(requests[2]?.params, {
     threadId: 'thread-rebuilt',
@@ -118,6 +284,62 @@ test('missing Codex checkpoint rebuilds a new thread from canonical DSH history'
   assert.equal(closeCalls, 1)
 })
 
+test('a fork-time turn-not-found error also rebuilds a new thread from canonical DSH history', async () => {
+  const requests: string[] = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      requests.push(method)
+      if (method === 'thread/resume') {
+        return { thread: { id: 'thread-a', turns: [{ id: 'turn-unrelated' }] } }
+      }
+      if (method === 'thread/fork') {
+        throw new JsonRpcResponseError(-32600, "lastTurnId 'turn-a' was not found in the source thread")
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-rebuilt' } }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-rebuilt' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-rebuilt')
+  assert.equal(active.turnId, 'turn-rebuilt')
+  assert.deepEqual(requests, ['thread/resume', 'thread/fork', 'thread/start', 'thread/inject_items', 'turn/start'])
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
+test('unrelated thread/resume errors remain fail-closed and are not rebuilt', async () => {
+  const requests: string[] = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      requests.push(method)
+      if (method === 'thread/resume') {
+        throw new JsonRpcResponseError(-32600, 'sandbox override is invalid')
+      }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages())
+
+  await assert.rejects(promise, /sandbox override is invalid/)
+  assert.deepEqual(requests, ['thread/resume'])
+  assert.equal(closeCalls, 1)
+})
+
 test('unrelated thread/fork errors remain fail-closed and are not rebuilt', async () => {
   const requests: string[] = []
   let closeCalls = 0
@@ -125,6 +347,9 @@ test('unrelated thread/fork errors remain fail-closed and are not rebuilt', asyn
     async initialize() {},
     async request(method: string) {
       requests.push(method)
+      if (method === 'thread/resume') {
+        return { thread: { id: 'thread-a', turns: [{ id: 'turn-unrelated' }] } }
+      }
       if (method === 'thread/fork') {
         throw new JsonRpcResponseError(-32600, 'sandbox override is invalid')
       }
@@ -134,18 +359,70 @@ test('unrelated thread/fork errors remain fail-closed and are not rebuilt', asyn
     async close() { closeCalls += 1 },
   }
 
-  const adapter = new CodexAppServerAdapter({ attachments: {} } as any, config)
-  ;(adapter as any).openConnection = async () => connection
-  ;(adapter as any).isolationConfig = async () => ({ isolated: true })
+  const { adapter, promise } = startTurnWith(connection, messages())
 
-  await assert.rejects(
-    (adapter as any).startTurn({
-      provider: 'codex-app-server',
-      model: 'gpt-5.6-sol',
-      messages: messages(),
-    }, 'session-a', '/workspace'),
-    /sandbox override is invalid/,
-  )
-  assert.deepEqual(requests, ['thread/fork'])
+  await assert.rejects(promise, /sandbox override is invalid/)
+  assert.deepEqual(requests, ['thread/resume', 'thread/fork'])
   assert.equal(closeCalls, 1)
+})
+
+test('thread/resume carries the same configuration overrides as thread/start and thread/fork', async () => {
+  const requests: Array<{ method: string; params: any }> = []
+  const connection = {
+    async initialize() {},
+    async request(method: string, params: any) {
+      requests.push({ method, params })
+      if (method === 'thread/resume') return { thread: { id: 'thread-a', turns: [{ id: 'turn-a' }] } }
+      if (method === 'turn/start') return { turn: { id: 'turn-b' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() {},
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages(), { system: 'the current runtime-context snapshot' })
+  await promise
+
+  const resume = requests.find(request => request.method === 'thread/resume')
+  assert.deepEqual(resume?.params, {
+    threadId: 'thread-a',
+    cwd: '/workspace',
+    model: 'gpt-5.6-sol',
+    approvalPolicy: 'never',
+    sandbox: 'read-only',
+    config: { isolated: true },
+    baseInstructions: 'the current runtime-context snapshot',
+    developerInstructions: CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS,
+  })
+
+  await adapter.dispose()
+})
+
+test('a changed system prompt on a later turn reaches the thread/resume call, not a stale one', async () => {
+  async function resumeBaseInstructions(system: string): Promise<string> {
+    const requests: Array<{ method: string; params: any }> = []
+    const connection = {
+      async initialize() {},
+      async request(method: string, params: any) {
+        requests.push({ method, params })
+        if (method === 'thread/resume') return { thread: { id: 'thread-a', turns: [{ id: 'turn-a' }] } }
+        if (method === 'turn/start') return { turn: { id: 'turn-b' } }
+        throw new Error(`unexpected request ${method}`)
+      },
+      interrupt() {},
+      async close() {},
+    }
+    const { adapter, promise } = startTurnWith(connection, messages(), { system })
+    await promise
+    await adapter.dispose()
+    const resume = requests.find(request => request.method === 'thread/resume')
+    return resume?.params.baseInstructions
+  }
+
+  // Two independent turns resuming the same checkpoint with two different
+  // DSH runtime-context snapshots must each carry their own current
+  // baseInstructions to thread/resume -- proof the override is read fresh
+  // per turn and not pinned to whatever the thread was created with.
+  assert.equal(await resumeBaseInstructions('snapshot one'), 'snapshot one')
+  assert.equal(await resumeBaseInstructions('snapshot two, which supersedes snapshot one'), 'snapshot two, which supersedes snapshot one')
 })
