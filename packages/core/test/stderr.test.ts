@@ -45,6 +45,7 @@ test('settledStderr reads the collected stderr tail once the process settles', a
 test('settledStderr falls back to a bounded wait when the process never settles', async () => {
   const fake = fakeHandle({ text: 'late-arriving explanation' })
   const text = await settledStderr(fake.handle, 20)
+  fake.settle()
 
   assert.equal(text, 'late-arriving explanation')
 })

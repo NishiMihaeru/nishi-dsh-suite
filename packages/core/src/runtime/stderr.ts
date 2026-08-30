@@ -48,7 +48,6 @@ export async function settledStderr(
       ),
       new Promise<void>((resolveWait) => {
         timer = setTimeout(resolveWait, graceMs)
-        timer.unref?.()
       }),
     ])
   } finally {
