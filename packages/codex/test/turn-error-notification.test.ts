@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { VendorFailure } from 'nishi-dsh-core/runtime'
 import { CodexAppServerAdapter } from '../src/codex-plugin-dsh/adapter.ts'
 
 const config = {
@@ -67,6 +68,7 @@ async function drainWithGuard<T>(promise: Promise<T>, guardMs: number, label: st
 }
 
 test('an error notification without a threadId fails the turn immediately instead of waiting for turnTimeoutMs', async () => {
+  const SECRET = '/home/secret-user/private/path'
   const { adapter, options } = fixture()
 
   const iterator = adapter.stream(options)[Symbol.asyncIterator]()
@@ -75,12 +77,22 @@ test('an error notification without a threadId fails the turn immediately instea
   const active = await waitForActiveTurn(adapter, 'session-a')
   active.events.push({
     kind: 'notification',
-    notification: { method: 'error', params: { willRetry: false, error: { message: 'fatal marker without threadId' } } },
+    notification: { method: 'error', params: { willRetry: false, error: { message: `fatal marker without threadId ${SECRET}` } } },
   })
 
   await assert.rejects(
     drainWithGuard(first, 2_000, 'the turn'),
-    /fatal marker without threadId/,
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.equal((error as { code?: unknown }).code, 'CODEX_APP_SERVER')
+      // Promptness is the real contract here: the turn must fail immediately
+      // rather than hang until turnTimeoutMs. The vendor's own words must
+      // not reach the caller -- only a VendorFailure, attached as `cause`.
+      assert.doesNotMatch(error.message, /fatal marker without threadId/)
+      assert.doesNotMatch(error.message, /secret-user/)
+      assert.ok(error.cause instanceof VendorFailure, 'the failure must carry a VendorFailure as cause')
+      return true
+    },
   )
 })
 
@@ -128,6 +140,10 @@ test('an error notification for a different, non-empty threadId is still ignored
   assert.ok(
     chunks.some(chunk => (chunk as any).type === 'finish' && (chunk as any).reason?.kind === 'stop'),
     'the turn must complete normally once the foreign-thread error is correctly ignored',
+  )
+  assert.ok(
+    !JSON.stringify(chunks).includes('must be ignored'),
+    'the other thread\'s vendor error text must never reach the caller, ignored or not',
   )
 })
 

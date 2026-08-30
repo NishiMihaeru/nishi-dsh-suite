@@ -190,6 +190,122 @@ test('checkpoint behind the tip rolls back exactly the trailing turns, then runs
   assert.equal(closeCalls, 1)
 })
 
+test('a throwing thread/rollback rebuilds a new thread from canonical DSH history', async () => {
+  const requests: string[] = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      requests.push(method)
+      if (method === 'thread/resume') {
+        return { thread: { id: 'thread-a', turns: [{ id: 'turn-a' }, { id: 'turn-b' }, { id: 'turn-c' }] } }
+      }
+      if (method === 'thread/rollback') {
+        // thread/rollback has no catalogued vendor error shape; any failure
+        // here -- the thread deleted between resume and rollback, a
+        // transport drop, any other vendor hiccup -- must still reach the
+        // rebuild path, not propagate as a hard turn failure.
+        throw new Error('ECONNRESET: transport dropped mid-request')
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-rebuilt' } }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-rebuilt' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-rebuilt')
+  assert.equal(active.turnId, 'turn-rebuilt')
+  assert.deepEqual(requests, [
+    'thread/resume',
+    'thread/rollback',
+    'thread/start',
+    'thread/inject_items',
+    'turn/start',
+  ])
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
+test('a duplicated turn id resolves toward in-sync rather than triggering a destructive rollback', async () => {
+  const requests: string[] = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      requests.push(method)
+      // The checkpoint's turn id ('turn-a') appears twice; the LAST
+      // occurrence is the tip. If tip detection matched the first
+      // occurrence instead, it would misclassify this in-sync checkpoint as
+      // "ahead" and issue a destructive thread/rollback against turns that
+      // are still current.
+      if (method === 'thread/resume') {
+        return { thread: { id: 'thread-a', turns: [{ id: 'turn-a' }, { id: 'turn-b' }, { id: 'turn-a' }] } }
+      }
+      if (method === 'turn/start') return { turn: { id: 'turn-d' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-a')
+  assert.equal(active.turnId, 'turn-d')
+  assert.deepEqual(requests, ['thread/resume', 'turn/start'])
+  assert.ok(!requests.includes('thread/rollback'), 'a duplicate resolving to in-sync must never roll back')
+  assert.ok(!requests.includes('thread/fork'), 'a duplicate resolving to in-sync must never fork')
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
+test('a malformed thread.turns in the resume response rebuilds a new thread from canonical DSH history', async () => {
+  const requests: string[] = []
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      requests.push(method)
+      if (method === 'thread/resume') {
+        // thread.turns missing/not-an-array is not a vendor error shape, so
+        // it can never match a JsonRpcResponseError -- it must still reach
+        // the same rebuild path every named resume/fork error already does.
+        return { thread: { id: 'thread-a', turns: 'not-an-array' } }
+      }
+      if (method === 'thread/start') return { thread: { id: 'thread-rebuilt' } }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-rebuilt' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+
+  const { adapter, promise } = startTurnWith(connection, messages())
+  const active = await promise
+
+  assert.equal(active.threadId, 'thread-rebuilt')
+  assert.equal(active.turnId, 'turn-rebuilt')
+  assert.deepEqual(requests, [
+    'thread/resume',
+    'thread/start',
+    'thread/inject_items',
+    'turn/start',
+  ])
+
+  await adapter.dispose()
+  assert.equal(closeCalls, 1)
+})
+
 test('checkpoint turn absent from the resumed thread falls back to thread/fork', async () => {
   const requests: Array<{ method: string; params: any }> = []
   let closeCalls = 0

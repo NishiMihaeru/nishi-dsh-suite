@@ -308,9 +308,11 @@ function recordValue(value: unknown): Record<string, unknown> {
  *
  * `turn.error` is a structured App Server field rather than process stderr,
  * but it is still free text the vendor authored, and it can carry paths or
- * anything else the vendor chose to put there. Every other vendor-authored
- * string in this suite goes through `VendorFailure`; this was the last one
- * that did not.
+ * anything else the vendor chose to put there. Every vendor-authored string
+ * in this suite goes through `VendorFailure`, including the generic App
+ * Server `error` notification's `params.error` handled by
+ * {@link notificationFailure} below -- structurally the same free text as
+ * `turn.error`, just delivered on a different channel.
  *
  * The cost is accepted: until the recognizer list grows, an ordinary turn
  * failure reports an unrecognized category instead of the vendor's own
@@ -324,6 +326,26 @@ function turnFailure(turn: Record<string, unknown>): Error {
   })
   return new LlmError(
     `Codex App Server turn ended with status ${String(turn.status)}. ${failure.message}`,
+    'CODEX_APP_SERVER',
+    { cause: failure },
+  )
+}
+
+/**
+ * Build a fatal-notification failure without copying vendor text into it.
+ *
+ * Mirrors {@link turnFailure} for the App Server's generic `error`
+ * notification: `params.error` is vendor-authored free text exactly like
+ * `turn.error`, just arriving as a notification instead of a turn-completed
+ * response.
+ */
+function notificationFailure(error: unknown): Error {
+  const failure = codexVendorFailure({
+    stage: 'app-server-notification',
+    stderrText: error === undefined || error === null ? undefined : messageText(error),
+  })
+  return new LlmError(
+    `Codex App Server reported a fatal error. ${failure.message}`,
     'CODEX_APP_SERVER',
     { cause: failure },
   )
@@ -426,6 +448,28 @@ function disabledCodexSkills(value: unknown): readonly { readonly path: string; 
 }
 
 /**
+ * Marks a checkpoint-realignment failure as unconditionally recoverable by
+ * rebuilding a fresh thread from durable DSH history, regardless of what the
+ * vendor said (or failed to say). Used for failure classes that have no
+ * stable, named vendor error shape to pattern-match the way
+ * {@link recoverableCheckpointError} does for `thread/resume`/`thread/fork`:
+ *
+ * - `thread/rollback` throwing at all. Unlike resume/fork, rollback has no
+ *   catalogued error shapes; by the time it runs, DSH has already committed
+ *   to realigning this thread (the checkpoint is a known ancestor of the
+ *   tip), so any failure here -- the thread deleted between resume and
+ *   rollback, a transport drop, any other vendor hiccup -- leaves the
+ *   checkpoint just as unusable as a named "thread not found" would.
+ *   Propagating a hard turn failure for what is, by construction, a
+ *   recoverable-by-design situation would be strictly worse than rebuilding.
+ * - A malformed `thread/resume` response (`thread.turns` missing or not an
+ *   array). This is not a vendor error at all, so it can never match a
+ *   `JsonRpcResponseError` shape; it is exactly the same "cannot use this
+ *   checkpoint" situation every named error already rebuilds from.
+ */
+class CheckpointUnusable extends Error {}
+
+/**
  * Recognize a checkpoint-realignment failure that DSH can safely recover
  * from by rebuilding a fresh thread from its own durable history.
  *
@@ -435,9 +479,11 @@ function disabledCodexSkills(value: unknown): readonly { readonly path: string; 
  * only from `thread/fork`, when the thread exists but the specific turn does
  * not (already gone, not yet canonical, or still in-progress). Both families
  * land in the same rebuild, because DSH has no other anchor to resume from
- * once either is missing.
+ * once either is missing. See {@link CheckpointUnusable} for the other,
+ * unconditionally-recoverable failure classes this does not need to name.
  */
 function recoverableCheckpointError(error: unknown, checkpoint: CodexReplayState): boolean {
+  if (error instanceof CheckpointUnusable) return true
   if (!(error instanceof JsonRpcResponseError) || error.code !== -32600) return false
   return error.message === `thread not found: ${checkpoint.threadId}`
     || error.message === `no rollout found for thread id ${checkpoint.threadId}`
@@ -454,7 +500,7 @@ function recoverableCheckpointError(error: unknown, checkpoint: CodexReplayState
  * thread's current tip.
  */
 function resumedTurnIds(thread: Record<string, unknown>): readonly string[] {
-  if (!Array.isArray(thread.turns)) throw new Error('codex-plugin-dsh: App Server returned invalid thread.turns')
+  if (!Array.isArray(thread.turns)) throw new CheckpointUnusable('codex-plugin-dsh: App Server returned invalid thread.turns')
   return thread.turns.map(turn => string(object(turn, 'thread/resume turn').id, 'thread/resume turn id'))
 }
 
@@ -612,7 +658,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
           // belonging to someone else's thread; anything else is ours.
           const errorThreadId = typeof params.threadId === 'string' ? params.threadId : undefined
           if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== active.threadId) continue
-          if (params.willRetry !== true) throw new LlmError(messageText(params.error), 'CODEX_APP_SERVER')
+          if (params.willRetry !== true) throw notificationFailure(params.error)
           continue
         }
         if (params.threadId !== active.threadId) continue
@@ -809,7 +855,14 @@ export class CodexAppServerAdapter extends LlmAdapter {
           }, signal)
           const resumedThread = object(resumeResult.thread, 'thread/resume thread')
           const turns = resumedTurnIds(resumedThread)
-          const tipIndex = turns.indexOf(checkpoint.turnId)
+          // Turn ids are UUIDv7 and should be unique, but `lastIndexOf`
+          // (rather than `indexOf`) is used deliberately: if that assumption
+          // were ever violated, matching the LAST occurrence resolves a
+          // duplicate toward "in sync" rather than "ahead". That costs
+          // nothing when ids are unique (both finds agree), and when they are
+          // not it avoids the destructive `thread/rollback` below firing
+          // against turns that are still current.
+          const tipIndex = turns.lastIndexOf(checkpoint.turnId)
           if (tipIndex !== -1 && tipIndex === turns.length - 1) {
             // In sync: the vendor thread's tip is exactly DSH's checkpoint.
             // This is the common case, and the one that keeps the cache.
@@ -824,10 +877,22 @@ export class CodexAppServerAdapter extends LlmAdapter {
             // because DSH's own history no longer reaches them either, and
             // rollback does not cost the cache (measured: 3840 cached
             // tokens both before and after dropping one turn).
-            await connection.request('thread/rollback', {
-              threadId: checkpoint.threadId,
-              numTurns: turns.length - 1 - tipIndex,
-            }, signal)
+            //
+            // thread/rollback has no catalogued vendor error shape the way
+            // resume/fork do, so any failure here (thread deleted between
+            // resume and rollback, a transport drop, any other vendor
+            // hiccup) is wrapped as `CheckpointUnusable` and always falls
+            // into the rebuild-from-DSH-history path below -- by this point
+            // the checkpoint is already known stale, so any failure to trim
+            // it forward is definitionally "cannot use this checkpoint".
+            try {
+              await connection.request('thread/rollback', {
+                threadId: checkpoint.threadId,
+                numTurns: turns.length - 1 - tipIndex,
+              }, signal)
+            } catch (cause) {
+              throw new CheckpointUnusable('codex-plugin-dsh: thread/rollback failed', { cause })
+            }
             threadResult = resumeResult
           } else {
             // Not found: the checkpoint's turn is neither the tip nor an
