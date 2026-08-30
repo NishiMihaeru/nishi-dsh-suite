@@ -4,17 +4,29 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 
 /**
- * Regression net for `loadModels()` (antigravity-primary.ts:533), its JSON
- * path `collectModels()` (:122), and its text-fallback path
- * `parseModelRows()` (:142). Both are module-private, so every test drives
- * them only through the adapter's public `listModels()`/`resolveModel()`
- * seam with a fake `ctx.subprocess`, exactly as `packages/codex/test/*`
- * fakes vendor processes.
+ * Regression net for `loadModels()` (antigravity-primary.ts:~534), its JSON
+ * envelope path `parseAgyEnvelope()`, and the shared entry parser
+ * `parseCatalogEntries()` used by both the envelope's `response` string and
+ * the plain-text `agy models` fallback. All are module-private, so every
+ * test drives them only through the adapter's public
+ * `listModels()`/`resolveModel()` seam with a fake `ctx.subprocess`, exactly
+ * as `packages/codex/test/*` fakes vendor processes.
  *
- * A change queued right behind this suite removes the hardcoded
- * `(?:gemini|claude|gpt|oss)...` family filter. Every test marked
- * CHARACTERIZATION pins today's behavior specifically so that change can
- * flip the assertion instead of deleting the test.
+ * This suite replaces an earlier one that pinned two wrong assumptions
+ * about the real `agy 1.1.22` vendor CLI:
+ *
+ *   1. That `--output-format json models` emits a structured catalog object
+ *      with `slug`/`id`/`model`/`model_id`/`modelId` keys somewhere in it.
+ *      It does not -- it emits the *same tab-separated text* as the
+ *      non-JSON path, as a string under `response`, wrapped in a
+ *      `{conversation_id, status, response}` envelope. The old
+ *      object-recursion catalog parser never matched anything real and has
+ *      been deleted, not merely relaxed.
+ *   2. That model ids are constrained to a `gemini|claude|gpt|oss` family
+ *      prefix. Real ids carry no such constraint, and the hardcoded family
+ *      regex has been removed from both parsing paths. Tests that pinned
+ *      that filter are marked CHARACTERIZATION below and are inverted here
+ *      (the ids they used to reject are now accepted) rather than deleted.
  */
 
 const config = {
@@ -48,7 +60,7 @@ function collectedChild(stdout: string, stderr: string, exitCode: number | null 
 
 /**
  * `loadModels()` issues up to two sequential `runCollected` calls (the JSON
- * catalog, then the text fallback). `responses` is consumed in call order;
+ * envelope, then the text fallback). `responses` is consumed in call order;
  * the last entry repeats if more calls happen than responses were given.
  */
 function modelCatalogCtx(responses: ReadonlyArray<{ stdout: string; stderr: string; exitCode?: number | null }>) {
@@ -65,93 +77,130 @@ function modelCatalogCtx(responses: ReadonlyArray<{ stdout: string; stderr: stri
   } as any
 }
 
-// --- JSON catalog path (collectModels) ---------------------------------
+/** Builds the real `agy` stdout shape: a progress line, then the JSON envelope line. */
+function agyJsonModelsStdout(envelope: Record<string, unknown>): string {
+  return `Fetching available models...\n${JSON.stringify(envelope)}\n`
+}
 
-test('a well-formed JSON catalog yields expected ids, including nested/array shapes', async () => {
-  const catalog = {
-    data: {
-      models: [
-        { id: 'claude-3-opus', display_name: 'Claude 3 Opus' },
-        [{ slug: 'gemini-1.5-pro' }, { model_id: 'gpt-4o', name: 'GPT-4o' }],
-      ],
-    },
-  }
-  const ctx = modelCatalogCtx([{ stdout: JSON.stringify(catalog), stderr: '', exitCode: 0 }])
+// --- JSON envelope path (parseAgyEnvelope + parseCatalogEntries) -------
+
+test('the real captured envelope shape is parsed: progress line skipped, tab-separated response parsed', async () => {
+  // This is the literal payload captured from `agy 1.1.22 --output-format json models`.
+  const stdout = 'Fetching available models...\n'
+    + '{"conversation_id":"","status":"SUCCESS","response":"gemini-3.7-flash-high\\tGemini 3.7 Flash (High)\\ngemini-3.7-flash-medium\\tGemini 3.7 Flash (Medium)"}\n'
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
   const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
-  assert.deepEqual(models.map(m => m.id).sort(), ['claude-3-opus', 'gemini-1.5-pro', 'gpt-4o'].sort())
-  assert.equal(models.find(m => m.id === 'claude-3-opus')?.name, 'Claude 3 Opus')
-  assert.equal(models.find(m => m.id === 'gpt-4o')?.name, 'GPT-4o')
+  assert.deepEqual(models.map(m => m.id).sort(), ['gemini-3.7-flash-high', 'gemini-3.7-flash-medium'])
+  assert.equal(models.find(m => m.id === 'gemini-3.7-flash-high')?.name, 'Gemini 3.7 Flash (High)')
 })
 
-test('a non-string id candidate is rejected by collectModels', async () => {
-  const catalog = [{ id: 12345 }, { id: 'claude-3-opus' }]
-  const ctx = modelCatalogCtx([{ stdout: JSON.stringify(catalog), stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config)
-
-  const models = await adapter.listModels('antigravity-cli')
-
-  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
-})
-
-test('an entry with none of the five id keys is skipped, even when it holds a family-shaped string', async () => {
-  // collectModels only reads row.slug/id/model/model_id/modelId; a string
-  // living under any other key is never treated as a model id candidate,
-  // independent of whether it would pass the family filter.
-  const catalog = [{ notAnIdKey: 'claude-3-haiku' }, { id: 'claude-3-opus' }]
-  const ctx = modelCatalogCtx([{ stdout: JSON.stringify(catalog), stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config)
-
-  const models = await adapter.listModels('antigravity-cli')
-
-  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
-})
-
-test('CHARACTERIZATION: a well-formed but out-of-family id is silently dropped by collectModels', async () => {
-  // The family-filter removal this suite is guarding against is expected to
-  // INVERT this assertion: 'mistral-large-2' should then be included.
-  const catalog = [{ id: 'mistral-large-2' }, { id: 'claude-3-opus' }]
-  const ctx = modelCatalogCtx([{ stdout: JSON.stringify(catalog), stderr: '', exitCode: 0 }])
+test('the envelope path accepts ids from any vendor family, with no hardcoded prefix list', async () => {
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: [
+      'claude-4-opus\tClaude 4 Opus',
+      'gpt-5-codex\tGPT-5 Codex',
+      'mistral-large-2\tMistral Large 2',
+    ].join('\n'),
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
   const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
   assert.deepEqual(
-    models.map(m => m.id),
-    ['claude-3-opus'],
-    'mistral-large-2 is dropped today by the /(?:gemini|claude|gpt|oss).../ filter',
+    models.map(m => m.id).sort(),
+    ['claude-4-opus', 'gpt-5-codex', 'mistral-large-2'],
   )
 })
 
-test('CHARACTERIZATION: duplicate ids across different id keys collapse to the last-processed entry', async () => {
-  const catalog = [
-    { slug: 'claude-3-opus', display_name: 'First' },
-    { model_id: 'claude-3-opus', display_name: 'Second' },
-  ]
-  const ctx = modelCatalogCtx([{ stdout: JSON.stringify(catalog), stderr: '', exitCode: 0 }])
+test('CHARACTERIZATION (inverted): a well-formed but out-of-family id is now accepted by the envelope path', async () => {
+  // Previously the hardcoded /(?:gemini|claude|gpt|oss).../ filter silently
+  // dropped 'mistral-large-2'. That filter is gone; it is now included.
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: ['mistral-large-2\tMistral Large 2', 'claude-3-opus\tClaude 3 Opus'].join('\n'),
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+
+  assert.deepEqual(models.map(m => m.id).sort(), ['claude-3-opus', 'mistral-large-2'])
+})
+
+test('CHARACTERIZATION (inverted): duplicate ids in the envelope response collapse to the last-processed line', async () => {
+  // Deliberate choice: last-writer-wins, same as the pre-existing behavior
+  // of both catalog paths this replaces (see parseCatalogEntries' doc
+  // comment). A duplicate id is a vendor bug either way; this is not an
+  // attempt to reconcile it, just the deterministic outcome of a forward
+  // pass into a Map.
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: ['claude-3-opus\tFirst', 'claude-3-opus\tSecond'].join('\n'),
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
   const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
   assert.equal(models.length, 1)
-  assert.equal(models[0]?.name, 'Second', 'later entries overwrite earlier ones for the same id today (last writer wins)')
+  assert.equal(models[0]?.name, 'Second', 'later lines overwrite earlier ones for the same id (last-writer-wins)')
 })
 
-// --- Text fallback path (parseModelRows) --------------------------------
-//
-// In the text fallback the family regex is not merely a filter applied
-// after extraction -- it IS the extraction mechanism. A line whose only
-// model-shaped token is out-of-family never becomes a "candidate" that gets
-// rejected; it simply never matches, so the whole line is invisible to the
-// parser. Removing the family filter here therefore means widening/
-// replacing the regex itself, not deleting a downstream filter step.
+test('a non-SUCCESS envelope status fails loudly instead of falling back to the text path', async () => {
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'ERROR',
+    error: 'quota exceeded for /home/secret-user/private/path',
+  })
+  const ctx = modelCatalogCtx([
+    { stdout, stderr: '', exitCode: 0 },
+    // Should never be reached: a definitive status signal is authoritative.
+    { stdout: 'claude-3-opus\tClaude 3 Opus', stderr: '', exitCode: 0 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
-test('parseModelRows extracts ids from well-formed text catalog lines (via the JSON-path failure fallback)', async () => {
+  await assert.rejects(adapter.listModels('antigravity-cli'), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_CLI')
+    // The status enum is a safe, DSH-side value and is named directly; the
+    // envelope's own `error` string is vendor-authored free text and must go
+    // through VendorFailure like every other vendor output in this package.
+    assert.match(error.message, /status ERROR/)
+    assert.doesNotMatch(error.message, /quota exceeded/)
+    assert.doesNotMatch(error.message, /secret-user/)
+    return true
+  })
+})
+
+test('an envelope with no parseable JSON object falls back to the text path', async () => {
+  const ctx = modelCatalogCtx([
+    { stdout: 'Fetching available models...\nnot json at all\n', stderr: '', exitCode: 0 },
+    { stdout: 'claude-3-opus\tClaude 3 Opus', stderr: '', exitCode: 0 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+
+  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
+})
+
+// --- Shared entry parser (parseCatalogEntries) --------------------------
+//
+// Exercised here via the plain-text `agy models` fallback, which uses the
+// identical parser as the envelope's `response` field.
+
+test('parseCatalogEntries extracts id/name pairs from well-formed tab-separated lines (via the JSON-path failure fallback)', async () => {
   const text = [
-    'claude-3-opus   Claude 3 Opus (default)',
-    'gemini-1.5-pro  Gemini 1.5 Pro',
+    'claude-3-opus\tClaude 3 Opus (default)',
+    'gemini-1.5-pro\tGemini 1.5 Pro',
   ].join('\n')
   const ctx = modelCatalogCtx([
     { stdout: '', stderr: '', exitCode: 1 }, // JSON path fails -> forces the text fallback
@@ -162,12 +211,17 @@ test('parseModelRows extracts ids from well-formed text catalog lines (via the J
   const models = await adapter.listModels('antigravity-cli')
 
   assert.deepEqual(models.map(m => m.id).sort(), ['claude-3-opus', 'gemini-1.5-pro'])
+  assert.equal(models.find(m => m.id === 'claude-3-opus')?.name, 'Claude 3 Opus (default)')
 })
 
-test('a text line with no family-prefixed token at all is skipped by parseModelRows', async () => {
+test('CHARACTERIZATION (inverted): an out-of-family model line is now accepted by the text fallback', async () => {
+  // Previously the family regex WAS the extraction mechanism: a line whose
+  // only model-shaped token was out-of-family never matched at all, so it
+  // contributed zero rows. That regex has been replaced entirely by tab
+  // presence + id-shape checks, so this line is now a normal entry.
   const text = [
-    'mistral-large-2  some out-of-family model line',
-    'claude-3-opus    Claude 3 Opus',
+    'mistral-large-2\tMistral Large 2',
+    'claude-3-opus\tClaude 3 Opus',
   ].join('\n')
   const ctx = modelCatalogCtx([
     { stdout: '', stderr: '', exitCode: 1 },
@@ -177,33 +231,13 @@ test('a text line with no family-prefixed token at all is skipped by parseModelR
 
   const models = await adapter.listModels('antigravity-cli')
 
-  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
+  assert.deepEqual(models.map(m => m.id).sort(), ['claude-3-opus', 'mistral-large-2'])
 })
 
-test('CHARACTERIZATION: an out-of-family model line yields nothing at all in the text fallback', async () => {
-  // Unlike the JSON path, there is no "candidate that gets rejected" here:
-  // the regex never matches, so the line contributes zero rows. Expected to
-  // invert (the line starts contributing a row) once the family regex is
-  // widened/replaced.
+test('CHARACTERIZATION (inverted): duplicate ids across text lines collapse to the last-processed line', async () => {
   const text = [
-    'mistral-large-2   Mistral Large 2',
-    'claude-3-opus     Claude 3 Opus',
-  ].join('\n')
-  const ctx = modelCatalogCtx([
-    { stdout: '', stderr: '', exitCode: 1 },
-    { stdout: text, stderr: '', exitCode: 0 },
-  ])
-  const adapter = new AntigravityCliAdapter(ctx, config)
-
-  const models = await adapter.listModels('antigravity-cli')
-
-  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
-})
-
-test('CHARACTERIZATION: duplicate ids across text lines collapse to the last-processed line', async () => {
-  const text = [
-    'claude-3-opus First description',
-    'claude-3-opus Second description',
+    'claude-3-opus\tFirst description',
+    'claude-3-opus\tSecond description',
   ].join('\n')
   const ctx = modelCatalogCtx([
     { stdout: '', stderr: '', exitCode: 1 },
@@ -214,14 +248,69 @@ test('CHARACTERIZATION: duplicate ids across text lines collapse to the last-pro
   const models = await adapter.listModels('antigravity-cli')
 
   assert.equal(models.length, 1)
-  assert.equal(models[0]?.name, 'claude-3-opus Second description', 'later lines overwrite earlier ones for the same id today')
+  assert.equal(models[0]?.name, 'Second description', 'later lines overwrite earlier ones for the same id today')
+})
+
+test('the "Fetching available models..." progress line is skipped without special-casing its wording', async () => {
+  const text = 'Fetching available models...\nclaude-3-opus\tClaude 3 Opus'
+  const ctx = modelCatalogCtx([
+    { stdout: '', stderr: '', exitCode: 1 },
+    { stdout: text, stderr: '', exitCode: 0 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+
+  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
+})
+
+test('a line with no tab at all is skipped, regardless of its wording', async () => {
+  const text = [
+    'this line has no tab character in it',
+    'claude-3-opus\tClaude 3 Opus',
+  ].join('\n')
+  const ctx = modelCatalogCtx([
+    { stdout: '', stderr: '', exitCode: 1 },
+    { stdout: text, stderr: '', exitCode: 0 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+
+  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
+})
+
+test('an entry with an empty id is rejected', async () => {
+  const text = ['\tNo id here', 'claude-3-opus\tClaude 3 Opus'].join('\n')
+  const ctx = modelCatalogCtx([
+    { stdout: '', stderr: '', exitCode: 1 },
+    { stdout: text, stderr: '', exitCode: 0 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+
+  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
+})
+
+test('an entry whose id contains internal whitespace is rejected', async () => {
+  const text = ['claude 3 opus\tSpaced Id', 'claude-3-opus\tClaude 3 Opus'].join('\n')
+  const ctx = modelCatalogCtx([
+    { stdout: '', stderr: '', exitCode: 1 },
+    { stdout: text, stderr: '', exitCode: 0 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+
+  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
 })
 
 // --- Zero-usable-models contract ----------------------------------------
 
 test('zero usable models raises ANTIGRAVITY_PROTOCOL rather than returning an empty catalog', async () => {
   const ctx = modelCatalogCtx([
-    { stdout: '[]', stderr: '', exitCode: 0 }, // structurally valid JSON, zero models
+    { stdout: 'Fetching available models...\nnot an envelope', stderr: '', exitCode: 0 }, // JSON path yields nothing
     { stdout: 'no models available', stderr: '', exitCode: 0 }, // text fallback also yields nothing parseable
   ])
   const adapter = new AntigravityCliAdapter(ctx, config)
@@ -233,9 +322,26 @@ test('zero usable models raises ANTIGRAVITY_PROTOCOL rather than returning an em
   })
 })
 
+test('an envelope that parses with SUCCESS but zero usable entries falls back to the text path', async () => {
+  const stdout = agyJsonModelsStdout({ conversation_id: '', status: 'SUCCESS', response: '' })
+  const ctx = modelCatalogCtx([
+    { stdout, stderr: '', exitCode: 0 },
+    { stdout: 'claude-3-opus\tClaude 3 Opus', stderr: '', exitCode: 0 },
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+
+  assert.deepEqual(models.map(m => m.id), ['claude-3-opus'])
+})
+
 test('resolveModel resolves through the same catalog and falls back to the raw id when unknown', async () => {
-  const catalog = [{ id: 'claude-3-opus', display_name: 'Claude 3 Opus' }]
-  const ctx = modelCatalogCtx([{ stdout: JSON.stringify(catalog), stderr: '', exitCode: 0 }])
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: 'claude-3-opus\tClaude 3 Opus',
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
   const adapter = new AntigravityCliAdapter(ctx, config)
 
   const known = await adapter.resolveModel('antigravity-cli', 'claude-3-opus')

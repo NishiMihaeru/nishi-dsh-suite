@@ -120,35 +120,68 @@ function record(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-function collectModels(value: unknown, out = new Map<string, CatalogModel>()): CatalogModel[] {
-  if (Array.isArray(value)) {
-    for (const item of value) collectModels(item, out)
-    return [...out.values()]
+/**
+ * Parses `agy`'s catalog text, shared by both the JSON envelope's `response`
+ * field and the plain-text `agy models` fallback -- the vendor emits the
+ * identical tab-separated format in both places (see `parseAgyEnvelope`).
+ *
+ * An entry line is `id<TAB>display name`. There is deliberately no
+ * hardcoded model-family vocabulary here: any id shape is accepted. A line
+ * is rejected (silently skipped, not specially recognized by wording) when:
+ *   - it contains no tab at all -- this is how the `Fetching available
+ *     models...` progress line is excluded, along with any other non-entry
+ *     line, without matching its text;
+ *   - the id (the text before the first tab) is empty;
+ *   - the id contains whitespace.
+ *
+ * Duplicate ids collapse to the LAST matching line (last-writer-wins). This
+ * matches the pre-existing behavior of both catalog paths it replaces and
+ * falls out naturally from `Map#set` during a single forward pass, so no
+ * extra branching is needed to get it. A duplicate id is a vendor bug
+ * either way; last-writer-wins is simply the deterministic, unsurprising
+ * choice rather than an attempt to reconcile or paper over that bug.
+ */
+function parseCatalogEntries(text: string): CatalogModel[] {
+  const rows = new Map<string, CatalogModel>()
+  for (const raw of stripAnsi(text).split(/\r?\n/)) {
+    const tabIndex = raw.indexOf('\t')
+    if (tabIndex === -1) continue
+    const id = raw.slice(0, tabIndex)
+    if (id.length === 0 || /\s/.test(id)) continue
+    const display = raw.slice(tabIndex + 1).trim()
+    rows.set(id, { id, name: display.length > 0 ? display : id })
   }
-  const row = record(value)
-  if (!row) return [...out.values()]
-
-  for (const candidate of [row.slug, row.id, row.model, row.model_id, row.modelId]) {
-    if (typeof candidate !== 'string') continue
-    if (!/^(?:gemini|claude|gpt|oss)[a-z0-9._-]*-[a-z0-9._-]+$/i.test(candidate)) continue
-    const display = [row.display_name, row.displayName, row.name, row.label]
-      .find(item => typeof item === 'string')
-    out.set(candidate, { id: candidate, name: typeof display === 'string' ? display : candidate })
-  }
-
-  for (const child of Object.values(row)) collectModels(child, out)
-  return [...out.values()]
+  return [...rows.values()]
 }
 
-function parseModelRows(stdout: string): CatalogModel[] {
-  const rows = new Map<string, CatalogModel>()
+/**
+ * Parses the `--output-format json models` envelope. The vendor does not
+ * emit a structured model list here: it emits the same tab-separated text
+ * `parseCatalogEntries` already understands, as a string under `response`,
+ * wrapped in the same `{conversation_id, status, response}` envelope shape
+ * used for turn results (`AgyTurnResult`) -- so it's reused here rather than
+ * inventing a parallel type.
+ *
+ * `stdout` may carry a leading informational line (e.g. `Fetching available
+ * models...`) before the JSON envelope; that line simply fails `JSON.parse`
+ * and is skipped without matching its wording. Returns `undefined` when no
+ * line parses as a JSON object, signaling the caller to fall back to the
+ * plain-text `agy models` invocation instead.
+ */
+function parseAgyEnvelope(stdout: string): AgyTurnResult | undefined {
   for (const raw of stripAnsi(stdout).split(/\r?\n/)) {
     const line = raw.trim()
     if (!line) continue
-    const match = line.match(/\b((?:gemini|claude|gpt|oss)[a-z0-9._-]*-[a-z0-9._-]+)\b/i)
-    if (match) rows.set(match[1], { id: match[1], name: line })
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const row = record(parsed)
+    if (row) return row as AgyTurnResult
   }
-  return [...rows.values()]
+  return undefined
 }
 
 function parseConcatenatedJsonValues(text: string): unknown[] {
@@ -538,11 +571,27 @@ export class AntigravityCliAdapter extends LlmAdapter {
       signal,
     )
     if (machine.exitCode === 0) {
-      try {
-        const parsed = JSON.parse(machine.stdout) as unknown
-        const models = collectModels(parsed)
-        if (models.length > 0) return models
-      } catch {}
+      const envelope = parseAgyEnvelope(machine.stdout)
+      if (envelope) {
+        if (!isSuccess(envelope)) {
+          // envelope.error is vendor-authored free text like any other vendor
+          // output, so it is sanitised here rather than forwarded: this path
+          // must not become a way around the VendorFailure contract.
+          const failure = antigravityVendorFailure({
+            stage: 'model-discovery',
+            stderrText: typeof envelope.error === 'string' ? envelope.error : undefined,
+          })
+          throw new LlmError(
+            `Antigravity model discovery failed (status ${String(envelope.status)}). ${failure.message}`,
+            'ANTIGRAVITY_CLI',
+            { cause: failure },
+          )
+        }
+        if (typeof envelope.response === 'string') {
+          const models = parseCatalogEntries(envelope.response)
+          if (models.length > 0) return models
+        }
+      }
     }
 
     const text = await this.runCollected(['models'], this.config.catalogTimeoutMs, signal)
@@ -558,7 +607,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
         { cause: failure },
       )
     }
-    const models = parseModelRows(text.stdout)
+    const models = parseCatalogEntries(text.stdout)
     if (models.length === 0) {
       throw new LlmError(
         'Antigravity model discovery returned no parseable models',
