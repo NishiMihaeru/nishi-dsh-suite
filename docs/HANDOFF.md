@@ -1,6 +1,6 @@
 # Handoff
 
-Rewritten for a fresh session at HEAD `28883af`, kept current through HEAD `0014c67`. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
+Rewritten for a fresh session at HEAD `28883af`, kept current through HEAD `81c6ec1` plus the uncommitted subagent-model-route change described below. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
 
 This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
@@ -10,7 +10,7 @@ This is the only session handoff file. Update it in place when the active task c
 feat/core-provider-plugins-rc3
 ```
 
-Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin. Pushing this branch is all that has happened: nothing is merged, tagged, released or published.
+Six packages at `0.1.0-rc.3`, unpublished. The branch is pushed and its committed history is in sync with origin; the working tree additionally carries the uncommitted subagent-model-route change (preset flag, `packages/suite/test/preset-delegation.test.ts`, and this documentation pass). Pushing this branch is all that has happened: nothing is merged, tagged, released or published.
 
 Only supported DSH generation:
 
@@ -43,16 +43,17 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 |---|---|
 | Core | remediated; Model Accounts surface removed outright; 182 tests |
 | Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
-| Codex | provider audit done, thread handling redesigned, live acceptance passing at 72 tests; 78 tests now |
+| Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; one open defect on a mid-turn route switch; 78 tests |
 | Antigravity | provider stage complete except the freeze; 62 tests |
 | Claude | usage-only stub, unchanged; 6 tests |
-| Suite | unchanged; 12 tests |
+| Suite | Orchestrator preset now allows cross-route subagents; 16 tests |
 
 ## Evidence on this tree
 
 - `pnpm verify:local` exits `0` on three consecutive runs;
-- Codex live: primary, the full 15-scenario acceptance suite, `test:live:web-search` and `test:live:web-search-routed` all pass — run when Codex had 72 tests, so the issue #4 projection fix is not covered by it. The two web-search suites need `DSH_LIVE_CODEX_SEARCH_MODEL` set and fail a **precondition assertion** without it — a harness prerequisite, not a product defect. Do not read that exit code as a regression;
-- Antigravity live: primary (8 scenarios), native search and routed search all pass, against real `agy 1.1.22`;
+- Codex live, re-run in full on 2026-08-31 against this tree: primary, the full 15-scenario acceptance suite, `test:live:web-search` and `test:live:web-search-routed` all pass. This run covers the issue #4 projection fix, which the previous one (taken at Codex 72 tests) did not. The two web-search suites need `DSH_LIVE_CODEX_SEARCH_MODEL` set — `gpt-5.6-sol` was used — and fail a **precondition assertion** without it: a harness prerequisite, not a product defect. Do not read that exit code as a regression;
+- Antigravity live, re-run the same day: primary (8 scenarios), native search and routed search all pass, against real `agy 1.1.22`;
+- cross-route delegation, exercised end to end in the real `web` profile for the first time: parent Codex -> child Antigravity, parent Antigravity -> child Codex, and one parent turn with two concurrent background Codex children. All pass, evidenced by each child session's own `request/header` route in the durable log rather than by the model's report. Up to six concurrent `codex app-server` processes were observed, with no residue afterwards. The same run found one open Codex defect (below);
 - an adversarial code review and a documentation audit were run over the whole change set. Both found real defects; all are fixed.
 
 A green gate plus live suites is **not** an acceptance. See *What remains*.
@@ -68,6 +69,7 @@ Ordered by how much it changes the contract.
 - **Vendor-authored text no longer reaches the model or the user** anywhere in the suite. Antigravity gained `antigravityVendorFailure`; Codex's remaining two sites were closed, one of them only after a review caught that a commit had already declared the work finished.
 - **Antigravity provider stage**: audit, 7 → 62 tests, catalog parsing rewritten against the format the vendor really emits, vendor sandbox flag added, intra-package duplication removed, usage harvested from the provider's own turn process.
 - **Codex no longer fails a turn over a context block it cannot carry** (issue #4). A stopped subagent's settlement notice quotes the interrupted child's terminal output, `tool-call` blocks included, into a `user` message. The plugin rejected those blocks, which killed the live turn and — with no checkpoint written — every later replay of that session. They are now projected to text on the transient request; durable history is untouched. Covered by focused tests only: it landed after the Codex live acceptance run above.
+- **A subagent may now run on another primary route.** The Orchestrator preset mounts `subagent` with `modelSelectionSettings: true`, which is all the Suite owns here: a spawned child is an ordinary DSH agent reaching its model through `ctx.llm`, so every registered route — `codex-app-server` and `antigravity-cli` included — was already usable as a subagent model and nothing provider-specific was needed to make it so. The host settings singleton stays the surrounding profile's (the web-app bundle mounts it), and the allowlist stays a user authorization that is off by default. `subagent_fork` keeps selection off so the inherited prefix stays KV-Cache-eligible. Suite 12 -> 16 tests. See *Subagent model routes* in `ARCHITECTURE.md` and `ROADMAP.md` §7c.
 - **Web search left as it is, deliberately.** The investigation found the suite already routes search through the session's live primary model — the concern that prompted it was unfounded. What did change: search results now carry an untrusted-content notice (`81ca500`), which they previously did not.
 
 ## What remains
@@ -76,8 +78,9 @@ Ordered by how much it changes the contract.
 2. **`thread/inject_items` is unverified.** The call succeeds but its effect is invisible through both `thread/read` and `thread/resume`, so nothing has confirmed it reaches the model. The Codex adapter depends on it for history that follows a checkpoint. Closing this needs one live turn.
 3. **alpha.1 runtime probe as separate evidence.** It has effectively dissolved into the ordinary test run now that the whole workspace builds and tests against alpha.1, but it has not been repeated as a distinct artifact.
 4. **Suite preset bridge may be obsolete.** It exists to work around an rc.2 launcher bug that overwrites third-party preset roots. Nobody has checked whether alpha.1 still has that bug. If it does not, remove the bridge rather than carry it.
-5. **Accepted debts**, recorded with reasoning and revisit conditions in `ROADMAP.md` §3: no vendor version verification for Antigravity, and the `usage-source.ts` loopback TLS trust model.
-6. **Blocked on upstream**: publishing `0.1.2-alpha.1` to npm. Until then the declared ranges are uninstallable from the registry, which gates publication rather than development, and the local-checkout overrides stay.
+5. **A mid-turn route switch into Codex fails the turn.** Found by the delegation run on 2026-08-31, not by delegation itself: when one turn's first step runs on another provider and emits tool calls, the step that consumes those tool results on `codex-app-server` throws `codex-plugin-dsh: the current Codex turn has no user input`. `prepareCodexHistory` decides current-turn input by position and excludes tool results, so with no Codex checkpoint in that session the pending tail is tool results alone. The session is not poisoned — the next turn ran normally — but the turn is lost. Unfixed, and no focused test reproduces it yet; see `ROADMAP.md` §2.
+6. **Accepted debts**, recorded with reasoning and revisit conditions in `ROADMAP.md` §3: no vendor version verification for Antigravity, and the `usage-source.ts` loopback TLS trust model.
+7. **Blocked on upstream**: publishing `0.1.2-alpha.1` to npm. Until then the declared ranges are uninstallable from the registry, which gates publication rather than development, and the local-checkout overrides stay.
 
 Decided and closed, so nobody reopens them: old vendor threads already in the user's Codex account are not being cleaned up; web search keeps routing through the session's primary model.
 
@@ -86,6 +89,8 @@ Decided and closed, so nobody reopens them: old vendor threads already in the us
 - Node 24 is not on `PATH`; it lives in fnm. Prefix commands with `export PATH="$HOME/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH"`.
 - Read exit codes from `$?` directly. A background wrapper's exit code is not the command's, and a pipeline hides the failure — this cost a false "green" once already this cycle.
 - Live suites spend the maintainer's real vendor quota. Ask before running them in bulk.
+- The live suites drive the adapter directly against a fake context; nothing in them exercises DSH's agent loop, delegation or presets. Anything about subagents has to be run in the real app. The recipe: `node packages/suite/lib/bin.js preset update` to push the packaged preset into `$DSH_HOME/.agent-presets`, add a `subagent-model-selection` section to `~/.dsh/settings.yaml` (`enabled: true` plus exact `allowedModels` routes), then `dsh web --no-open --port <port>` and drive the UI. Read the result from `~/.dsh/sessions/<workspace>/<session>/session.jsonl.zstd` (`zstd -dc`), not from the model's answer: the child session records `origin: subagent` and its own `request/header` route.
+- Selecting a model in the web composer rewrites `agent-default-model` in `~/.dsh/settings.yaml`, and the selection lands on the request after the one already in flight. Switching model and sending in the same moment produced a mid-turn route change — which is how the open Codex defect in *What remains* was found, but it is also a trap when you meant to test something else.
 - Core's `tsdown` build is not reproducible: two builds of an unchanged tree differ in CSS-module key order, so byte-level artifact comparison proves nothing.
 - Reading source is not enough for vendor behaviour. Three conclusions drawn from code alone were wrong this cycle and only a live run corrected them.
 

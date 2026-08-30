@@ -8,7 +8,7 @@ This file owns task status and order only. Architecture belongs in `ARCHITECTURE
 
 A follow-up audit of Core, Project Memory and Codex reopened this freeze again. It reproduced a Project Memory recovery race that failed unrelated memory operations, a Codex path that put raw vendor stderr in front of the model, and a set of smaller correctness and architecture defects. All were remediated; see `docs/HANDOFF.md` for the itemized list.
 
-Local re-validation of this tree first returned FAIL — `pnpm verify:local` gave FAIL, PASS, PASS over three runs, on a load-sensitive Project Memory recovery read race that failed an unrelated caller's memory operation. That defect is fixed and the gate is now green: `pnpm verify:local` passes on three consecutive runs; current focused test counts are Core `182`, Project Memory `77`, Codex `78`, Claude `6`, Antigravity `62`, Suite `12` (the `209`/`61` figures recorded right after that fix are themselves superseded by the Model Accounts removal and the Codex thread-resume redesign since). A single `build`/`check`/`test` pass exited `0` throughout, which is why the Project Memory race was missed — treat that as the weaker signal it is. See `docs/HANDOFF.md`. Codex and Antigravity live acceptance now both pass on this tree (see §2 and §3), but there is still **no** independent validation by a party that did not write the code, and no alpha.1 runtime probe has been repeated against this tree. The freeze claim below is history.
+Local re-validation of this tree first returned FAIL — `pnpm verify:local` gave FAIL, PASS, PASS over three runs, on a load-sensitive Project Memory recovery read race that failed an unrelated caller's memory operation. That defect is fixed and the gate is now green: `pnpm verify:local` passes on three consecutive runs; current focused test counts are Core `182`, Project Memory `77`, Codex `78`, Claude `6`, Antigravity `62`, Suite `16` (the `209`/`61` figures recorded right after that fix are themselves superseded by the Model Accounts removal and the Codex thread-resume redesign since). A single `build`/`check`/`test` pass exited `0` throughout, which is why the Project Memory race was missed — treat that as the weaker signal it is. See `docs/HANDOFF.md`. Codex and Antigravity live acceptance now both pass on this tree (see §2 and §3), but there is still **no** independent validation by a party that did not write the code, and no alpha.1 runtime probe has been repeated against this tree. The freeze claim below is history.
 
 Previously accepted implementation, now superseded:
 
@@ -90,12 +90,13 @@ Independent from-scratch audit, remediation, and live acceptance testing complet
 - [x] focused test/check/build PASS (48/48 tests);
 - [x] live primary turn PASS (`test:live:primary`);
 - [x] routed native `web_search` PASS (`test:live:web-search`, `test:live:web-search-routed`);
-- [x] full 15-scenario live acceptance test suite PASS (`test:live:acceptance`);
+- [x] full 15-scenario live acceptance test suite PASS (`test:live:acceptance`), re-run in full on 2026-08-31 against the current tree at Codex 78 tests, together with `test:live:primary` and both web-search suites;
 - [x] prove vendor-native persistent memory/project-doc injection is suppressed;
 - [x] prove adversarial isolation against forbidden host capabilities;
 - [x] prove zero process residue;
 - [x] fresh accepted Codex validation evidence folded into `docs/verification/README.md`;
 - [x] stop rejecting producer-supplied context blocks App Server input cannot carry (issue #4). A subagent stopped mid-tool-call put a `tool-call` block into a `user` notice; the plugin threw, which killed the live turn and — with no checkpoint written — every later replay of that session. Those blocks are projected to text instead, at all five sites that handled them. Codex 72 -> 78 tests; `verify:local` exits `0`, live suites not re-run. See *Codex history projection* in `ARCHITECTURE.md` and invariant 31;
+- [ ] **open defect: a mid-turn route switch into Codex fails the turn.** Found live on 2026-08-31. When a turn's first step runs on another provider and emits tool calls, the step that consumes those tool results on `codex-app-server` throws `codex-plugin-dsh: the current Codex turn has no user input`. `prepareCodexHistory` decides current-turn input by position and a tool result is never that input, so with no Codex checkpoint in the session the pending tail is tool results alone. The session survives — the next turn ran normally — but the turn is lost. No focused test reproduces it yet. A fix would most likely project those tool results into the turn input the same way issue #4 projects context blocks, which is a contract decision rather than a patch, so it is recorded rather than rushed;
 - [ ] freeze Codex — reverted: the follow-up Foundation audit found and fixed a Codex defect (raw vendor stderr reaching the model, among others) after this stage was originally frozen on the evidence above. A fresh freeze needs its own validation run against the current tree; see `docs/HANDOFF.md`.
 
 ## 3. Antigravity — ACTIVE
@@ -109,7 +110,7 @@ Next stage:
 - [x] remove intra-package duplication: `record()`, `nativeToolNames()` and the executable/Windows-shim resolution moved into one internal `src/agy-vendor.ts` and used by both vendor call sites. Justified by a concrete hazard rather than tidiness — Codex once applied its `.cmd`/`.bat` wrap to one invocation path and not the other, and two copies in one package invite the same drift. The two Antigravity copies turned out to be behaviourally equivalent, so no latent bug was found, only removed the room for one. Cross-package extraction into `nishi-dsh-core` was deliberately not attempted: that is an architectural decision nobody has taken;
 - **accepted debt — no vendor runtime version verification.** Codex pins `0.150.0` and enforces it from the App Server handshake; Antigravity runs whatever `agy` is installed, at any version. `agy` exposes no handshake, so an equivalent gate would mean parsing `agy --version` and gating on a known-good range. Deliberately not done for now: the maintainer accepted the risk on 2026-08-30. Revisit if a vendor upgrade ever breaks a contract silently;
 - **accepted debt — `usage-source.ts` trust model.** It sets `rejectUnauthorized = false` for loopback HTTPS quota probes and discovers the port and CSRF token by scanning process command lines; 534 lines with no unit tests. Any local process that binds the same loopback port with a self-signed certificate would be believed. Bounded blast radius — loopback only, read-only quota reporting — and the maintainer accepted it as-is on 2026-08-30. Revisit if usage ever carries anything beyond quota numbers;
-- [x] live acceptance: primary 8/8 (catalog, real turn, tool loop, shared memory, session reopen, model switch, isolation, failure semantics), routed search 1/1, native search 1/1 — all against the real `agy 1.1.22` with no permission-config changes;
+- [x] live acceptance: primary 8/8 (catalog, real turn, tool loop, shared memory, session reopen, model switch, isolation, failure semantics), routed search 1/1, native search 1/1 — all against the real `agy 1.1.22` with no permission-config changes; re-run and still PASS on 2026-08-31;
 - [ ] freeze Antigravity.
 
 ## 4. Claude
@@ -139,10 +140,11 @@ Claude remains usage-only for rc.3.
 - [ ] Antigravity primary + routed search;
 - [ ] Antigravity model switch in one conversation;
 - [ ] Codex -> Antigravity provider switch in one session;
+- [x] cross-route delegation: a child on the other vendor's primary route, both directions, plus two concurrent Codex children (see §7c);
 - [ ] memory written before the switch is readable after it;
 - [ ] Usage & Limits with all providers mounted;
 - [ ] late/absent provider browser behavior;
-- [ ] Model Accounts works without Nishi-managed vendor OAuth.
+- [ ] vendor sign-in stays in each vendor's own CLI, with no Core surface reading or mutating a credential record. Model Accounts was removed outright in rc.3, so this is a check that nothing reintroduced it, not a check that it works.
 
 Automatic failover remains deferred.
 
@@ -173,7 +175,7 @@ Note on cost framing: the measurements are token counts the vendor reports. Chat
 
 - [x] Foundation devDependency/test baseline moved from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides;
 - [x] Core and Project Memory peers narrowed to `0.1.2-alpha.1`;
-- [x] provider peers (`codex`, `antigravity`, `claude`) moved to `0.1.2-alpha.1`, each on its own evidence — Codex 78 unit tests (72 when the live run happened) plus the full 15-scenario live acceptance suite, Antigravity 62 unit tests plus 10 live scenarios (8 primary, 1 native search, 1 routed search), Claude 6 unit tests only and correspondingly weaker;
+- [x] provider peers (`codex`, `antigravity`, `claude`) moved to `0.1.2-alpha.1`, each on its own evidence — Codex 78 unit tests plus the full 15-scenario live acceptance suite, both at 78 tests after the 2026-08-31 re-run, Antigravity 62 unit tests plus 10 live scenarios (8 primary, 1 native search, 1 routed search), Claude 6 unit tests only and correspondingly weaker;
 - [x] the Suite's `dsh-authorization` dependency and `DSH_COMPATIBILITY_VERSION` moved;
 - [x] `registerConnectionRpcChannel()`'s `Function.length` arity probe removed with the rc.2 branch it selected; the named seam stays because it records that Connection owns the disposer;
 - [x] Core's retired rc.2 dev fixtures (`dsh-client-runtime`, `dsh-host-apiproxy`) dropped; the invariant that they stay out of `dependencies`/`peerDependencies` and out of production imports remains;
@@ -181,6 +183,18 @@ Note on cost framing: the measurements are token counts the vendor reports. Chat
 - [ ] once published, replace the local-checkout overrides in `pnpm-workspace.yaml` with ordinary registry versions and delete the *Local setup* note in `docs/README.md`.
 
 Two rc.2 literals survive on purpose: the provenance line in `packages/codex/THIRD_PARTY_NOTICES.md`, which is a historical fact about what the code was derived from, and a comment in `packages/suite/cordis.patch.yml` describing an rc.2 launcher bug. That second one is worth re-checking: if alpha.1 preserves third-party preset roots, the Suite's managed preset bridge is obsolete and should be removed rather than carried forward.
+
+## 7c. Subagent model routes — composed, live validation pending
+
+Any registered primary route is usable as a subagent model, the Suite's own included, because a spawned child is an ordinary DSH agent reaching its model through `ctx.llm`. See *Subagent model routes* in `ARCHITECTURE.md`.
+
+- [x] Orchestrator preset mounts `subagent` with `modelSelectionSettings: true`, so a child may run on a route other than its parent's. `subagent_fork` deliberately keeps it off (KV Cache reuse of the inherited prefix). Covered by `packages/suite/test/preset-delegation.test.ts`; Suite 12 -> 16 tests;
+- [x] the Suite bundle patch continues to leave `@deepseek-ai/dsh-tool-subagent/model-selection-settings` to the surrounding profile — it is a host singleton and the official web-app bundle mounts it. Asserted by the same test;
+- [x] **live** (2026-08-31, real `web` profile): one delegation each way — parent `codex-app-server/gpt-5.6-sol` -> child `antigravity-cli/gemini-3.7-flash-medium`, and the reverse. Each child's route is evidenced by its own session `request/header`, and the parent's sampled `subagent/model-selection-policy` event is in its log;
+- [x] **live**: one parent turn with two concurrent background children on `codex-app-server`, both settled and reported. Six concurrent `codex app-server` processes at peak, no residue after the run;
+- [ ] a child's own `web_search` route and its project-memory access were not asserted separately in that run — the children were deliberately told to use no tools. Worth one more delegation that makes the child search;
+- [x] `antigravity-cli` advertises **no** reasoning efforts: `resolveModel` returns no `reasoning` field, because the vendor encodes effort in the model id itself (`gemini-3.7-flash-high` / `-medium` / `-low`). So `list_subagent_models` prints `(no advertised reasoning efforts)` for that route, and a child that passes `reasoning_effort` anyway reaches `--effort` and is rejected by the vendor if that model does not take it. Nothing to fix; recorded so nobody reads the empty catalog as a defect;
+- [ ] decide on a dynamic allowlist. The user setting is a static list of exact provider/model pairs, so a vendor's new model is not selectable until the user authorizes it. A drop-in `subagentModelSelection` service publishing the live `ctx.llm` catalog and refreshing on `llm/adapters-updated` would remove that step, at the cost of weakening a deliberate authorization boundary over someone's subscription quota. Not implemented; the maintainer chose the composed-and-documented path on 2026-08-31.
 
 ## 8. Release gate
 

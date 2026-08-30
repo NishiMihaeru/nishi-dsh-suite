@@ -4,7 +4,7 @@ Current target: `0.1.0-rc.3`
 
 Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION & CODEX THAWED PENDING RE-VALIDATION**
 
-The local gate is green again — `pnpm verify:local` 5/5 exit `0` — after fixing a load-sensitive Project Memory recovery read race that the first re-validation caught. Foundation and Codex remain thawed: a green local gate is not an acceptance, and independent validation, alpha.1 runtime probes and Codex live acceptance are all still missing. See `HANDOFF.md`.
+The local gate is green — `pnpm verify:local` exits `0` on every run since a load-sensitive Project Memory recovery read race was fixed. Codex and Antigravity live acceptance are no longer missing: both were re-run in full on 2026-08-31 against this tree, together with a first cross-route delegation run, which found one open Codex defect on a mid-turn route switch (`ROADMAP.md` §2). Foundation and Codex remain thawed all the same: a green gate plus vendor live suites is not an acceptance, and independent validation by a party that did not write the code, plus a repeated alpha.1 runtime probe, are still missing. See `HANDOFF.md`.
 
 Current development baseline:
 

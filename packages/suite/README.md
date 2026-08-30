@@ -64,6 +64,23 @@ on the agent plane, along with shared Project Memory tools and DSH-native `subag
 
 Vendor-specific delegation tools were removed in rc.3. Delegated DSH child agents follow the active primary route instead of creating separate vendor-specific tool/memory environments.
 
+### Subagents on another primary model
+
+`subagent` is mounted with `modelSelectionSettings: true`, so a spawned child may run on a primary route other than its parent's — including `codex-app-server` and `antigravity-cli`. A spawned child is an ordinary DSH agent with its own session, and it reaches its model through the same `ctx.llm` adapter the parent uses, so a Suite provider needs no delegation-specific code to be usable this way. The settings catalog is built from `ctx.llm.listProviders()`, so a provider appears there as soon as it registers its adapter.
+
+The preset grants no route by itself. Two things outside this package decide whether a child can change model:
+
+1. the surrounding profile must mount `@deepseek-ai/dsh-tool-subagent/model-selection-settings` on the host plane — the official web-app bundle does. It is a service singleton, so this bundle deliberately does not mount a second copy; without it in the profile, the `subagent` row fails at mount time;
+2. the user must enable *subagent model selection* and authorize exact provider/model pairs. The setting is off with an empty allowlist by default, it is sampled when a session's agent is published, and a route outside the allowlist is refused at delegation time.
+
+With selection enabled the child agent also gets `list_subagent_models` for discovering the authorized routes, and `subagent` accepts `provider`, `model` and `reasoning_effort`.
+
+`subagent_fork` keeps model selection off on purpose: a forked child inherits the parent's completed-turn prefix, which stays eligible for KV Cache reuse only while the route is unchanged.
+
+This has been run end to end, not only composed: on 2026-08-31 a Codex parent delegated to an Antigravity child, an Antigravity parent delegated to a Codex child, and one parent turn ran two concurrent background Codex children. `docs/verification/README.md` records the evidence, which is each child session's own recorded route rather than the parent model's report.
+
+Two consequences worth knowing before turning this on. A child on a different route also routes *its* `web_search` through that vendor, because search follows the session's own primary route. And Codex opens one App Server process per active turn, so a parent plus N concurrent children on `codex-app-server` means N+1 vendor processes and N+1 concurrent draws on the same subscription quota.
+
 ## Managed preset bridge
 
 DSH `0.1.1-rc.2` supported `$DSH_HOME/.agent-presets`, but its launcher did not reliably preserve third-party contributed preset roots, which is why this managed bridge exists. **Whether `0.1.2-alpha.1` still has that limitation has not been checked** — if it does not, this bridge is obsolete and should be removed rather than carried forward. Until someone verifies that, use the installed Suite command:

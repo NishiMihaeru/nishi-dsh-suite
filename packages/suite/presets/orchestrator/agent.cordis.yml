@@ -170,13 +170,33 @@
     - id: tool-subagent-list-agents
       name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
 
+    # `modelSelectionSettings` lets a child run on a route other than the
+    # parent's, which is what makes every registered primary model — the Suite's
+    # own `codex-app-server` and `antigravity-cli` included — usable as a
+    # subagent. The route is not chosen here: the tool samples the Host
+    # `subagent-model-selection` user setting when an Agent is published, and
+    # that setting is off with an empty allowlist until the user authorizes exact
+    # provider/model pairs. Nothing here grants a route; it grants the ability to
+    # be granted one. The settings UI builds its catalog from
+    # `ctx.llm.listProviders()`, so a Suite provider appears there as soon as it
+    # registers its adapter — no Core, preset or browser edit per provider.
+    #
+    # PREREQUISITE: the surrounding profile must mount
+    # `@deepseek-ai/dsh-tool-subagent/model-selection-settings` on the host
+    # plane, which the official web-app bundle does. It is a service singleton,
+    # so the Suite must not mount a second copy from `cordis.patch.yml`. Without
+    # it this row fails loud at mount time rather than silently ignoring the flag.
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: spawn
         toolName: subagent
+        modelSelectionSettings: true
         backgroundMode: continuable
 
+    # Fork deliberately omits model selection: a forked child is seeded with the
+    # parent's completed-turn prefix, and keeping provider/model equal to the
+    # parent is what leaves that prefix eligible for KV Cache reuse.
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:

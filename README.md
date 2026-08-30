@@ -78,9 +78,9 @@ The packaged Orchestrator preset provides:
 
 - routed `web_search`;
 - shared Project Memory tools;
-- DSH-native `subagent` / `subagent_fork` delegation on the current primary route.
+- DSH-native `subagent` / `subagent_fork` delegation, with `subagent` able to run a child on any primary route the user has authorized — `codex-app-server` and `antigravity-cli` included — and `subagent_fork` pinned to the parent's route for KV Cache reuse.
 
-Vendor-specific delegation tools are removed in rc.3.
+Vendor-specific delegation tools are removed in rc.3. Child route selection needs the host `subagent-model-selection` settings row (the official web-app bundle mounts it) and is off until the user authorizes exact provider/model pairs; see `packages/suite/README.md`.
 
 DSH `0.1.1-rc.2` did not reliably preserve third-party contributed preset roots, so the Suite uses an explicit managed bridge. Whether alpha.1 still has that limitation has not been re-checked — if it does not, the bridge is obsolete:
 
@@ -107,7 +107,7 @@ d1cbac7094488ded52d9ab83891531bc01197090
 
 It recorded Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, and disposable official DSH `0.1.2-alpha.1` runtime probes at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`. That evidence describes a tree this one no longer matches; see `docs/HANDOFF.md`.
 
-On the current tree, `pnpm verify:local` exits `0` on three consecutive runs. Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass. Neither of those is independent validation by a party that did not write the code, which is still missing and is what a restored freeze claim requires.
+On the current tree, `pnpm verify:local` exits `0` on three consecutive runs. Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass, re-run in full on 2026-08-31, together with a first end-to-end cross-route delegation run. That run also found one open Codex defect on a mid-turn route switch (`docs/ROADMAP.md` §2). None of this is independent validation by a party that did not write the code, which is still missing and is what a restored freeze claim requires.
 
 Provider-specific acceptance is still open, but not equally unstarted: Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity's provider-specific audit, catalog rewrite, vendor-diagnostic routing and live acceptance are likewise complete, with only its freeze declaration outstanding (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Historical provider tests/live probes are checkpoint-specific evidence only and do not by themselves freeze a provider stage.
 
