@@ -116,7 +116,7 @@ Pre-fix evidence, retained because it describes what the gate does and does not 
 
 Lock/WAL residue: none created by any of these runs. Three pre-existing `/tmp/dsh-memory-atomic-test-*` directories with `.lock` files predate the work and remain unattributed.
 
-Codex live acceptance is **done and PASS** on this tree: `pnpm --filter nishi-dsh-codex test:live:acceptance` exits `0`, 9 test cases covering all 15 scenarios, 0 failures, ~47 s, against real `codex-cli 0.150.0` processes. Routed native web search, usage/rate-limits read, cancellation during an active turn and during tool continuation, recovery from a deleted vendor thread, adversarial isolation returning `HOST_CAPABILITIES_ISOLATED`, and zero lingering `app-server --stdio` processes.
+Codex live acceptance is **done and PASS on the alpha.1 baseline**: `pnpm --filter nishi-dsh-codex test:live:acceptance` exits `0`, 9 test cases covering all 15 scenarios, 0 failures, ~66 s, against real `codex-cli 0.150.0` processes. Routed native web search, usage/rate-limits read, cancellation during an active turn and during tool continuation, recovery from a deleted vendor thread, adversarial isolation returning `HOST_CAPABILITIES_ISOLATED`, and zero lingering `app-server --stdio` processes. It was first run and passed on the rc.2 baseline too, before the move.
 
 Still missing before any freeze claim: independent validation, and exact-commit alpha.1 runtime probes.
 
