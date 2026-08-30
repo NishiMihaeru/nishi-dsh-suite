@@ -4,7 +4,7 @@ Nishi DSH Suite is a modular extension suite for DeepSeek Harness. The current d
 
 The only supported DeepSeek Harness generation is `0.1.2-alpha.1` (upstream tag `dsh-v0.1.2-alpha.1`, commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and every earlier DSH generation are **not supported**: no compatibility claim, no fixes, no new evidence.
 
-The workspace builds and tests against alpha.1: Core and Project Memory develop against `0.1.2-alpha.1`, resolved from a local checkout of the upstream commit above. **That checkout is a prerequisite for `pnpm install` — see "Bootstrap" in `docs/README.md`.**
+The workspace builds and tests against alpha.1: Core and Project Memory develop against `0.1.2-alpha.1`, resolved from a local checkout of the upstream commit above, since alpha.1 is not on npm.
 
 The published contract has not moved with it, deliberately. Upstream has not published `0.1.2-alpha.1` to npm — the newest published DSH is `0.1.1-rc.2` — so the Foundation packages still declare the peer union `0.1.1-rc.2 || 0.1.2-alpha.1`, and provider packages still declare rc.2 peers. Narrowing those ranges is a published-contract change with its own validation gate; see `docs/README.md` for the full gap list. Provider packages do not inherit Foundation alpha.1 compatibility automatically.
 

@@ -51,30 +51,16 @@ This is a support-policy statement about which DSH generation the suite targets.
 
 - Core and Project Memory still declare the peer union `0.1.1-rc.2 || 0.1.2-alpha.1`; provider packages still declare provider-specific peers at `0.1.1-rc.2` alone. Narrowing either is a published-contract change and needs its own validation.
 - `0.1.2-alpha.1` is not published to npm. The newest published DSH is `0.1.1-rc.2` (dist-tag `next`), so alpha.1 is reachable only as the upstream commit above. Until upstream publishes it, an alpha.1-only peer range would be uninstallable from the registry.
-- The local devDependency and test baseline **has moved to alpha.1** and no longer matches the declared peer range. Core and Project Memory develop and test against `0.1.2-alpha.1`, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides — see *Bootstrap* below. Two packages stay pinned at rc.2 because they were retired before alpha.1 and exist nowhere else: `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy`. Provider packages keep rc.2 peers and are not part of that move.
+- The local devDependency and test baseline **has moved to alpha.1** and no longer matches the declared peer range. Core and Project Memory develop and test against `0.1.2-alpha.1` (see *Local setup*). `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy` stay at rc.2 — retired before alpha.1, they exist nowhere else. Provider packages keep rc.2 peers and are not part of that move.
 - The rc2/alpha `Function.length` Connection compatibility shim in Core is now removal debt rather than retained compatibility. It stays until the peer range that justifies it is narrowed.
 
 Provider packages do **not** inherit Foundation compatibility automatically. Alpha.1 support for Core and Project Memory rests on the disposable exact-commit probe recorded in `verification/README.md`; no provider package has ever been probed against alpha.1.
 
-## Bootstrap
+## Local setup
 
-`pnpm install` does not work from a clean clone on its own. The Foundation dev graph resolves `@deepseek-ai/dsh-*` through `pnpm-workspace.yaml` overrides that point into a local checkout of upstream DSH:
+The Foundation dev graph resolves `@deepseek-ai/dsh-*` through `pnpm-workspace.yaml` overrides pointing at a local upstream checkout at `.artifacts/upstream/dsh-alpha1` (tag `dsh-v0.1.2-alpha.1`, commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`), built. alpha.1 is not on npm, so there is nowhere else to get it. `.artifacts/` is git-ignored, so `pnpm install` fails without that checkout present and built.
 
-```text
-.artifacts/upstream/dsh-alpha1
-dsh-v0.1.2-alpha.1
-cd5ef8148158c3a752a658978873241fdf8e2bbc
-```
-
-`.artifacts/` is git-ignored, so that checkout is **not** part of the repository. Before the first install:
-
-1. clone upstream DSH into `.artifacts/upstream/dsh-alpha1` and check out exactly `cd5ef8148158c3a752a658978873241fdf8e2bbc`;
-2. install and build it, so each package has its `lib/` output — the overrides link built packages, not sources;
-3. only then run `pnpm install` in this repository.
-
-Without step 1 the install fails on unresolvable link targets. This is the deliberate cost of developing against a generation upstream has not published to npm: the dev graph is reproducible only against that exact commit, not from the registry. It also applies to the release gate — `pnpm install --frozen-lockfile` has the same prerequisite.
-
-When upstream publishes `0.1.2-alpha.1`, the overrides and this section should be replaced by ordinary registry versions. That is tracked in `ROADMAP.md` §7b together with narrowing the declared peer range.
+When upstream publishes alpha.1, drop the overrides and this section.
 
 ## Compatibility discipline
 

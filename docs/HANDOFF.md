@@ -43,8 +43,6 @@ cd5ef8148158c3a752a658978873241fdf8e2bbc
 
 The Foundation dev/test baseline has moved to alpha.1 and the whole workspace is green on it. The declared peer range has **not** moved — upstream has not published alpha.1 to npm, so an alpha.1-only range would be uninstallable for consumers. That narrowing, and removing the rc2/alpha `Function.length` shim with it, stays gated in `ROADMAP.md` §7b. Provider packages keep rc.2 peers and do not inherit Foundation alpha.1 compatibility automatically.
 
-`pnpm install` now requires a local checkout of the upstream alpha.1 commit; see *Bootstrap* in `docs/README.md`.
-
 Windows: **NOT TESTED**.
 
 No publish, merge, tag or release is authorized.

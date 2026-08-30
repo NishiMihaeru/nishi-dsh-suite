@@ -154,7 +154,7 @@ Automatic failover remains deferred.
 
 Policy is decided and recorded in `docs/README.md`: `0.1.2-alpha.1` is the only supported DSH generation; `0.1.1-rc.2` and earlier are unsupported. The manifests do not implement it yet. Blocked on upstream, then gated:
 
-- [x] move the Core and Project Memory devDependency/test baseline from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides. Whole workspace green: `pnpm verify:local` exit `0`, 375 tests. Cost: `pnpm install` now requires that checkout — see *Bootstrap* in `docs/README.md`;
+- [x] move the Core and Project Memory devDependency/test baseline from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides. Whole workspace green: `pnpm verify:local` exit `0`, 375 tests. `pnpm install` now needs that checkout present;
 - [ ] **blocked**: upstream publishes `0.1.2-alpha.1` to npm. Today the newest published DSH is `0.1.1-rc.2`, so an alpha.1-only peer range would be uninstallable from the registry, and the dev graph cannot come from the registry either;
 - [ ] replace the local-checkout overrides with ordinary registry versions once that happens;
 - [ ] narrow Core and Project Memory peers from `0.1.1-rc.2 || 0.1.2-alpha.1` to `0.1.2-alpha.1`;
@@ -165,7 +165,6 @@ Each item is a published-contract change and needs its own validation evidence. 
 
 ## 8. Release gate
 
-- [ ] upstream alpha.1 checkout present and built at `.artifacts/upstream/dsh-alpha1` — `pnpm install` cannot resolve without it (see *Bootstrap* in `docs/README.md`);
 - [ ] final `pnpm install --frozen-lockfile`;
 - [ ] `pnpm verify:local`;
 - [ ] `pnpm smoke:vendor-cli`;

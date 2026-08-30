@@ -10,7 +10,7 @@ Current development baseline:
 
 - Node `24.19.0` accepted Foundation baseline;
 - pnpm `11.21.0`;
-- Foundation devDependency graph: DSH `0.1.2-alpha.1`, resolved from the local upstream checkout, not from npm — `pnpm install` requires that checkout, see *Bootstrap* in `docs/README.md`;
+- Foundation devDependency graph: DSH `0.1.2-alpha.1`, resolved from the local upstream checkout (see *Local setup* in `docs/README.md`);
 - provider package peers: DSH `0.1.1-rc.2`, unsupported and unmoved pending each provider's own audit;
 - Linux/CachyOS development environment;
 - Windows: **NOT TESTED**.
