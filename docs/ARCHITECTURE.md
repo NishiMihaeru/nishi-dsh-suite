@@ -149,6 +149,21 @@ Rollback is destructive where fork was not — it discards the truncated turns r
 
 Whether this suite should clean up the vendor threads it creates (`thread/delete` / `thread/archive` exist) was raised as an open decision and has since been closed: the maintainer decided old sessions do not matter, so no cleanup behavior is implemented and none is planned against previously created threads.
 
+## Codex history projection
+
+DSH's durable history is provider-neutral. A `user` or `system` message may carry any block a producer emitted, including blocks the vendor's own input format has no slot for. Codex App Server input carries text and images only.
+
+Where the two disagree the block is **projected to text**, never rejected: `[dsh: tool call read({"path":"/etc/hosts"})]`, `[dsh: reasoning]`, `[dsh: failed tool result for c1]`, and for a block type this suite does not know, its type. One function (`packages/codex/src/codex-plugin-dsh/content-projection.ts`) serves every site that needs it — history replay, the current turn's input, a dynamic tool's result, context steered into a still-running turn, and the primary bridge's pass over the transient request — so the bridge's projection and the plugin's own are idempotent with each other. Durable DSH history is not rewritten; only the request handed to Codex is.
+
+Rejecting instead is what this replaced, and the failure was not confined to one turn. A subagent stopped mid-tool-call has its terminal output copied into a `user` notice verbatim, `tool-call` blocks included; the plugin threw, the turn died before a checkpoint could be written, and every later prompt in that session then rebuilt from DSH history, hit the same block and threw again. One interrupted subagent broke Codex for that thread permanently (issue #4).
+
+Two consequences worth knowing before changing this:
+
+- whether a trailing non-tool `user` message is the current turn's input is decided by position alone. Deciding it by content — as it once was — sends a notice whose last block is a `tool-call` to history instead, and a turn woken by nothing but that notice then has no input at all;
+- one case is lossy on purpose: an image nested inside a projected `tool-result` becomes a marker, because no input item is being emitted to attach its bytes to. Top-level images in a `user` message are unaffected.
+
+Assistant content is deliberately not covered by this. `assistantHistoryItems` still rejects an `image` or `tool-result` block in an assistant message: that is the vendor's own output shape rather than producer-supplied context, and a text stand-in there would fabricate a turn the model did not produce.
+
 ## Project Memory
 
 ### Root and context
@@ -337,6 +352,7 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. Every declared range, the dev graph and the whole test suite say exactly that. The ranges are not installable from npm until upstream publishes alpha.1, which gates publication rather than development.
 29. Web search output is external, attacker-reachable text: every rendered `web_search` result leads with the untrusted-content notice and the registered system-prompt guidance says the same, so returned content is never presented to the model as instructions.
 30. Windows remains NOT TESTED.
+31. A producer-supplied context block a vendor input format cannot carry is projected to text, never rejected: rejecting it fails the live turn and, with no checkpoint written, every later replay of that session. Durable DSH history is never rewritten to satisfy a vendor format. This governs `user`/`system` context only; vendor-shaped assistant content is not given text stand-ins.
 
 ## Current implementation state — THAWED, PENDING RE-VALIDATION
 
@@ -358,6 +374,6 @@ What changed since the accepted checkpoint:
 - Model Accounts was first made registry-derived and then removed entirely, together with the `account` capability and the disabled authorization mutation surface — host and client alike. This is a public-surface removal in an unpublished `0.1.0-rc.3`.
 - Codex routes every vendor-process diagnostic through `VendorFailure`, closing a path that put raw vendor stderr in front of the model. Its native search verifies the vendor runtime once per executable instead of once per query.
 
-Local gate on the current tree: PASS. `pnpm verify:local` exits `0` on three consecutive runs; current focused test counts are Core `182`, Project Memory `77`, Claude `6`, Antigravity `62`, Codex `72`, Suite `12`. (The `209`/`61`/`7`/`7` figures from the first post-audit re-validation are themselves now history: the Model Accounts removal, the Codex thread-resume redesign and the Antigravity catalog/diagnostic/usage rework each changed a package's test count since.) Codex live acceptance passes on the current tree: primary, the full 15-scenario suite, and both web-search suites (`test:live:web-search`, `test:live:web-search-routed`) all PASS — the two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL` to be set, and fail a precondition assertion (not a product defect) without it. Antigravity live acceptance also passes: primary (8 scenarios), native web search and routed web search. A green local gate plus these live suites is still not an acceptance: no independent validation by a party that did not write the code, and no alpha.1 runtime probe, has been repeated against this tree.
+Local gate on the current tree: PASS. `pnpm verify:local` exits `0` on three consecutive runs; current focused test counts are Core `182`, Project Memory `77`, Claude `6`, Antigravity `62`, Codex `78`, Suite `12`. (The `209`/`61`/`7`/`7` figures from the first post-audit re-validation are themselves now history: the Model Accounts removal, the Codex thread-resume redesign and the Antigravity catalog/diagnostic/usage rework each changed a package's test count since.) Codex live acceptance passes on this tree as of Codex `72` tests — the six added since (context-block projection, *Codex history projection* above) landed after that run and carry focused-test coverage only. At that point: primary, the full 15-scenario suite, and both web-search suites (`test:live:web-search`, `test:live:web-search-routed`) all PASS — the two web-search suites require `DSH_LIVE_CODEX_SEARCH_MODEL` to be set, and fail a precondition assertion (not a product defect) without it. Antigravity live acceptance also passes: primary (8 scenarios), native web search and routed web search. A green local gate plus these live suites is still not an acceptance: no independent validation by a party that did not write the code, and no alpha.1 runtime probe, has been repeated against this tree.
 
 Windows remains NOT TESTED. `packages/antigravity` no longer carries a raw-vendor-stderr pattern: `packages/antigravity/src/vendor-stderr.ts` mirrors the Codex `VendorFailure` module, and every vendor-process diagnostic site in the package routes through it.

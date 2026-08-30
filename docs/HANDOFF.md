@@ -1,6 +1,6 @@
 # Handoff
 
-Rewritten for a fresh session at HEAD `28883af`. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
+Rewritten for a fresh session at HEAD `28883af`, kept current through HEAD `0014c67`. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
 
 This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
@@ -10,7 +10,7 @@ This is the only session handoff file. Update it in place when the active task c
 feat/core-provider-plugins-rc3
 ```
 
-Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch in sync with origin.
+Six packages at `0.1.0-rc.3`, unpublished. Working tree clean. The branch is **ahead of `origin` and has not been pushed**: the issue #4 fix and this documentation update live only in the local checkout.
 
 Only supported DSH generation:
 
@@ -43,7 +43,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 |---|---|
 | Core | remediated; Model Accounts surface removed outright; 182 tests |
 | Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
-| Codex | provider audit done, thread handling redesigned, live acceptance passing; 78 tests |
+| Codex | provider audit done, thread handling redesigned, live acceptance passing at 72 tests; 78 tests now |
 | Antigravity | provider stage complete except the freeze; 62 tests |
 | Claude | usage-only stub, unchanged; 6 tests |
 | Suite | unchanged; 12 tests |
@@ -51,7 +51,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 ## Evidence on this tree
 
 - `pnpm verify:local` exits `0` on three consecutive runs;
-- Codex live: primary, the full 15-scenario acceptance suite, `test:live:web-search` and `test:live:web-search-routed` all pass. The two web-search suites need `DSH_LIVE_CODEX_SEARCH_MODEL` set and fail a **precondition assertion** without it — a harness prerequisite, not a product defect. Do not read that exit code as a regression;
+- Codex live: primary, the full 15-scenario acceptance suite, `test:live:web-search` and `test:live:web-search-routed` all pass — run when Codex had 72 tests, so the issue #4 projection fix is not covered by it. The two web-search suites need `DSH_LIVE_CODEX_SEARCH_MODEL` set and fail a **precondition assertion** without it — a harness prerequisite, not a product defect. Do not read that exit code as a regression;
 - Antigravity live: primary (8 scenarios), native search and routed search all pass, against real `agy 1.1.22`;
 - an adversarial code review and a documentation audit were run over the whole change set. Both found real defects; all are fixed.
 
