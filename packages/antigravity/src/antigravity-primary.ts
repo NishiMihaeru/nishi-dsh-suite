@@ -2,7 +2,7 @@ import { extname } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   LlmError,
   type ContentBlock,
@@ -488,7 +488,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
         )
       }
       const index = nextIndex++
-      const id = CallId(call.id)
+      const id = ToolCallId(call.id)
       const argumentsText = JSON.stringify(call.arguments)
       yield { type: 'block-start', index, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index, id, name: call.name, argumentsDelta: argumentsText }

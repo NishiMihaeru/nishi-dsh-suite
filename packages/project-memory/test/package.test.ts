@@ -4,7 +4,7 @@ import test from 'node:test'
 
 const manifestUrl = new URL('../package.json', import.meta.url)
 const SUPPORTED_DSH_PEER_RANGE = '0.1.1-rc.2 || 0.1.2-alpha.1'
-const LOCAL_DSH_DEV_BASELINE = '0.1.1-rc.2'
+const LOCAL_DSH_DEV_BASELINE = '0.1.2-alpha.1'
 
 test('project-memory package exposes the public rc.3 package boundary', async () => {
   const pkg = JSON.parse(await readFile(manifestUrl, 'utf8'))
@@ -31,7 +31,7 @@ test('project-memory package exposes the public rc.3 package boundary', async ()
 
   for (const [name, range] of Object.entries(pkg.devDependencies as Record<string, string>)) {
     if (name.startsWith('@deepseek-ai/dsh-')) {
-      assert.equal(range, LOCAL_DSH_DEV_BASELINE, `${name} must stay pinned to the reproducible local rc.2 baseline`)
+      assert.equal(range, LOCAL_DSH_DEV_BASELINE, `${name} must develop against the only supported DSH generation`)
     }
   }
 

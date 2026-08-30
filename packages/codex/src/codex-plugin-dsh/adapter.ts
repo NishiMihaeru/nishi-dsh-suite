@@ -15,7 +15,7 @@ import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
-  CallId,
+  ToolCallId,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
@@ -547,7 +547,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
             throw new Error(`codex-plugin-dsh: App Server returned invalid arguments for DSH tool ${JSON.stringify(call.tool)}`)
           }
           const index = active.nextBlockIndex++
-          const id = CallId(call.callId)
+          const id = ToolCallId(call.callId)
           yield { type: 'block-start', index, blockType: 'tool-call' }
           yield { type: 'tool-call-delta', index, id, name: call.tool, argumentsDelta: argumentsText }
           yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.tool, arguments: argumentsText } }

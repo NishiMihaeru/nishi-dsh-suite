@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import type { CallId, ContentBlock, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ToolCallId, ContentBlock, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 
 /** Namespace that keeps DSH-owned tools distinct from Codex built-in tools. */
 export const DSH_TOOL_NAMESPACE = 'dsh'
@@ -144,7 +144,7 @@ function matchingToolResult(
  */
 export async function codexDynamicToolResult(
   messages: readonly Message[],
-  callId: CallId | string,
+  callId: ToolCallId | string,
   resolveImageUrl: CodexToolImageUrlResolver,
 ): Promise<CodexDynamicToolContinuation> {
   const matched = matchingToolResult(messages, String(callId))

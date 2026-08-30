@@ -91,7 +91,9 @@ Declared production DSH peers are still wider than that:
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-Upstream has not published `0.1.2-alpha.1` to npm, so an alpha.1-only range would be uninstallable and the package devDependency graph stays pinned to the reproducible rc.2 development baseline. Narrowing the range is a published-contract change with its own gate; see the repository `docs/README.md`.
+Upstream has not published `0.1.2-alpha.1` to npm, so an alpha.1-only peer range would be uninstallable for consumers. Narrowing the range is a published-contract change with its own gate; see the repository `docs/README.md`.
+
+The devDependency graph has already moved to `0.1.2-alpha.1`, resolved from a local checkout of the upstream commit rather than from npm. `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy` stay pinned at rc.2: both were retired before alpha.1 and exist nowhere else.
 
 The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at that commit; ordinary rc.2 workspace tests alone are not that evidence.
 

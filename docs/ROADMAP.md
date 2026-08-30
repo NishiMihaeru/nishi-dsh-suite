@@ -154,9 +154,10 @@ Automatic failover remains deferred.
 
 Policy is decided and recorded in `docs/README.md`: `0.1.2-alpha.1` is the only supported DSH generation; `0.1.1-rc.2` and earlier are unsupported. The manifests do not implement it yet. Blocked on upstream, then gated:
 
-- [ ] **blocked**: upstream publishes `0.1.2-alpha.1` to npm. Today the newest published DSH is `0.1.1-rc.2`, so an alpha.1-only peer range would be uninstallable from the registry.
+- [x] move the Core and Project Memory devDependency/test baseline from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides. Whole workspace green: `pnpm verify:local` exit `0`, 375 tests. Cost: `pnpm install` now requires that checkout — see *Bootstrap* in `docs/README.md`;
+- [ ] **blocked**: upstream publishes `0.1.2-alpha.1` to npm. Today the newest published DSH is `0.1.1-rc.2`, so an alpha.1-only peer range would be uninstallable from the registry, and the dev graph cannot come from the registry either;
+- [ ] replace the local-checkout overrides with ordinary registry versions once that happens;
 - [ ] narrow Core and Project Memory peers from `0.1.1-rc.2 || 0.1.2-alpha.1` to `0.1.2-alpha.1`;
-- [ ] move the workspace devDependency/test baseline from rc.2 to alpha.1;
 - [ ] remove the `registerConnectionRpcChannel()` `Function.length` rc2/alpha probe in the same change;
 - [ ] decide provider peers (`codex`, `claude`, `antigravity`) per provider, from that provider's own audit — they still declare rc.2 and have never been probed against alpha.1, so they do not move with the Foundation.
 
@@ -164,6 +165,7 @@ Each item is a published-contract change and needs its own validation evidence. 
 
 ## 8. Release gate
 
+- [ ] upstream alpha.1 checkout present and built at `.artifacts/upstream/dsh-alpha1` — `pnpm install` cannot resolve without it (see *Bootstrap* in `docs/README.md`);
 - [ ] final `pnpm install --frozen-lockfile`;
 - [ ] `pnpm verify:local`;
 - [ ] `pnpm smoke:vendor-cli`;
@@ -182,3 +184,4 @@ Current release state: **NOT READY TO PUBLISH**.
 - Decision on guarded `memory_delete` vs rewrite/edit-only pruning.
 - Stronger Antigravity native-memory/tool enforcement if vendor APIs allow it.
 - Windows acceptance before any Windows compatibility claim.
+- Core's `tsdown` build is not reproducible: two builds of an unchanged tree emit a different `lib/client.js`, differing only in CSS-module key order. Harmless today, but it makes byte-level artifact comparison useless.

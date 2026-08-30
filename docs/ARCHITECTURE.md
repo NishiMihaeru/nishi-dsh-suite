@@ -36,7 +36,7 @@ Core and Project Memory still publish the wider peer union:
 0.1.1-rc.2 || 0.1.2-alpha.1
 ```
 
-That range is now wider than the support policy and is retained only because upstream has not published alpha.1 to npm; the local devDependency and test graph is still rc.2 for the same reason. Narrowing it is a published-contract change with its own gate. The alpha.1 side of the claim rests on the disposable exact-commit probe against the official alpha.1 checkout/runtime; the rc.2 side is now unsupported compatibility surface, not a supported target. Provider packages do not inherit alpha.1 compatibility automatically and have never been probed against it.
+That range is now wider than the support policy and is retained only because upstream has not published alpha.1 to npm. Narrowing it is a published-contract change with its own gate. The local devDependency and test graph, by contrast, has already moved: Core and Project Memory build and test against `0.1.2-alpha.1` resolved from the local upstream checkout, so the alpha.1 side of the claim now rests on the full workspace suite rather than on a one-off probe. The rc.2 side is unsupported compatibility surface that nothing exercises any more. Provider packages keep rc.2 peers, are not part of the dev-baseline move, and do not inherit alpha.1 compatibility automatically.
 
 ## Core
 
@@ -303,7 +303,7 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 25. A journal is claimed only after a lock-held read proves its owner dead; a stale pre-claim observation — including the fixed journal pathname being atomically replaced by a different regular file — is re-observed, never failed, and never lets an unrelated caller's operation fail. That re-observation is bounded and applies only to the unlocked pre-claim probe: replacement by a symlink or other non-regular entry still fails closed there, and any change to the journal after this process has durably claimed it still fails closed regardless of shape.
 26. Losing a recovery race is a normal outcome; only mutation of a claim this process already wrote fails closed.
 27. Every Project Memory read-modify-write path bounds the bytes it materializes, package-owned and user-owned files alike.
-28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. The declared Core and Project Memory peer union is still `0.1.1-rc.2 || 0.1.2-alpha.1` because upstream has not published alpha.1 to npm, and narrowing it is a published-contract change with its own gate.
+28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. Core and Project Memory build and test against alpha.1 resolved from the local upstream checkout. The declared peer union is still `0.1.1-rc.2 || 0.1.2-alpha.1` because upstream has not published alpha.1 to npm; narrowing it is a published-contract change with its own gate.
 29. Web search output is external, attacker-reachable text: every rendered `web_search` result leads with the untrusted-content notice and the registered system-prompt guidance says the same, so returned content is never presented to the model as instructions.
 30. Windows remains NOT TESTED.
 

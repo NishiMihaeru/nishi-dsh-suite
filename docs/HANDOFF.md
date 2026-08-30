@@ -39,7 +39,11 @@ dsh-v0.1.2-alpha.1
 cd5ef8148158c3a752a658978873241fdf8e2bbc
 ```
 
-`0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence. `docs/README.md` owns that policy and the list of gaps it does not yet close — upstream has not published alpha.1 to npm, so declared peers and the local devDependency/test baseline are still rc.2, and the rc2/alpha `Function.length` shim is now removal debt. Narrowing those is a published-contract change with its own gate, tracked in `ROADMAP.md` §7b. Provider packages do not inherit Foundation alpha.1 compatibility automatically.
+`0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence. `docs/README.md` owns that policy.
+
+The Foundation dev/test baseline has moved to alpha.1 and the whole workspace is green on it. The declared peer range has **not** moved — upstream has not published alpha.1 to npm, so an alpha.1-only range would be uninstallable for consumers. That narrowing, and removing the rc2/alpha `Function.length` shim with it, stays gated in `ROADMAP.md` §7b. Provider packages keep rc.2 peers and do not inherit Foundation alpha.1 compatibility automatically.
+
+`pnpm install` now requires a local checkout of the upstream alpha.1 commit; see *Bootstrap* in `docs/README.md`.
 
 Windows: **NOT TESTED**.
 
@@ -114,15 +118,23 @@ Pre-fix evidence, retained because it describes what the gate does and does not 
 
 Lock/WAL residue: none created by any of these runs. Three pre-existing `/tmp/dsh-memory-atomic-test-*` directories with `.lock` files predate the work and remain unattributed.
 
-Still missing, and required before any freeze claim: independent validation, exact-commit alpha.1 runtime probes, and Codex live acceptance.
+Codex live acceptance is **done and PASS** on this tree: `pnpm --filter nishi-dsh-codex test:live:acceptance` exits `0`, 9 test cases covering all 15 scenarios, 0 failures, ~47 s, against real `codex-cli 0.150.0` processes. Routed native web search, usage/rate-limits read, cancellation during an active turn and during tool continuation, recovery from a deleted vendor thread, adversarial isolation returning `HOST_CAPABILITIES_ISOLATED`, and zero lingering `app-server --stdio` processes.
 
-The environment for all three is already wired, so none of them needs a fresh build:
+Still missing before any freeze claim: independent validation, and exact-commit alpha.1 runtime probes.
+
+### The local DSH install is NOT a valid alpha.1 probe environment
+
+This was measured, not assumed. The local setup:
 
 - `.artifacts/upstream/dsh-alpha1` is the exact upstream checkout `cd5ef8148158c3a752a658978873241fdf8e2bbc`, **built** (output in `lib/`, not `dist/`);
 - the global `dsh` on PATH reports `0.1.2-alpha.1` and is a symlink into that checkout's `apps/cli/lib/bin.js`;
-- the `web` profile at `~/.dsh/profiles/web/package.json` links `nishi-dsh-core`, `nishi-dsh-project-memory` and `nishi-dsh-codex` straight from this working tree.
+- the `web` profile links `nishi-dsh-core`, `nishi-dsh-project-memory` and `nishi-dsh-codex` from this working tree. Core and Codex are inserted by `~/.dsh/profiles/web/cordis.patch.yml`; Project Memory is loaded by the Orchestrator agent preset (`~/.dsh/.agent-presets/orchestrator/agent.cordis.yml`), not by the profile patch — both are live.
 
-That is a live alpha.1 runtime over the working tree, not a disposable environment. It is the better probe target *and* the sharper hazard: the profile resolves each package's **built** `lib/`, so a probe measures whatever was last built, not the current sources. Build first, record the exact tree state with the probe, or the run proves nothing.
+Despite the alpha.1 host, the linked packages do **not** run against alpha.1. Booting `dsh web` under an ESM resolution hook shows every `@deepseek-ai/dsh-*` import made *by* the linked packages resolving into the workspace rc.2 store — `dsh-agent`, `dsh-credentials`, `dsh-llm`, `dsh-sdk-protocol`, `dsh-timeout`, `dsh-tools`, all `0.1.1-rc.2`. Node resolves from each package's real path, and the DSH loader does not override it: `.dsh-module-fallback/node_modules` is empty and `.package-map.json` gives the linked packages no mapped dependencies.
+
+The running process therefore holds **two copies** of `dsh-tools`, `dsh-llm`, `dsh-agent`, `dsh-timeout` and `dsh-credentials` at once — alpha.1 for the host, rc.2 for the plugins. It works in practice today, but it is mixed-generation by construction, and anything crossing that boundary on module-level identity (symbol-keyed registries, `instanceof`, module singletons) is a latent hazard worth its own look.
+
+Consequence for validation: a probe run on this profile measures the hybrid, not alpha.1, and cannot support an alpha.1 compatibility claim. The probe needs a disposable environment in which the linked packages themselves resolve `@deepseek-ai/dsh-*` to the alpha.1 checkout — which is why the previous cycle used one. Whatever environment is used, build the packages first: the profile loads each package's built `lib/`, so an unbuilt tree measures the previous state.
 
 ### Fixed defect — Project Memory recovery read raced a concurrent journal rewrite
 

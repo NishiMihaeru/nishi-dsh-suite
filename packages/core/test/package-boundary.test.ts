@@ -7,7 +7,9 @@ import * as ts from 'typescript'
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
 const AUTHORIZATION_PACKAGE = '@deepseek-ai/dsh-authorization'
 const SUPPORTED_DSH_PEER_RANGE = '0.1.1-rc.2 || 0.1.2-alpha.1'
-const LOCAL_DSH_DEV_BASELINE = '0.1.1-rc.2'
+const LOCAL_DSH_DEV_BASELINE = '0.1.2-alpha.1'
+/** Retired packages exist only in rc.2, so their dev fixtures cannot move with the baseline. */
+const RETIRED_DSH_DEV_PIN = '0.1.1-rc.2'
 const RETIRED_DSH_PACKAGES = [
   '@deepseek-ai/dsh-host-apiproxy',
   '@deepseek-ai/dsh-client-runtime',
@@ -123,13 +125,14 @@ test('retired alpha.1 DSH package seams are not runtime requirements', async () 
     'the browser manifest must not request the removed dsh-client-runtime plugin',
   )
 
-  // rc.2-only dev fixtures may still name these packages while the workspace
-  // proves backward compatibility; consumers never receive devDependencies.
-  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-client-runtime'], LOCAL_DSH_DEV_BASELINE)
-  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-host-apiproxy'], LOCAL_DSH_DEV_BASELINE)
+  // These two packages were retired before alpha.1 and exist only at rc.2, so
+  // their dev fixtures stay pinned there while the rest of the graph moves.
+  // Consumers never receive devDependencies.
+  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-client-runtime'], RETIRED_DSH_DEV_PIN)
+  assert.equal(manifest.devDependencies?.['@deepseek-ai/dsh-host-apiproxy'], RETIRED_DSH_DEV_PIN)
 })
 
-test('Core publishes only the two validated DSH generations while keeping the local dev graph on rc.2', async () => {
+test('Core publishes only the two validated DSH generations while developing against alpha.1', async () => {
   const manifest = await coreManifest()
   const dshPeers = Object.entries(manifest.peerDependencies ?? {})
     .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
@@ -142,7 +145,11 @@ test('Core publishes only the two validated DSH generations while keeping the lo
     .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
   assert.ok(dshDevDependencies.length > 0)
   for (const [name, range] of dshDevDependencies) {
-    assert.equal(range, LOCAL_DSH_DEV_BASELINE, `${name} must stay pinned to the reproducible local rc.2 baseline`)
+    if (RETIRED_DSH_PACKAGES.includes(name as typeof RETIRED_DSH_PACKAGES[number])) {
+      assert.equal(range, RETIRED_DSH_DEV_PIN, `${name} was retired before alpha.1 and must stay pinned to rc.2`)
+      continue
+    }
+    assert.equal(range, LOCAL_DSH_DEV_BASELINE, `${name} must develop against the only supported DSH generation`)
   }
 })
 

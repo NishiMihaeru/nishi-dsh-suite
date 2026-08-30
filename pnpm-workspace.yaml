@@ -2,4 +2,27 @@ packages:
   - packages/*
 allowBuilds:
   esbuild: true
-
+overrides:
+  "@deepseek-ai/dsh-attachment": "link:./.artifacts/upstream/dsh-alpha1/packages/attachment/attachment"
+  "@deepseek-ai/dsh-client-connection": "link:./.artifacts/upstream/dsh-alpha1/packages/client/connection"
+  "@deepseek-ai/dsh-client-locale": "link:./.artifacts/upstream/dsh-alpha1/packages/client/locale"
+  "@deepseek-ai/dsh-client-ui-primitives": "link:./.artifacts/upstream/dsh-alpha1/packages/client/ui-primitives"
+  "@deepseek-ai/dsh-client-ui-settings": "link:./.artifacts/upstream/dsh-alpha1/packages/client/ui-settings"
+  "@deepseek-ai/dsh-client-ui-sidebar": "link:./.artifacts/upstream/dsh-alpha1/packages/client/ui-sidebar"
+  "@deepseek-ai/dsh-client-ui-slots": "link:./.artifacts/upstream/dsh-alpha1/packages/client/ui-slots"
+  "@deepseek-ai/dsh-agent": "link:./.artifacts/upstream/dsh-alpha1/packages/core/agent"
+  "@deepseek-ai/dsh-session": "link:./.artifacts/upstream/dsh-alpha1/packages/core/session"
+  "@deepseek-ai/dsh-system-prompt": "link:./.artifacts/upstream/dsh-alpha1/packages/core/system-prompt"
+  "@deepseek-ai/dsh-tools": "link:./.artifacts/upstream/dsh-alpha1/packages/core/tools"
+  "@deepseek-ai/dsh-authorization": "link:./.artifacts/upstream/dsh-alpha1/packages/credentials/authorization"
+  "@deepseek-ai/dsh-credentials": "link:./.artifacts/upstream/dsh-alpha1/packages/credentials/credentials"
+  "@deepseek-ai/dsh-llm": "link:./.artifacts/upstream/dsh-alpha1/packages/llm/llm"
+  "@deepseek-ai/dsh-invariants": "link:./.artifacts/upstream/dsh-alpha1/packages/runtime-diagnostics/invariants"
+  "@deepseek-ai/dsh-sdk-protocol": "link:./.artifacts/upstream/dsh-alpha1/packages/sdk/protocol"
+  "@deepseek-ai/dsh-subprocess": "link:./.artifacts/upstream/dsh-alpha1/packages/subprocess/subprocess"
+  "@deepseek-ai/dsh-client-test-runtime": "link:./.artifacts/upstream/dsh-alpha1/packages/test-support/client-runtime"
+  "@deepseek-ai/dsh-atomic-write": "link:./.artifacts/upstream/dsh-alpha1/packages/util/atomic-write"
+  "@deepseek-ai/dsh-timeout": "link:./.artifacts/upstream/dsh-alpha1/packages/util/timeout"
+  "@deepseek-ai/cordis": "link:./.artifacts/upstream/dsh-alpha1/vendor/cordis"
+  "@deepseek-ai/schemastery": "link:./.artifacts/upstream/dsh-alpha1/vendor/schemastery"
+  "@deepseek-ai/dsh-client-ui-renderer": "link:./.artifacts/upstream/dsh-alpha1/packages/client/ui-renderer"
