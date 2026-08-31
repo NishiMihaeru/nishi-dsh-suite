@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -52,6 +52,29 @@ const MCP_BRIDGE_SERVER_FILE = 'mcp-bridge-server.js'
  * is how a reader ends up believing the wrong one.
  */
 export const DEFAULT_ANTIGRAVITY_TRANSPORT: 'schema' | 'mcp-bridge' = 'mcp-bridge'
+
+/**
+ * The vendor's global MCP permission grants, or `undefined` if they cannot be
+ * read where this package expects them.
+ *
+ * Read-only, and deliberately forgiving: `undefined` means "unknown", never
+ * "absent". The file belongs to the vendor and to the user, and an unexpected
+ * shape must not be able to disable a working route.
+ */
+async function readVendorMcpGrants(): Promise<string[] | undefined> {
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  if (home === undefined) return undefined
+  try {
+    const raw = await readFile(join(home, '.gemini', 'config', 'config.json'), 'utf8')
+    const parsed: unknown = JSON.parse(raw)
+    const settings = record(record(parsed)?.userSettings)
+    const allow = record(settings?.globalPermissionGrants)?.allow
+    if (!Array.isArray(allow)) return undefined
+    return allow.filter((entry): entry is string => typeof entry === 'string')
+  } catch {
+    return undefined
+  }
+}
 
 /** Absolute path of this package's built bridge server, for the setup hint. */
 function bridgeServerPath(): string {
@@ -978,8 +1001,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
   private mcpWorkspacePromise: Promise<EphemeralAgentWorkspace> | undefined
   /** One socket for this adapter, shared by every session it drives. */
   private bridgeHostPromise: Promise<AgyMcpBridgeHost> | undefined
-  /** Memoized answer to "is the bridge server registered with the vendor". */
-  private bridgeRegistered: Promise<boolean> | undefined
+  /** Memoized bridge precondition: `undefined` problem means it may run. */
+  private bridgePrecondition: Promise<string | undefined> | undefined
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
   private pendingModels: Promise<readonly CatalogModel[]> | undefined
   private readonly activeChildren = new Set<SubprocessHandle>()
@@ -1201,6 +1224,18 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
 
     const { outcome: { result, events }, session } = step
+    if (session.bridge?.attached() === false) {
+      // Unambiguous, unlike "the model made no tool call": the vendor never
+      // launched a bridge server for this child at all, so whatever it just
+      // answered, it answered without DSH's tools.
+      await this.closeSession(String(options.sessionId))
+      throw new LlmError(
+        'Antigravity mcp-bridge: the vendor never launched a bridge server for this turn, so the model '
+        + 'had none of DSH\'s tools. Check that `agy mcp list` shows this package\'s '
+        + `${MCP_BRIDGE_SERVER_FILE} as enabled, and that it is granted in globalPermissionGrants.allow.`,
+        'ANTIGRAVITY_CLI',
+      )
+    }
     // `call_mcp_tool` is the bridge's own mechanism here, not a violation: it
     // is how a DSH tool is reached at all on this transport. Every other native
     // tool stays blocked, and this is the only exemption -- the backstop is
@@ -1726,22 +1761,72 @@ export class AntigravityCliAdapter extends LlmAdapter {
    * and shape are the vendor's business and the CLI is the documented surface.
    */
   private async assertBridgeRegistered(signal: AbortSignal | undefined): Promise<void> {
-    if (this.bridgeRegistered === undefined) {
-      this.bridgeRegistered = (async () => {
-        const listed = await this.runCollected(['mcp', 'list'], this.config.catalogTimeoutMs, signal)
-        return listed.exitCode === 0 && listed.stdout.includes(MCP_BRIDGE_SERVER_FILE)
-      })().catch(() => false)
+    if (this.bridgePrecondition === undefined) {
+      this.bridgePrecondition = this.checkBridgePrecondition(signal)
+        .catch(error => `the bridge precondition check itself failed: ${String(error)}`)
     }
-    if (await this.bridgeRegistered) return
-    this.bridgeRegistered = undefined
+    const problem = await this.bridgePrecondition
+    if (problem === undefined) return
+    // Not memoized as a failure: the user fixes their configuration and retries
+    // in the same process, and a cached "no" would outlive the fix.
+    this.bridgePrecondition = undefined
     throw new LlmError(
-      'Antigravity mcp-bridge transport is selected but its bridge server is not registered with agy. '
-      + `Register it once per machine:\n  agy mcp add dshtools node ${bridgeServerPath()}\n`
+      `Antigravity mcp-bridge transport cannot run: ${problem}\n`
+      + `Register the bridge server once per machine:\n  agy mcp add dshtools node ${bridgeServerPath()}\n`
       + 'then add "mcp(dshtools/*)" to userSettings.globalPermissionGrants.allow in '
-      + '~/.gemini/config/config.json. Or set the provider config\'s transport to "schema" to use '
-      + 'the forced-schema path instead.',
+      + '~/.gemini/config/config.json. Or set this provider\'s transport to "schema" to use the '
+      + 'forced-schema path instead.',
       'ANTIGRAVITY_CLI',
     )
+  }
+
+  /**
+   * Everything that must be true before the first turn, in order.
+   *
+   * The grant is checked and not only the registration, because a registered but
+   * ungranted server fails in the worst available way: the vendor launches it,
+   * the adapter claims it, and the MCP tools are simply absent from the model's
+   * toolset. Measured on real `agy 1.1.22` in that state, the model listed its
+   * tools as `manage_task, schedule, send_message, finish` and answered with an
+   * empty string. No denial event is emitted, nothing fails, and the route looks
+   * healthy while being useless -- so the check has to happen up front.
+   *
+   * The vendor's configuration file is READ, never written; that boundary is the
+   * same one that keeps vendor auth outside the suite. An unreadable or
+   * unexpected file is therefore not treated as a missing grant: the layout is
+   * the vendor's to change, and turning a layout change into a dead route would
+   * be worse than the gap it closes.
+   *
+   * @returns `undefined` when the transport may run, or a description of the
+   *   first problem found.
+   */
+  private async checkBridgePrecondition(signal: AbortSignal | undefined): Promise<string | undefined> {
+    const listed = await this.runCollected(['mcp', 'list'], this.config.catalogTimeoutMs, signal)
+    if (listed.exitCode !== 0) return '`agy mcp list` failed, so its MCP servers could not be inspected'
+    const row = listed.stdout
+      .split('\n')
+      .map(line => line.trim())
+      .find(line => line.includes(MCP_BRIDGE_SERVER_FILE))
+    if (row === undefined) {
+      return `no MCP server registered with agy runs this package's ${MCP_BRIDGE_SERVER_FILE}`
+    }
+    const fields = row.split(/\s+/)
+    const serverName = fields[0]
+    if (serverName === undefined || serverName.length === 0) {
+      return 'the bridge server is registered but `agy mcp list` did not name it'
+    }
+    if (fields.some(field => field === 'disabled')) {
+      return `the bridge server ${JSON.stringify(serverName)} is registered but disabled; run \`agy mcp enable ${serverName}\``
+    }
+    const grants = await readVendorMcpGrants()
+    if (grants === undefined) return undefined
+    const granted = grants.some(grant => grant === 'mcp(*)' || grant.startsWith(`mcp(${serverName}/`))
+    if (!granted) {
+      return `the bridge server ${JSON.stringify(serverName)} is registered but not permitted: `
+        + `nothing in globalPermissionGrants.allow grants it, so the vendor would give the model no DSH tools `
+        + `and answer as if it had none. Add "mcp(${serverName}/*)"`
+    }
+    return undefined
   }
 
   /**

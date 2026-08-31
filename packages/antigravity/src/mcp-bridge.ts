@@ -101,6 +101,13 @@ export function decodeFrames(buffer: string): { frames: unknown[]; rest: string 
 /** A claimed vendor child's live call channel. */
 export interface BridgeChannel {
   /**
+   * Whether this child's bridge server ever connected and was claimed.
+   *
+   * False after a turn has run means the vendor never launched the server, which
+   * is unambiguous in a way that "the model made no tool call" is not.
+   */
+  attached(): boolean
+  /**
    * The vendor call currently blocked on the adapter, if any. Exactly one call
    * is outstanding at a time: the vendor turn cannot proceed past it.
    */
@@ -116,6 +123,8 @@ export interface BridgeChannel {
 interface ChannelState {
   readonly tools: readonly BridgeToolDeclaration[]
   socket: Socket | undefined
+  /** Sticky: a child that attached and then died still counts as attached. */
+  everAttached: boolean
   queue: BridgeCall[]
   outstanding: BridgeCall | undefined
   waiters: ((call: BridgeCall | undefined) => void)[]
@@ -131,6 +140,9 @@ export class AgyMcpBridgeHost {
   private readonly channels = new Map<number, ChannelState>()
   /** Hellos that arrived before the adapter registered the pid they name. */
   private readonly earlyHellos = new Map<number, Socket>()
+
+  /** Set when the listening socket failed after startup; see `listen()`. */
+  listenFailed = false
 
   private constructor(
     readonly socketPath: string,
@@ -154,6 +166,11 @@ export class AgyMcpBridgeHost {
       server.once('error', reject)
       server.listen(socketPath, () => {
         server.removeListener('error', reject)
+        // A listening server that errors later -- EMFILE, the socket file
+        // pulled out from under it -- would otherwise be an unhandled 'error'
+        // event, which takes the whole host process down. A bridge failure must
+        // cost the route, never the process.
+        server.on('error', () => { host.listenFailed = true })
         resolve()
       })
     })
@@ -169,6 +186,7 @@ export class AgyMcpBridgeHost {
     const state: ChannelState = {
       tools,
       socket: undefined,
+      everAttached: false,
       queue: [],
       outstanding: undefined,
       waiters: [],
@@ -185,6 +203,7 @@ export class AgyMcpBridgeHost {
 
   private channelFor(agyPid: number, state: ChannelState): BridgeChannel {
     return {
+      attached: () => state.everAttached,
       pending: () => state.outstanding,
       next: async (signal: AbortSignal) => {
         if (state.queue.length > 0) {
@@ -226,6 +245,7 @@ export class AgyMcpBridgeHost {
     socket.setEncoding('utf8')
     let buffer = ''
     let claimedPid: number | undefined
+    let holdTimer: NodeJS.Timeout | undefined
     const timer = setTimeout(() => {
       if (claimedPid === undefined) {
         socket.write(encodeFrame({ t: 'unclaimed' }))
@@ -248,14 +268,14 @@ export class AgyMcpBridgeHost {
             // child and only then knows its pid, while the child's server
             // connects immediately. Hold the socket for `expect()` to match.
             this.earlyHellos.set(frame.ppid, socket)
-            const hold = setTimeout(() => {
+            holdTimer = setTimeout(() => {
               if (this.earlyHellos.get(frame.ppid) === socket) {
                 this.earlyHellos.delete(frame.ppid)
                 socket.write(encodeFrame({ t: 'unclaimed' }))
                 socket.destroy()
               }
             }, this.claimWindowMs)
-            hold.unref?.()
+            holdTimer.unref?.()
             continue
           }
           this.attach(frame.ppid, state, socket)
@@ -275,6 +295,13 @@ export class AgyMcpBridgeHost {
     socket.on('close', () => {
       clearTimeout(timer)
       if (claimedPid === undefined) return
+      // A hello whose pid no adapter had registered yet is parked in
+      // `earlyHellos` with its own timer. Dropping the socket without clearing
+      // both leaves a dead entry and a live timer behind for the hold window.
+      if (this.earlyHellos.get(claimedPid) === socket) {
+        this.earlyHellos.delete(claimedPid)
+        clearTimeout(holdTimer)
+      }
       const state = this.channels.get(claimedPid)
       if (state === undefined) return
       state.socket = undefined
@@ -285,6 +312,7 @@ export class AgyMcpBridgeHost {
 
   private attach(agyPid: number, state: ChannelState, socket: Socket): void {
     state.socket = socket
+    state.everAttached = true
     socket.write(encodeFrame({ t: 'claimed', tools: state.tools }))
   }
 

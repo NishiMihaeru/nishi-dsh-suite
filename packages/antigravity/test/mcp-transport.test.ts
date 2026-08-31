@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { connect } from 'node:net'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -111,6 +111,36 @@ test('an auxiliary call and a toolless request never use the bridge', () => {
   assert.equal(bridgeEligible(undefined, undefined), false)
 })
 
+
+/**
+ * A fake vendor home, so these tests never read the developer's real
+ * `~/.gemini/config/config.json`. The bridge precondition consults it, and a
+ * test whose result depends on the machine it runs on is not a test.
+ */
+async function withVendorHome<T>(grants: string[] | null, fn: () => Promise<T>): Promise<T> {
+  const home = await mkdtemp(join(tmpdir(), 'vendor-home-'))
+  if (grants !== null) {
+    await mkdir(join(home, '.gemini', 'config'), { recursive: true })
+    await writeFile(
+      join(home, '.gemini', 'config', 'config.json'),
+      JSON.stringify({ userSettings: { globalPermissionGrants: { allow: grants } } }),
+      'utf8',
+    )
+  }
+  const previous = process.env.HOME
+  process.env.HOME = home
+  try {
+    return await fn()
+  } finally {
+    if (previous === undefined) delete process.env.HOME
+    else process.env.HOME = previous
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+/** The grant the mocked `agy mcp list` row below needs. */
+const GRANTED = ['mcp(dshtools/*)']
+
 /** A vendor child whose stdout the test controls, so a turn can stay open. */
 function controllableChild(pid: number) {
   const stdin = new PassThrough()
@@ -170,6 +200,7 @@ function collected(text: string) {
 }
 
 test('the bridge argv drops the forced schema and selects the bridge agent', async () => {
+  await withVendorHome(GRANTED, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'bridge-argv-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
@@ -203,7 +234,7 @@ test('the bridge argv drops the forced schema and selects the bridge agent', asy
     // stream can settle rather than waiting on a vendor that never answers.
     await new Promise(r => setTimeout(r, 250))
     child.finishTurn('done')
-    await first
+    await first.catch(() => { /* no bridge server connects here; argv is the subject */ })
     void iterator.return?.()
   } finally {
     await adapter.dispose()
@@ -215,9 +246,11 @@ test('the bridge argv drops the forced schema and selects the bridge agent', asy
   assert.ok(!turnArgv.includes('--json-schema'), `argv still forces a schema: ${turnArgv.join(' ')}`)
   assert.equal(turnArgv[turnArgv.indexOf('--agent') + 1], 'dsh-primary-mcp')
   assert.ok(turnArgv.includes('--sandbox'))
+  })
 })
 
 test('a vendor tool call becomes a DSH tool call, and its result reaches the still-open vendor turn', async () => {
+  await withVendorHome(GRANTED, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'bridge-flow-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
@@ -321,9 +354,11 @@ test('a vendor tool call becomes a DSH tool call, and its result reaches the sti
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
     await rm(dir, { recursive: true, force: true })
   }
+  })
 })
 
 test('the transport refuses to run when its bridge server is not registered with the vendor', async () => {
+  await withVendorHome(GRANTED, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'bridge-unreg-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
@@ -350,7 +385,7 @@ test('the transport refuses to run when its bridge server is not registered with
       },
       // Silence is the failure mode worth preventing: an unregistered bridge
       // hands the model no tools at all, which reads as a disobedient model.
-      /not registered with agy/,
+      /no MCP server registered with agy runs/,
     )
   } finally {
     await adapter.dispose()
@@ -358,6 +393,7 @@ test('the transport refuses to run when its bridge server is not registered with
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
     await rm(dir, { recursive: true, force: true })
   }
+  })
 })
 
 test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothing else is', async () => {
@@ -365,6 +401,7 @@ test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothin
   // for using `call_mcp_tool`, which on this transport is how a DSH tool is
   // reached at all. Exempting it must not widen the hole for any other tool.
   for (const [toolName, shouldThrow] of [['call_mcp_tool', false], ['run_command', true]] as const) {
+   await withVendorHome(GRANTED, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'bridge-backstop-'))
     const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
     process.env[BRIDGE_SOCKET_DIR_ENV] = dir
@@ -395,6 +432,12 @@ test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothin
         return chunks
       })()
       await new Promise(r => setTimeout(r, 250))
+      // Attach a bridge server, or the never-attached guard fires first and the
+      // backstop is never reached.
+      const server = connect((await listAdapterSockets(dir))[0]!)
+      server.on('error', () => {})
+      server.write(encodeFrame({ t: 'hello', ppid: 3300 }))
+      await new Promise(r => setTimeout(r, 150))
       child.emitToolStep(toolName)
       child.finishTurn('answered')
       if (shouldThrow) {
@@ -409,6 +452,7 @@ test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothin
       else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
       await rm(dir, { recursive: true, force: true })
     }
+   })
   }
 })
 
@@ -416,4 +460,115 @@ test('mcp-bridge is the package default, and a config that says nothing gets it'
   // Pinned deliberately: the default decides whether a fresh deployment needs
   // the one-time `agy mcp add`, so flipping it is a decision and not a tweak.
   assert.equal(DEFAULT_ANTIGRAVITY_TRANSPORT, 'mcp-bridge')
+})
+
+/** Drive one bridge turn against a scripted vendor, returning the rejection or chunks. */
+async function runOneTurn(
+  mcpListStdout: string,
+  attach: boolean,
+): Promise<{ chunks: any[]; error: unknown }> {
+  const dir = await mkdtemp(join(tmpdir(), 'bridge-precond-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+  const child = controllableChild(3400)
+  const ctx = {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/agy' },
+      spawn(spec: { argv: readonly string[] }) {
+        if (spec.argv.includes('list')) return collected(mcpListStdout)
+        if (spec.argv.includes('models')) {
+          return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
+        }
+        return child.handle
+      },
+    },
+  }
+  const adapter = new AntigravityCliAdapter(ctx as any, baseConfig)
+  const chunks: any[] = []
+  let error: unknown
+  let server: any
+  try {
+    const run = (async () => {
+      for await (const chunk of adapter.stream({
+        provider: 'antigravity-cli',
+        model: 'gemini-3.7-flash-low',
+        sessionId: 's-precond',
+        messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+        tools: TOOLS,
+      } as any)) chunks.push(chunk)
+    })().catch(e => { error = e })
+    await new Promise(r => setTimeout(r, 250))
+    if (attach) {
+      const sockets = await listAdapterSockets(dir)
+      if (sockets.length > 0) {
+        server = connect(sockets[0]!)
+        server.on('error', () => {})
+        server.write(encodeFrame({ t: 'hello', ppid: 3400 }))
+        await new Promise(r => setTimeout(r, 150))
+      }
+    }
+    child.finishTurn('answered')
+    await run
+  } finally {
+    server?.destroy()
+    await adapter.dispose()
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+  return { chunks, error }
+}
+
+const ENABLED_ROW = 'dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n'
+
+test('a registered but UNGRANTED bridge server refuses the turn instead of degrading silently', async () => {
+  // The failure this prevents was measured on real agy 1.1.22: with the server
+  // registered and no grant, the vendor launches it, the adapter claims it, and
+  // the MCP tools are simply absent from the model's toolset. The model listed
+  // its tools as `manage_task, schedule, send_message, finish` and answered with
+  // an empty string. Nothing errors; the route looks healthy and is useless.
+  await withVendorHome(['read_url(example.com)'], async () => {
+    const { error } = await runOneTurn(ENABLED_ROW, true)
+    assert.match(String((error as Error)?.message), /registered but not permitted/)
+  })
+})
+
+test('a grant for the same server under any tool name is accepted', async () => {
+  // A user narrowing the grant per tool has configured it deliberately; how
+  // complete their list is, is their business and not a precondition failure.
+  await withVendorHome(['mcp(dshtools/read_file)'], async () => {
+    const { error } = await runOneTurn(ENABLED_ROW, true)
+    assert.equal(error, undefined, `a per-tool grant must be accepted: ${String((error as Error)?.message)}`)
+  })
+  await withVendorHome(['mcp(*)'], async () => {
+    const { error } = await runOneTurn(ENABLED_ROW, true)
+    assert.equal(error, undefined, `a blanket grant must be accepted: ${String((error as Error)?.message)}`)
+  })
+})
+
+test('an unreadable vendor config is treated as unknown, never as a missing grant', async () => {
+  // The file belongs to the vendor and the user. Turning a layout change into a
+  // dead route would be worse than the gap the check closes.
+  await withVendorHome(null, async () => {
+    const { error } = await runOneTurn(ENABLED_ROW, true)
+    assert.equal(error, undefined, `an absent config must not block: ${String((error as Error)?.message)}`)
+  })
+})
+
+test('a disabled bridge server refuses the turn and says how to enable it', async () => {
+  await withVendorHome(GRANTED, async () => {
+    const { error } = await runOneTurn('dshtools stdio disabled node /x/lib/mcp-bridge-server.js\n', true)
+    assert.match(String((error as Error)?.message), /registered but disabled/)
+    assert.match(String((error as Error)?.message), /agy mcp enable dshtools/)
+  })
+})
+
+test('a turn whose bridge server never connected fails loudly rather than answering toolless', async () => {
+  // Everything the precondition can see is fine here; the vendor simply never
+  // launched the server. "The model made no tool call" is ambiguous, but "no
+  // server ever attached" is not.
+  await withVendorHome(GRANTED, async () => {
+    const { error } = await runOneTurn(ENABLED_ROW, false)
+    assert.match(String((error as Error)?.message), /never launched a bridge server/)
+  })
 })
