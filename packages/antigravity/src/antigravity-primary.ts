@@ -21,11 +21,31 @@ import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
 import { AgyTurnProcess, type AgyTurnOutcome, type AgyTurnResult } from './agy-session.js'
 import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
+import { AgyMcpBridgeHost, type BridgeCall, type BridgeChannel } from './mcp-bridge.js'
+import {
+  bridgeEligible,
+  bridgeMcpAgentMarkdown,
+  bridgeToolDeclarations,
+  bridgeToolResult,
+} from './mcp-transport.js'
 import type { AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 import { antigravityVendorFailure } from './vendor-stderr.js'
 
 export const ANTIGRAVITY_PRIMARY_PROVIDER = 'antigravity-cli'
 const AGENT_NAME = 'dsh-primary'
+/** Agent definition used by the `mcp-bridge` transport; see `mcp-transport.ts`. */
+const MCP_AGENT_NAME = 'dsh-primary-mcp'
+/**
+ * Built filename of the bridge server, used to recognise this package's own
+ * entry in `agy mcp list` output. Matching on the filename rather than the
+ * server's registered name lets the user call it whatever they like.
+ */
+const MCP_BRIDGE_SERVER_FILE = 'mcp-bridge-server.js'
+
+/** One `mcp-bridge` step: the vendor asked for a tool, or its turn finished. */
+type McpStep =
+  | { readonly kind: 'tool-call'; readonly call: BridgeCall; readonly session: AgySessionState }
+  | { readonly kind: 'final'; readonly outcome: AgyTurnOutcome; readonly session: AgySessionState }
 /**
  * Bumped from `v1` with the delta protocol: a `v1` reader assumed every
  * envelope carried the whole request, which a `delta` envelope deliberately
@@ -261,6 +281,13 @@ export interface AntigravityPrimaryConfig {
    * compacts earlier than necessary, while none never compacts at all.
    */
   readonly contextWindowTokens: number
+  /**
+   * How the model reaches DSH's tools. `schema` forces the reply through
+   * `--json-schema`; `mcp-bridge` hands the catalog to the vendor's own
+   * harness as MCP tools. Optional so every existing caller and test that
+   * builds this config keeps meaning `schema`.
+   */
+  readonly transport?: 'schema' | 'mcp-bridge'
   /** Idle time after which a live per-session `agy` child is reaped. */
   readonly sessionIdleMs: number
 }
@@ -681,7 +708,7 @@ function serializeMessage(message: Message, view: CallIdView): unknown {
  * expressible as a delta and forces a rebuild instead (see
  * {@link requestSignature}).
  */
-function fullEnvelope(options: GenerateOptions, view: CallIdView): string {
+function fullEnvelope(options: GenerateOptions, view: CallIdView, includeTools = true): string {
   return `${JSON.stringify({
     event: 'user',
     message: {
@@ -690,11 +717,18 @@ function fullEnvelope(options: GenerateOptions, view: CallIdView): string {
         kind: 'full',
         system: options.system ?? '',
         messages: options.messages.map(message => serializeMessage(message, view)),
-        tools: (options.tools ?? []).map(tool => ({
-          name: tool.name,
-          description: tool.description,
-          input_schema: tool.parameters,
-        })),
+        // Omitted on the MCP transport: the catalog reaches the model as real
+        // vendor tools there, and listing it twice would invite the model to
+        // describe a call instead of making one.
+        ...includeTools
+          ? {
+              tools: (options.tools ?? []).map(tool => ({
+                name: tool.name,
+                description: tool.description,
+                input_schema: tool.parameters,
+              })),
+            }
+          : {},
       }),
     },
   })}\n`
@@ -901,10 +935,36 @@ interface AgySessionState {
   lastUsage: TokenUsage | undefined
   /** Idle reaper, refreshed on every turn. */
   idleTimer: NodeJS.Timeout | undefined
+  /**
+   * `mcp-bridge` only: this child's bridge channel, claimed by its pid.
+   */
+  bridge?: BridgeChannel
+  /**
+   * `mcp-bridge` only: a vendor turn that is still open.
+   *
+   * On this transport a turn does NOT end when the model wants a tool: it
+   * blocks inside the MCP call while DSH executes. So one vendor turn spans
+   * several DSH steps, and the promise for it is held here rather than awaited
+   * to completion by the step that started it.
+   */
+  inFlight?: Promise<AgyTurnOutcome>
+  /**
+   * `mcp-bridge` only: the call the vendor is currently blocked on, with the
+   * DSH id its result will be cited by.
+   */
+  bridgePending?: { readonly bridgeId: string; readonly dshId: string }
+  /** `mcp-bridge` only: aborts the whole open vendor turn, not one DSH step. */
+  turnAbort?: AbortController
 }
 
 export class AntigravityCliAdapter extends LlmAdapter {
   private bridgeWorkspacePromise: Promise<EphemeralAgentWorkspace> | undefined
+  /** `mcp-bridge` workspace: a different agent definition and no schema file. */
+  private mcpWorkspacePromise: Promise<EphemeralAgentWorkspace> | undefined
+  /** One socket for this adapter, shared by every session it drives. */
+  private bridgeHostPromise: Promise<AgyMcpBridgeHost> | undefined
+  /** Memoized answer to "is the bridge server registered with the vendor". */
+  private bridgeRegistered: Promise<boolean> | undefined
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
   private pendingModels: Promise<readonly CatalogModel[]> | undefined
   private readonly activeChildren = new Set<SubprocessHandle>()
@@ -1011,6 +1071,15 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
 
     const requestedTools = new Set((options.tools ?? []).map(tool => tool.name))
+
+    // An auxiliary call and a toolless request stay on the schema transport
+    // even when the bridge is selected: giving a summarizer a live tool
+    // catalog is how compaction started answering with a tool call.
+    if (this.config.transport === 'mcp-bridge' && bridgeEligible(options.purpose, options.tools)) {
+      yield* this.streamViaMcpBridge(options, requestedTools)
+      return
+    }
+
     const { outcome: { result, events }, session } = await this.runTurn(options)
     const blocked = nativeToolNames(events).filter(name => BLOCKED_NATIVE_TOOLS.has(name))
     if (blocked.length > 0) {
@@ -1075,6 +1144,81 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
   }
 
+  /**
+   * One DSH step on the `mcp-bridge` transport, as DSH stream chunks.
+   *
+   * The two outcomes are asymmetric on purpose. A tool call ends the DSH step
+   * while the vendor turn stays open, so it reports no usage: the vendor has
+   * not finished counting, and inventing a figure per step would double-count
+   * a conversation the meter is about to see again. A finished turn reports
+   * usage exactly as the schema transport does.
+   */
+  private async * streamViaMcpBridge(
+    options: GenerateOptions,
+    requestedTools: ReadonlySet<string>,
+  ): AsyncIterable<StreamChunk> {
+    const step = await this.runMcpTurn(options)
+
+    if (step.kind === 'tool-call') {
+      const { call, session } = step
+      if (!requestedTools.has(call.name)) {
+        // The vendor's allowlist is `call_mcp_tool` plus `finish`, and the
+        // bridge only ever advertised this request's catalog, so an unknown
+        // name means the two disagree -- which must not become a DSH tool call.
+        throw new LlmError(
+          `Antigravity requested unknown DSH tool ${JSON.stringify(call.name)} over the MCP bridge`,
+          'ANTIGRAVITY_PROTOCOL',
+        )
+      }
+      const id = this.mintCallId(call.id)
+      session.bridgePending = { bridgeId: call.id, dshId: String(id) }
+      const argumentsText = JSON.stringify(call.arguments ?? {})
+      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+      yield { type: 'tool-call-delta', index: 0, id, name: call.name, argumentsDelta: argumentsText }
+      yield {
+        type: 'block-end',
+        index: 0,
+        block: { type: 'tool-call', id, name: call.name, arguments: argumentsText },
+      }
+      yield { type: 'finish', reason: { kind: 'tool-calls' } }
+      return
+    }
+
+    const { outcome: { result, events }, session } = step
+    const blocked = nativeToolNames(events).filter(name => BLOCKED_NATIVE_TOOLS.has(name))
+    if (blocked.length > 0) {
+      throw new LlmError(
+        `Antigravity bridge invoked blocked native tool(s): ${blocked.join(', ')}`,
+        'ANTIGRAVITY_NATIVE_TOOL',
+      )
+    }
+    if (!isSuccess(result)) {
+      if (options.reasoningEffort !== undefined && isEffortUnsupported(result)) {
+        throw new LlmError(
+          `Antigravity model ${JSON.stringify(options.model)} does not support reasoning effort ${JSON.stringify(String(options.reasoningEffort))}`,
+          'UNSUPPORTED',
+        )
+      }
+      throw resultFailure(result)
+    }
+
+    // No structured output on this transport: the turn's own response text is
+    // the model's answer, exactly as the vendor emitted it.
+    const text = typeof result.response === 'string' ? result.response : ''
+    if (text.length > 0) {
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text } }
+    }
+
+    const reportedUsage = usageFrom(result.usage)
+    if (reportedUsage) {
+      yield { type: 'usage', usage: usageSinceLastTurn(reportedUsage, session.lastUsage) }
+      session.lastUsage = reportedUsage
+    }
+    yield { type: 'finish', reason: { kind: 'stop' } }
+  }
+
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
@@ -1083,6 +1227,10 @@ export class AntigravityCliAdapter extends LlmAdapter {
     await Promise.allSettled([...this.activeChildren].map(child => child.waitForExit()))
     const workspace = await this.bridgeWorkspacePromise?.catch(() => undefined)
     if (workspace) await workspace.dispose()
+    const mcpWorkspace = await this.mcpWorkspacePromise?.catch(() => undefined)
+    if (mcpWorkspace) await mcpWorkspace.dispose()
+    const host = await this.bridgeHostPromise?.catch(() => undefined)
+    if (host) await host.close()
   }
 
   private async models(signal?: AbortSignal): Promise<readonly CatalogModel[]> {
@@ -1162,6 +1310,31 @@ export class AntigravityCliAdapter extends LlmAdapter {
       })
     }
     return await this.bridgeWorkspacePromise
+  }
+
+  /** The `mcp-bridge` transport's workspace: bridge agent, no schema file. */
+  private async ensureMcpWorkspace(): Promise<EphemeralAgentWorkspace> {
+    if (!this.mcpWorkspacePromise) {
+      this.mcpWorkspacePromise = ephemeralAgentWorkspace({
+        prefix: 'dsh-antigravity-mcp-',
+        agentName: MCP_AGENT_NAME,
+        agentMarkdown: bridgeMcpAgentMarkdown(),
+        files: [],
+      })
+    }
+    return await this.mcpWorkspacePromise
+  }
+
+  /**
+   * The bridge socket, opened once per adapter and BEFORE any vendor child.
+   *
+   * Ordering matters and is not incidental: a bridge server connects within
+   * milliseconds of its `agy` parent starting, so the socket has to be
+   * listening before the spawn or the server finds nothing to offer itself to.
+   */
+  private async ensureBridgeHost(): Promise<AgyMcpBridgeHost> {
+    if (!this.bridgeHostPromise) this.bridgeHostPromise = AgyMcpBridgeHost.listen()
+    return await this.bridgeHostPromise
   }
 
   /**
@@ -1353,24 +1526,33 @@ export class AntigravityCliAdapter extends LlmAdapter {
     options: GenerateOptions,
     lifetime: AbortSignal,
     resolveSignal: AbortSignal,
+    viaMcpBridge = false,
   ): Promise<AgyTurnProcess> {
-    const workspace = await this.ensureBridgeWorkspace()
+    const bridged = viaMcpBridge
+    const workspace = bridged
+      ? await this.ensureMcpWorkspace()
+      : await this.ensureBridgeWorkspace()
     const { model, effort } = await this.resolveInvocationModel(
       options.model,
       options.reasoningEffort,
       resolveSignal,
     )
-    const schemaPath = await this.ensureBridgeSchema(
-      workspace,
-      options.tools,
-      options.purpose !== undefined,
-    )
+    // The MCP transport has no forced output schema by design: the conflict
+    // between a strict response schema and a live tool catalog is the whole
+    // reason it exists.
+    const schemaArgs = bridged
+      ? []
+      : ['--json-schema', await this.ensureBridgeSchema(
+          workspace,
+          options.tools,
+          options.purpose !== undefined,
+        )]
     const args = [
       '--add-dir', workspace.root,
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
-      '--json-schema', schemaPath,
-      '--agent', AGENT_NAME,
+      ...schemaArgs,
+      '--agent', bridged ? MCP_AGENT_NAME : AGENT_NAME,
       '--sandbox',
       '--model', model,
       ...(effort === undefined ? [] : ['--effort', effort]),
@@ -1509,6 +1691,191 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
   }
 
+  /**
+   * Fail early and legibly when the bridge server is not registered with the
+   * vendor.
+   *
+   * Without a positive check the failure is silent and worse than a crash: the
+   * model is simply handed no tools, answers in prose, and the session looks
+   * like a model that ignored its instructions. `agy mcp list` is asked rather
+   * than the vendor's configuration file parsed, because the file's location
+   * and shape are the vendor's business and the CLI is the documented surface.
+   */
+  private async assertBridgeRegistered(signal: AbortSignal | undefined): Promise<void> {
+    if (this.bridgeRegistered === undefined) {
+      this.bridgeRegistered = (async () => {
+        const listed = await this.runCollected(['mcp', 'list'], this.config.catalogTimeoutMs, signal)
+        return listed.exitCode === 0 && listed.stdout.includes(MCP_BRIDGE_SERVER_FILE)
+      })().catch(() => false)
+    }
+    if (await this.bridgeRegistered) return
+    this.bridgeRegistered = undefined
+    throw new LlmError(
+      'Antigravity mcp-bridge transport is selected but its bridge server is not registered with agy. '
+      + 'Register it once per machine with: agy mcp add dshtools node <install>/nishi-dsh-antigravity/lib/'
+      + `${MCP_BRIDGE_SERVER_FILE} -- and allow it with "mcp(dshtools/*)" in globalPermissionGrants.allow. `
+      + 'Set transport back to "schema" to use the forced-schema path instead.',
+      'ANTIGRAVITY_CLI',
+    )
+  }
+
+  /**
+   * One DSH step on the `mcp-bridge` transport.
+   *
+   * A vendor turn here does not end when the model wants a tool: it blocks
+   * inside the MCP call while DSH executes, so a step either surfaces that
+   * blocked call or observes the turn finish. Both outcomes leave the child
+   * alive and the conversation intact.
+   */
+  private async runMcpTurn(options: GenerateOptions): Promise<McpStep> {
+    if (this.disposed) {
+      throw new LlmError('Antigravity adapter has been disposed', 'ANTIGRAVITY_CLI')
+    }
+    const key = this.sessionKey(options)
+    if (key === undefined) {
+      throw new LlmError(
+        'Antigravity mcp-bridge transport requires a DSH session id: a vendor turn spans several steps',
+        'ANTIGRAVITY_PROTOCOL',
+      )
+    }
+    await this.assertBridgeRegistered(options.signal)
+
+    let state = this.sessions.get(key)
+    if (state !== undefined && !state.process.alive) {
+      await this.closeSession(key)
+      state = undefined
+    }
+
+    // A turn blocked on a tool call is continued by ANSWERING it. Writing a
+    // new stdin line here would be a second turn queued behind the blocked
+    // one -- which the vendor does buffer, but which would leave the model
+    // waiting for a result nobody is going to send.
+    if (state?.bridgePending !== undefined) {
+      const pending = state.bridgePending
+      const result = bridgeToolResult(options.messages, pending.dshId)
+      if (result === undefined) {
+        await this.closeSession(key)
+        throw new LlmError(
+          `Antigravity mcp-bridge: no DSH result for tool call ${JSON.stringify(pending.dshId)}, `
+          + 'which a live vendor turn is blocked on',
+          'ANTIGRAVITY_PROTOCOL',
+        )
+      }
+      state.bridgePending = undefined
+      state.bridge?.resolve(pending.bridgeId, result.text, result.isError)
+      return await this.settleMcpStep(key, state, options)
+    }
+
+    const signature = requestSignature(options)
+    if (state !== undefined && (
+      state.signature !== signature || !this.extendsConversation(state, options.messages)
+    )) {
+      await this.closeSession(key)
+      state = undefined
+    }
+
+    if (state === undefined) {
+      const host = await this.ensureBridgeHost()
+      const lifetime = new AbortController()
+      const child = await this.startProcess(options, lifetime.signal, this.combinedSignal(options.signal, this.config.turnTimeoutMs), true)
+      const pid = child.pid
+      if (typeof pid !== 'number') {
+        lifetime.abort()
+        await child.close()
+        throw new LlmError('Antigravity child exposed no pid, so its bridge server cannot be claimed', 'ANTIGRAVITY_CLI')
+      }
+      state = {
+        process: child,
+        lifetime,
+        signature,
+        sentDigests: [],
+        vendorCallIds: new Map(),
+        lastUsage: undefined,
+        idleTimer: undefined,
+        bridge: host.expect(pid, bridgeToolDeclarations(options.tools)),
+      }
+      this.sessions.set(key, state)
+      state.turnAbort = new AbortController()
+      // The turn's own signal outlives this step on purpose: the vendor turn
+      // spans steps, so a per-step timeout must not kill it mid-tool.
+      const turnSignal = AbortSignal.any([
+        state.turnAbort.signal,
+        AbortSignal.timeout(this.config.turnTimeoutMs),
+      ])
+      state.inFlight = state.process.turn(fullEnvelope(options, this.callIdView(state), false), turnSignal)
+      state.inFlight.catch(() => {})
+    } else {
+      state.turnAbort = new AbortController()
+      const turnSignal = AbortSignal.any([
+        state.turnAbort.signal,
+        AbortSignal.timeout(this.config.turnTimeoutMs),
+      ])
+      const appended = options.messages.slice(state.sentDigests.length)
+      const unheard = appended.filter(message => !isOwnReply(message))
+      if (unheard.length === 0) {
+        await this.closeSession(key)
+        return await this.runMcpTurn(options)
+      }
+      state.inFlight = state.process.turn(deltaEnvelope(unheard, this.callIdView(state)), turnSignal)
+      state.inFlight.catch(() => {})
+    }
+    return await this.settleMcpStep(key, state, options)
+  }
+
+  /**
+   * Wait for whichever comes first: the vendor asking for a DSH tool, or the
+   * turn finishing.
+   *
+   * The loser of the race is cancelled rather than left registered. A stale
+   * waiter would otherwise be handed the FIRST call of some later turn on the
+   * same child, which is a mis-pairing no downstream check would catch.
+   */
+  private async settleMcpStep(
+    key: string,
+    state: AgySessionState,
+    options: GenerateOptions,
+  ): Promise<McpStep> {
+    const inFlight = state.inFlight
+    const bridge = state.bridge
+    if (inFlight === undefined || bridge === undefined) {
+      await this.closeSession(key)
+      throw new LlmError('Antigravity mcp-bridge lost its vendor turn', 'ANTIGRAVITY_PROTOCOL')
+    }
+    const step = new AbortController()
+    const waitSignal = options.signal === undefined
+      ? step.signal
+      : AbortSignal.any([step.signal, options.signal])
+    const call = bridge.next(waitSignal)
+    call.catch(() => {})
+    try {
+      const winner = await Promise.race([
+        inFlight.then(outcome => ({ kind: 'final' as const, outcome })),
+        call.then(value => ({ kind: 'call' as const, value })),
+      ])
+      if (winner.kind === 'final') {
+        state.inFlight = undefined
+        state.sentDigests = options.messages.map(messageDigest)
+        this.armIdleReaper(key, state)
+        return { kind: 'final', outcome: winner.outcome, session: state }
+      }
+      if (winner.value === undefined) {
+        // The bridge went away without a call: the child is gone, so the turn
+        // promise is the authority on why.
+        const outcome = await inFlight
+        state.inFlight = undefined
+        state.sentDigests = options.messages.map(messageDigest)
+        return { kind: 'final', outcome, session: state }
+      }
+      this.armIdleReaper(key, state)
+      return { kind: 'tool-call', call: winner.value, session: state }
+    } catch (error: unknown) {
+      await this.closeSession(key)
+      throw error
+    } finally {
+      step.abort()
+    }
+  }
+
   /** Reap a live conversation after {@link AntigravityPrimaryConfig.sessionIdleMs} of silence. */
   private armIdleReaper(key: string, state: AgySessionState): void {
     if (state.idleTimer !== undefined) clearTimeout(state.idleTimer)
@@ -1523,6 +1890,14 @@ export class AntigravityCliAdapter extends LlmAdapter {
     if (state === undefined) return
     this.sessions.delete(key)
     if (state.idleTimer !== undefined) clearTimeout(state.idleTimer)
+    // Abort the vendor turn before the bridge goes away: a server still
+    // blocked in a call must be released, or its `agy` parent waits out its
+    // own print timeout for an answer that is never coming.
+    state.turnAbort?.abort()
+    state.bridge?.dispose()
+    state.bridge = undefined
+    state.bridgePending = undefined
+    state.inFlight = undefined
     state.lifetime.abort()
     await state.process.close()
   }
