@@ -11,6 +11,7 @@
  * - -c project_doc_max_bytes=0
  */
 
+import { createHash } from 'node:crypto'
 import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -23,6 +24,7 @@ import {
   type LlmModelInfo,
   type LlmProviderInfo,
   type LlmResolvedModelInfo,
+  type Message,
   type ModelModality,
   type StreamChunk,
   type TokenUsage,
@@ -145,10 +147,36 @@ class ActiveTurnQueue {
   }
 }
 
+/**
+ * Digest the DSH history a vendor turn was opened against.
+ *
+ * Content, not ids alone: DSH rewrites a message's content while carrying its
+ * id over -- the tool-result pruner does exactly that -- so an id-only
+ * comparison reports agreement across a rewrite that changed everything the
+ * model would read.
+ */
+function historyDigests(messages: readonly Message[]): string[] {
+  return messages.map(message => createHash('sha256')
+    .update(JSON.stringify([message.id, message.role, message.content]))
+    .digest('hex')
+    .slice(0, 32))
+}
+
 interface ActiveCodexTurn {
   readonly sessionId: string
   readonly model: string
   readonly toolSignature: string
+  /**
+   * Digests of the DSH history this turn was opened against.
+   *
+   * A turn here spans DSH steps: it parks inside a dynamic tool call while
+   * DSH's own loop executes, and DSH rewrites history behind the adapter's
+   * back -- compaction, the tool-result pruner, repair, a user rewind. The
+   * continuation checks its request still agrees with this prefix, because
+   * resuming across a rewrite makes the model reason from a thread whose
+   * prefix DSH no longer has.
+   */
+  readonly historyDigests: readonly string[]
   readonly connection: CodexAppServerConnection
   readonly events: ActiveTurnQueue
   readonly signal: AbortSignal
@@ -629,6 +657,22 @@ export class CodexAppServerAdapter extends LlmAdapter {
           if (turn.toolSignature !== requestedToolSignature) {
             throw new Error('codex-plugin-dsh: the DSH tool catalog changed while an App Server dynamic tool call was pending')
           }
+          // The third thing that can move under a parked call, and the only one
+          // that used to move silently. A missing tool result already fails by
+          // name below, and an assistant or tool message after it fails in
+          // `codexDynamicToolResult`; a rewrite of the history BEFORE the call
+          // failed nowhere. The vendor thread still holds the original prefix
+          // server-side, so the model would resume reasoning from a history DSH
+          // no longer has and the answer would be recorded against the new one.
+          // Ending the turn is the whole fix: the next request goes through
+          // `startTurn`, where the checkpoint tip comparison realigns the thread
+          // by rollback, fork or rebuild.
+          const current = historyDigests(options.messages)
+          const agrees = current.length >= turn.historyDigests.length
+            && turn.historyDigests.every((digest, index) => current[index] === digest)
+          if (!agrees) {
+            throw new Error('codex-plugin-dsh: the DSH history changed while an App Server dynamic tool call was pending')
+          }
           options.signal?.throwIfAborted()
           const pending = turn.awaiting
           if (pending === undefined) {
@@ -993,6 +1037,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
         sessionId,
         model: options.model,
         toolSignature,
+        historyDigests: historyDigests(options.messages),
         connection,
         events,
         signal,
