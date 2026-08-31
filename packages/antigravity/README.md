@@ -25,7 +25,9 @@ A DSH step is no longer a whole `agy` process. The adapter keeps one live child 
 
 This exists for cost and for correctness. A fresh conversation per step could never hit the vendor's prefix cache — measured on real `agy 1.1.22`, a continuation inside one child read 20418 of a 23496-token prefix from cache — and it left the model reading its own past actions as JSON quoted back at it rather than as its own turns.
 
-A live conversation is continued only by a request that extends exactly what it was already told. Divergent history, a changed system prompt, catalog, model or effort, and any call carrying a `purpose` (compaction, session titles) all get a fresh child instead. Reported usage is the difference from the previous turn, because `agy` counts a conversation rather than a turn.
+A live conversation is continued only by a request that extends exactly what it was already told, compared by a digest of each delivered message's id **and content** — DSH rewrites content while preserving ids, and such a rewrite has to reach the vendor as a rebuild. Divergent history, a changed system prompt, catalog, model or effort, and any call carrying a `purpose` (compaction, session titles) all get a fresh child instead. A delta omits the conversation's own replies, which the vendor already has. Reported usage is the difference from the previous turn, because `agy` counts a conversation rather than a turn.
+
+`maxTokens` is accepted and ignored on a `purpose`-carrying auxiliary call, and still refused on an ordinary turn: `agy` has no output-cap flag, but refusing it everywhere left compaction — which always sends it — unable to run at all.
 
 DSH mints its own tool-call ids rather than trusting the model's, which are freely authored and routinely repeated; the vendor's id is restored on the wire so the model still recognises its own call. `docs/ARCHITECTURE.md` carries the measurements and the full rebuild rules.
 
@@ -63,7 +65,7 @@ Project Memory and DSH-native child-agent delegation are external to this provid
 
 The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 92 unit tests plus 11 live scenarios (8 primary, 1 session continuation, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline. Primary and session continuation were re-run on the current tree; the two search scenarios date from 2026-08-31 and are untouched by the changes since.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 96 unit tests plus 11 live scenarios (8 primary, 1 session continuation, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline. Primary and session continuation were re-run on the current tree; the two search scenarios date from 2026-08-31 and are untouched by the changes since.
 
 ## Validation status — PENDING PROVIDER STAGE
 

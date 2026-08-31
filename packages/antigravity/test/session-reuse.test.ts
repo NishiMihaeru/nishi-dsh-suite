@@ -252,7 +252,9 @@ test('the delta carries only the messages appended since the previous reply, and
     })))
 
     const delta = child.envelopes()[1]
-    assert.equal((delta.messages as unknown[]).length, 2, 'only the assistant turn and its result')
+    const messages = delta.messages as any[]
+    assert.equal(messages.length, 1, 'only the tool result: the vendor already has its own reply')
+    assert.equal(messages[0].content[0].type, 'tool-result')
     assert.equal(delta.tools, undefined, 'the catalog is prefix, sent once')
     assert.equal(delta.system, undefined, 'the system prompt is prefix, sent once')
   } finally { await adapter.dispose() }
@@ -276,8 +278,7 @@ test('a tool result reaches the vendor under the id the vendor itself minted', a
 
     const delta = child.envelopes()[1]
     const messages = delta.messages as any[]
-    assert.equal(messages[0].content[0].id, 'call_1')
-    assert.equal(messages[1].content[0].tool_call_id, 'call_1')
+    assert.equal(messages[0].content[0].tool_call_id, 'call_1')
   } finally { await adapter.dispose() }
 })
 
@@ -568,5 +569,78 @@ test('a request with no tools keeps the generic schema, so nothing forces a tool
     await collect(adapter.stream(request({ messages: [userText('hi')], tools: [] })))
     const schema = schemaArgv(spawns) as any
     assert.deepEqual(schema.properties.tool_calls.items.properties.arguments, { type: 'object' })
+  } finally { await adapter.dispose() }
+})
+
+test("a delta never echoes the model's own reply back at it", async () => {
+  const { ctx, child } = harness([
+    toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
+    messageReply('done'),
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('read a.ts')
+    const step1 = await collect(adapter.stream(request({ messages: [first] })))
+    const callId = toolCallIds(step1)[0]
+    await collect(adapter.stream(request({
+      messages: [first, assistantToolCall(callId, 'read_file', '{"path":"a.ts"}'), toolResult(callId, 'body')],
+    })))
+
+    const roles = ((child.envelopes()[1].messages as any[]) ?? []).map(m => m.role)
+    assert.ok(!roles.includes('assistant'), `the vendor already said this: ${JSON.stringify(roles)}`)
+  } finally { await adapter.dispose() }
+})
+
+test('an assistant message from another route is news, so a delta still carries it', async () => {
+  const { ctx, child } = harness([messageReply('one'), messageReply('two')])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('first')
+    await collect(adapter.stream(request({ messages: [first] })))
+    const foreign = {
+      id: 'm-foreign',
+      role: 'assistant',
+      source: { kind: 'model', provider: 'codex-app-server', model: 'gpt-5.6' },
+      content: [{ type: 'text', text: 'replayed from elsewhere' }],
+    } as any
+    await collect(adapter.stream(request({ messages: [first, foreign, userText('next')] })))
+
+    const roles = ((child.envelopes()[1].messages as any[]) ?? []).map(m => m.role)
+    assert.deepEqual(roles, ['assistant', 'user'])
+  } finally { await adapter.dispose() }
+})
+
+test('a rewritten message keeping its id still rebuilds, because the vendor heard the original', async () => {
+  const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('first')
+    const bulky = toolResult('c1', 'x'.repeat(200))
+    await collect(adapter.stream(request({ messages: [first, bulky] })))
+
+    // Exactly what the tool-result pruner does: same id, truncated content.
+    const pruned = { ...bulky, content: [{ ...bulky.content[0], content: [{ type: 'text', text: 'x…(pruned)' }] }] }
+    await collect(adapter.stream(request({ messages: [first, pruned, userText('next')] })))
+
+    assert.equal(spawns.length, 2, 'a content rewrite must reach the vendor as a rebuild')
+  } finally { await adapter.dispose() }
+})
+
+test('maxTokens is refused on an ordinary turn but accepted as an auxiliary budget hint', async () => {
+  const { ctx } = multiHarness([[messageReply('one')], [messageReply('summary')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    await assert.rejects(
+      collect(adapter.stream(request({ messages: [userText('a')], maxTokens: 8192 }))),
+      /maxTokens/,
+    )
+    // Compaction always sends maxTokens and cannot be configured not to, so
+    // refusing it here left the route with no working compaction at all.
+    const folded = await collect(adapter.stream(request({
+      messages: [userText('summarize')],
+      maxTokens: 8192,
+      purpose: 'compaction',
+    })))
+    assert.ok(folded.some(chunk => chunk.type === 'finish'))
   } finally { await adapter.dispose() }
 })

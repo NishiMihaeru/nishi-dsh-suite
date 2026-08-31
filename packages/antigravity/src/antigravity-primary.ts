@@ -684,6 +684,38 @@ function deltaEnvelope(messages: readonly Message[], view: CallIdView): string {
 }
 
 /**
+ * Identity of one message as this conversation heard it: its id AND its
+ * content, because DSH rewrites the second while preserving the first.
+ */
+function messageDigest(message: Message): string {
+  return createHash('sha256')
+    .update(JSON.stringify([message.id, message.role, message.content]))
+    .digest('hex')
+    .slice(0, 32)
+}
+
+/**
+ * Whether this message is one of the conversation's OWN replies coming back.
+ *
+ * A `delta` must carry only what the vendor has not heard. Its own turns it
+ * has already heard -- from itself -- and echoing them back as user data
+ * duplicates every one of its actions in the transcript. That is not merely
+ * wasteful: a model that has repeated an action once sees the pattern at
+ * double density and repeats it again, which is exactly how one real session
+ * ended, with 43 identical `todo_write` calls after the work was finished.
+ * Codex has always continued a turn with the tool result alone.
+ *
+ * Only assistant messages from THIS route qualify. Anything else in a delta
+ * -- a user turn, a tool result, an assistant message replayed from another
+ * provider -- is news to this conversation and must be sent.
+ */
+function isOwnReply(message: Message): boolean {
+  return message.role === 'assistant'
+    && message.source.kind === 'model'
+    && message.source.provider === ANTIGRAVITY_PRIMARY_PROVIDER
+}
+
+/**
  * Everything a live vendor conversation was opened with that a later request
  * must still agree on to reuse it.
  *
@@ -795,7 +827,7 @@ function resultFailure(result: AgyTurnResult): LlmError {
 /**
  * One DSH session's live vendor conversation.
  *
- * `sentMessageIds` is the whole reuse test: a request may continue this
+ * `sentDigests` is the whole reuse test: a request may continue this
  * conversation only if its messages start with exactly these ids, in order.
  * DSH's history is authoritative and gets rewritten behind the adapter's
  * back -- compaction shadows nodes, the tool-result pruner truncates, repair
@@ -810,8 +842,18 @@ interface AgySessionState {
   lifetime: AbortController
   /** Identity the conversation was opened with; see {@link requestSignature}. */
   signature: string
-  /** DSH message ids already delivered to this conversation, in order. */
-  sentMessageIds: string[]
+  /**
+   * One digest per message already delivered to this conversation, in order.
+   *
+   * Ids alone are not enough, and that is not a theoretical concern: the
+   * tool-result pruner rewrites a message's CONTENT while carrying its id
+   * over untouched (`freezeMessage({...event.data.message, content})`), so an
+   * id-only check declared 80k tokens of pruned tool output unchanged and the
+   * vendor kept serving the originals. Digesting the content is what makes a
+   * silent rewrite -- pruning, compaction, an edited turn -- reach the vendor
+   * as the rebuild it actually is.
+   */
+  sentDigests: string[]
   /** DSH tool-call id to the vendor's own id for the same call. */
   readonly vendorCallIds: Map<string, string>
   /**
@@ -920,7 +962,14 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
     const unsupported = [
       options.temperature === undefined ? undefined : 'temperature',
-      options.maxTokens === undefined ? undefined : 'maxTokens',
+      // `agy` has no output-cap flag, so a caller that depends on a hard
+      // ceiling must still be told so. An auxiliary call is different in kind:
+      // compaction and session titles pass `maxTokens` as a budget hint for a
+      // summary nobody measures, and rejecting it there disabled the only
+      // mechanism bounding a session's history -- observed as 35 consecutive
+      // `compaction/end` failures in one real session, each swallowed by
+      // `agent/pre-step` as a warning while the context grew past 150k.
+      options.maxTokens === undefined || options.purpose !== undefined ? undefined : 'maxTokens',
       options.stop === undefined ? undefined : 'stop',
     ].filter((value): value is string => value !== undefined)
     if (unsupported.length > 0) {
@@ -1233,9 +1282,9 @@ export class AntigravityCliAdapter extends LlmAdapter {
 
   /** Whether `messages` continues exactly what this conversation has already been told. */
   private extendsConversation(state: AgySessionState, messages: readonly Message[]): boolean {
-    if (messages.length <= state.sentMessageIds.length) return false
-    for (let index = 0; index < state.sentMessageIds.length; index += 1) {
-      if (String(messages[index].id) !== state.sentMessageIds[index]) return false
+    if (messages.length <= state.sentDigests.length) return false
+    for (let index = 0; index < state.sentDigests.length; index += 1) {
+      if (messageDigest(messages[index]) !== state.sentDigests[index]) return false
     }
     return true
   }
@@ -1389,23 +1438,33 @@ export class AntigravityCliAdapter extends LlmAdapter {
         process: child,
         lifetime,
         signature,
-        sentMessageIds: [],
+        sentDigests: [],
         vendorCallIds: new Map(),
         lastUsage: undefined,
         idleTimer: undefined,
       }
       this.sessions.set(key, state)
       payload = fullEnvelope(options, this.callIdView(state))
-      delivered = options.messages.map(message => String(message.id))
+      delivered = options.messages.map(messageDigest)
     } else {
-      const appended = options.messages.slice(state.sentMessageIds.length)
-      payload = deltaEnvelope(appended, this.callIdView(state))
-      delivered = [...state.sentMessageIds, ...appended.map(message => String(message.id))]
+      const appended = options.messages.slice(state.sentDigests.length)
+      const unheard = appended.filter(message => !isOwnReply(message))
+      // Everything appended counts as delivered, including the replies that
+      // were deliberately not re-sent: the vendor has them either way, and the
+      // prefix test compares against DSH's history, not against the wire.
+      delivered = [...state.sentDigests, ...appended.map(messageDigest)]
+      if (unheard.length === 0) {
+        // Nothing to say. A turn needs an input line, and there is no honest
+        // one to write, so reopen from DSH's history rather than invent one.
+        await this.closeSession(key)
+        return await this.runTurn(options)
+      }
+      payload = deltaEnvelope(unheard, this.callIdView(state))
     }
 
     try {
       const outcome = await this.awaitTurn(state.process, payload, signal, options)
-      state.sentMessageIds = delivered
+      state.sentDigests = delivered
       this.armIdleReaper(key, state)
       return { outcome, session: state }
     } catch (error: unknown) {
