@@ -53,11 +53,16 @@ const baseConfig = {
   transport: 'mcp-bridge' as const,
 }
 
-test('the bridge agent allowlist is exactly the MCP tool and finish', () => {
+test('the bridge agent allowlist is finish alone, and never names the vendor MCP wrapper', () => {
   const md = bridgeMcpAgentMarkdown()
   const tools = md.slice(md.indexOf('tools:'), md.indexOf('---', md.indexOf('tools:')))
     .split('\n').filter(line => line.startsWith('  - ')).map(line => line.slice(4))
-  assert.deepEqual(tools, [VENDOR_MCP_TOOL, VENDOR_FINISH_TOOL])
+  assert.deepEqual(tools, [VENDOR_FINISH_TOOL])
+  // Naming call_mcp_tool here terminates the agent on real agy 1.1.22 --
+  // `Agent execution terminated due to error.`, zero tokens -- and is also
+  // unnecessary, because MCP tools are not gated by this allowlist. Probed,
+  // after the obvious spelling of this list killed every live turn.
+  assert.ok(!tools.includes(VENDOR_MCP_TOOL))
   assert.match(md, /inheritCustomizations: false/)
   // The probe watched the vendor's default agent read a file outside the
   // workspace with view_file, so the absence of native tools is the point.
@@ -127,6 +132,13 @@ function controllableChild(pid: number) {
       async waitForExit() { await done.promise; return true },
     },
     written,
+    /** Emit one vendor step event, as the stream-json log would carry it. */
+    emitToolStep(toolName: string) {
+      stdout.write(JSON.stringify({
+        event: 'step_update',
+        step_update: { conversation_id: 'c1', step_index: 1, state: 'DONE', step_type: 'tool', tool_name: toolName },
+      }) + '\n')
+    },
     /** Emit the vendor's end-of-turn event, closing the open turn. */
     finishTurn(response: string) {
       stdout.write(JSON.stringify({
@@ -344,5 +356,57 @@ test('the transport refuses to run when its bridge server is not registered with
     if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothing else is', async () => {
+  // Found live: the tool loop worked and the backstop then rejected the turn
+  // for using `call_mcp_tool`, which on this transport is how a DSH tool is
+  // reached at all. Exempting it must not widen the hole for any other tool.
+  for (const [toolName, shouldThrow] of [['call_mcp_tool', false], ['run_command', true]] as const) {
+    const dir = await mkdtemp(join(tmpdir(), 'bridge-backstop-'))
+    const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+    process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+    const child = controllableChild(3300)
+    const ctx = {
+      subprocess: {
+        async resolveExecutable() { return '/resolved/agy' },
+        spawn(spec: { argv: readonly string[] }) {
+          if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
+          if (spec.argv.includes('models')) {
+            return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
+          }
+          return child.handle
+        },
+      },
+    }
+    const adapter = new AntigravityCliAdapter(ctx as any, baseConfig)
+    try {
+      const run = (async () => {
+        const chunks: any[] = []
+        for await (const chunk of adapter.stream({
+          provider: 'antigravity-cli',
+          model: 'gemini-3.7-flash-low',
+          sessionId: 's-backstop',
+          messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+          tools: TOOLS,
+        } as any)) chunks.push(chunk)
+        return chunks
+      })()
+      await new Promise(r => setTimeout(r, 250))
+      child.emitToolStep(toolName)
+      child.finishTurn('answered')
+      if (shouldThrow) {
+        await assert.rejects(run, new RegExp(`blocked native tool\\(s\\): ${toolName}`))
+      } else {
+        const chunks = await run
+        assert.equal(chunks.at(-1)?.reason?.kind, 'stop', `${toolName} must not trip the backstop`)
+      }
+    } finally {
+      await adapter.dispose()
+      if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+      else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+      await rm(dir, { recursive: true, force: true })
+    }
   }
 })

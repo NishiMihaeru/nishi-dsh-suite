@@ -27,6 +27,7 @@ import {
   bridgeMcpAgentMarkdown,
   bridgeToolDeclarations,
   bridgeToolResult,
+  VENDOR_MCP_TOOL,
 } from './mcp-transport.js'
 import type { AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 import { antigravityVendorFailure } from './vendor-stderr.js'
@@ -1185,7 +1186,15 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
 
     const { outcome: { result, events }, session } = step
-    const blocked = nativeToolNames(events).filter(name => BLOCKED_NATIVE_TOOLS.has(name))
+    // `call_mcp_tool` is the bridge's own mechanism here, not a violation: it
+    // is how a DSH tool is reached at all on this transport. Every other native
+    // tool stays blocked, and this is the only exemption -- the backstop is
+    // what actually enforces isolation, since the agent allowlist turned out
+    // not to gate MCP tools and `init.tools` reports the vendor's whole
+    // registry regardless of what the agent asked for.
+    const blocked = nativeToolNames(events)
+      .filter(name => name !== VENDOR_MCP_TOOL)
+      .filter(name => BLOCKED_NATIVE_TOOLS.has(name))
     if (blocked.length > 0) {
       throw new LlmError(
         `Antigravity bridge invoked blocked native tool(s): ${blocked.join(', ')}`,

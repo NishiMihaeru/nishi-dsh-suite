@@ -15,7 +15,20 @@
 import type { ContentBlock, Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import type { BridgeToolDeclaration } from './mcp-bridge.js'
 
-/** The vendor tool that reaches DSH's catalog through the bridge. */
+/**
+ * The vendor's own wrapper tool through which an MCP tool is invoked.
+ *
+ * It must NEVER appear in an agent's `tools:` allowlist. Probed on real
+ * `agy 1.1.22`: an allowlist naming it makes the vendor terminate the agent
+ * immediately -- `step_type: "error_message"`, `Agent execution terminated due
+ * to error.`, zero tokens used -- while the identical definition without it
+ * runs normally. Listing it looks obviously right and is fatal, which is why
+ * the name is kept here with the reason attached.
+ *
+ * It is also unnecessary. MCP tools are not gated by the agent allowlist at
+ * all: with `tools: [finish]` and nothing else, the model reached a registered
+ * MCP server through `call_mcp_tool` in the same probe.
+ */
 export const VENDOR_MCP_TOOL = 'call_mcp_tool'
 
 /** The vendor's completion tool, kept so a turn can end without a DSH call. */
@@ -24,12 +37,18 @@ export const VENDOR_FINISH_TOOL = 'finish'
 /**
  * The agent definition for the bridge transport.
  *
- * The allowlist is the whole isolation story on this path. Probed with the
- * vendor's default agent, `agy 1.1.22` exposed 57 native tools and used
- * `view_file` on a file outside the workspace unprompted, so an allowlist of
- * exactly `call_mcp_tool` plus `finish` is not belt-and-braces -- it is the
- * only thing standing between the model and the vendor's own filesystem,
- * shell and browser tools.
+ * The allowlist is `finish` alone -- exactly the schema transport's. It must
+ * not name {@link VENDOR_MCP_TOOL}: doing so terminates the agent, and MCP
+ * tools reach the model regardless of what this list says. Both facts were
+ * probed on real `agy 1.1.22` rather than reasoned about, after the obvious
+ * spelling of this list killed every turn.
+ *
+ * Isolation from the vendor's own tools therefore rests where it already
+ * rested for the schema transport: on this allowlist for whatever it does
+ * cover, and on the post-hoc `BLOCKED_NATIVE_TOOLS` check for what it does
+ * not. Probed with the vendor's DEFAULT agent, `agy 1.1.22` exposed 57 native
+ * tools and used `view_file` on a file outside the workspace unprompted, so
+ * the backstop is not theoretical.
  *
  * Unlike the `schema` transport's definition, this one does not describe an
  * envelope protocol: the model calls DSH's tools natively and answers in
@@ -44,7 +63,7 @@ export function bridgeMcpAgentMarkdown(): string {
     'subagent: false',
     'inheritCustomizations: false',
     'tools:',
-    `  - ${VENDOR_MCP_TOOL}`,
+    // Deliberately NOT `call_mcp_tool`; see VENDOR_MCP_TOOL.
     `  - ${VENDOR_FINISH_TOOL}`,
     '---',
     '',
