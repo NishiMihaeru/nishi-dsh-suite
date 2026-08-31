@@ -572,3 +572,196 @@ test('a turn whose bridge server never connected fails loudly rather than answer
     assert.match(String((error as Error)?.message), /never launched a bridge server/)
   })
 })
+
+
+/** A fake bridge server on the adapter's socket, claiming one vendor child. */
+async function attachServer(dir: string, ppid: number) {
+  const sockets = await listAdapterSockets(dir)
+  assert.equal(sockets.length, 1, 'one adapter, one socket')
+  const socket = connect(sockets[0]!)
+  socket.setEncoding('utf8')
+  const frames: any[] = []
+  let buffer = ''
+  socket.on('data', c => {
+    buffer += c
+    const decoded = decodeFrames(buffer)
+    buffer = decoded.rest
+    for (const frame of decoded.frames) frames.push(frame)
+  })
+  socket.on('error', () => {})
+  socket.write(encodeFrame({ t: 'hello', ppid }))
+  await new Promise(r => setTimeout(r, 150))
+  return { socket, frames }
+}
+
+/**
+ * Drive one step to the point where the vendor turn is suspended on a tool
+ * call, and hand back everything the second step needs.
+ */
+async function suspendOnToolCall(dir: string, adapter: AntigravityCliAdapter, request: unknown, ppid: number) {
+  const chunks: any[] = []
+  const step = (async () => {
+    for await (const chunk of adapter.stream(request as any)) chunks.push(chunk)
+  })()
+  await new Promise(r => setTimeout(r, 300))
+  const server = await attachServer(dir, ppid)
+  server.socket.write(encodeFrame({ t: 'call', id: 'bridge-1', name: 'read_file', arguments: { path: '/etc/hosts' } } as any))
+  await step
+  const toolCall = chunks.find(c => c.type === 'block-end' && c.block?.type === 'tool-call')
+  assert.ok(toolCall, `expected a suspended tool call, got ${JSON.stringify(chunks)}`)
+  return { server, toolCall }
+}
+
+/**
+ * The window this transport uniquely opens, and used to leave unguarded.
+ *
+ * A suspended turn spans DSH steps, and everything that rewrites history --
+ * rewind, compaction, repair -- lands in exactly that gap. Answering the
+ * blocked call across such a rewrite resumes a vendor conversation against a
+ * history that no longer exists, and nothing downstream can see it happen: the
+ * model reads a plausible tool result and keeps going. The schema path rebuilds
+ * on a divergent prefix at every step; this path skipped the test for the whole
+ * suspension.
+ */
+test('a history rewritten while a turn is suspended rebuilds instead of answering the blocked call', async () => {
+  await withVendorHome(GRANTED, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bridge-diverge-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+  const first = controllableChild(3300)
+  const second = controllableChild(3301)
+  const turnChildren = [first, second]
+  let spawned = 0
+  const ctx = {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/agy' },
+      spawn(spec: { argv: readonly string[] }) {
+        if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
+        if (spec.argv.includes('models')) {
+          return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
+        }
+        const child = turnChildren[Math.min(spawned, turnChildren.length - 1)]!
+        spawned += 1
+        return child.handle
+      },
+    },
+  }
+  const adapter = new AntigravityCliAdapter(ctx as any, baseConfig)
+  let serverOne: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
+  let serverTwo: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
+  try {
+    const request = {
+      provider: 'antigravity-cli',
+      model: 'gemini-3.7-flash-low',
+      sessionId: 's1',
+      messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'read /etc/hosts' }] }],
+      tools: TOOLS,
+    }
+    const suspended = await suspendOnToolCall(dir, adapter, request, 3300)
+    serverOne = suspended.server
+    assert.equal(spawned, 1)
+
+    // The rewrite: m1 keeps its id and changes its content, which is what a
+    // repaired or edited history looks like from the adapter's side.
+    const secondChunks: any[] = []
+    const secondStep = (async () => {
+      for await (const chunk of adapter.stream({
+        ...request,
+        messages: [
+          { id: 'm1', role: 'user', content: [{ type: 'text', text: 'actually, read /etc/passwd' }] },
+          { id: 'm2', role: 'assistant', content: [{ type: 'tool-call', id: suspended.toolCall.block.id, name: 'read_file', arguments: suspended.toolCall.block.arguments }] },
+          { id: 'm3', role: 'user', content: [{ type: 'tool-result', toolCallId: suspended.toolCall.block.id, content: [{ type: 'text', text: '127.0.0.1 localhost' }] }] },
+        ],
+      } as any)) secondChunks.push(chunk)
+    })()
+
+    await new Promise(r => setTimeout(r, 300))
+    // Asserted before the step is allowed to finish, and deliberately: without
+    // the rebuild the adapter answers the stale child instead, and the step
+    // then hangs on a conversation nobody is driving until the turn timeout.
+    // A five-second timeout names nothing; this names the defect.
+    assert.equal(spawned, 2, 'a divergent history must rebuild the vendor conversation')
+    assert.equal(
+      serverOne.frames.some(f => f.t === 'result'),
+      false,
+      'the blocked call must never be answered across a rewritten history',
+    )
+
+    serverTwo = await attachServer(dir, 3301)
+    second.finishTurn('reading /etc/passwd now')
+    await secondStep
+
+    // Rebuilt, not continued: the new child is told the whole history,
+    // including the rewrite the old conversation never heard.
+    const envelope = second.written.join('')
+    assert.match(envelope, /actually, read \/etc\/passwd/)
+    const text = secondChunks.find(c => c.type === 'block-end' && c.block?.type === 'text')
+    assert.equal(text?.block.text, 'reading /etc/passwd now')
+  } finally {
+    serverOne?.socket.destroy()
+    serverTwo?.socket.destroy()
+    await adapter.dispose()
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+  })
+})
+
+/**
+ * The other half of the same guard: agreement is checked, growth is not.
+ *
+ * A step that repeats the previous request has an intact prefix and no tool
+ * result in it. Treating that as divergence would rebuild the conversation and
+ * hide a caller that lost track of its own turn boundaries, so it must still
+ * fail by name.
+ */
+test('a repeated request on a suspended turn still fails by name rather than rebuilding', async () => {
+  await withVendorHome(GRANTED, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bridge-repeat-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+  const child = controllableChild(3400)
+  let spawned = 0
+  const ctx = {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/agy' },
+      spawn(spec: { argv: readonly string[] }) {
+        if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
+        if (spec.argv.includes('models')) {
+          return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
+        }
+        spawned += 1
+        return child.handle
+      },
+    },
+  }
+  const adapter = new AntigravityCliAdapter(ctx as any, baseConfig)
+  let server: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
+  try {
+    const request = {
+      provider: 'antigravity-cli',
+      model: 'gemini-3.7-flash-low',
+      sessionId: 's1',
+      messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'read /etc/hosts' }] }],
+      tools: TOOLS,
+    }
+    const suspended = await suspendOnToolCall(dir, adapter, request, 3400)
+    server = suspended.server
+    assert.equal(spawned, 1)
+
+    await assert.rejects(
+      async () => {
+        for await (const _ of adapter.stream(request as any)) { /* must not get here */ }
+      },
+      /no DSH result for tool call/,
+    )
+  } finally {
+    server?.socket.destroy()
+    await adapter.dispose()
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+  })
+})

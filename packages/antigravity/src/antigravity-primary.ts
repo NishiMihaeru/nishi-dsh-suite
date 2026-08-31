@@ -1565,12 +1565,33 @@ export class AntigravityCliAdapter extends LlmAdapter {
   }
 
   /** Whether `messages` continues exactly what this conversation has already been told. */
-  private extendsConversation(state: AgySessionState, messages: readonly Message[]): boolean {
-    if (messages.length <= state.sentDigests.length) return false
+  /**
+   * Whether DSH's history still AGREES with the prefix this conversation was
+   * told, saying nothing about whether it has grown since.
+   *
+   * Agreement and growth are separate questions, and they are wanted in
+   * different places. Continuing a finished turn needs both: something new to
+   * say, said on top of a history the vendor recognises. Resuming a turn that
+   * is suspended inside a tool call needs only the first, because a request
+   * that has NOT grown there is a caller error worth naming rather than a
+   * conversation worth rebuilding.
+   *
+   * A history shorter than the prefix disagrees by definition: that is what a
+   * compaction landing mid-turn looks like from here.
+   */
+  private agreesWithConversation(state: AgySessionState, messages: readonly Message[]): boolean {
+    if (messages.length < state.sentDigests.length) return false
     for (let index = 0; index < state.sentDigests.length; index += 1) {
-      if (messageDigest(messages[index]) !== state.sentDigests[index]) return false
+      const message = messages[index]
+      if (message === undefined) return false
+      if (messageDigest(message) !== state.sentDigests[index]) return false
     }
     return true
+  }
+
+  private extendsConversation(state: AgySessionState, messages: readonly Message[]): boolean {
+    if (messages.length <= state.sentDigests.length) return false
+    return this.agreesWithConversation(state, messages)
   }
 
   /** Vendor-facing view of DSH call ids for one conversation; identity when there is none. */
@@ -1884,6 +1905,24 @@ export class AntigravityCliAdapter extends LlmAdapter {
     // waiting for a result nobody is going to send.
     if (state?.bridgePending !== undefined) {
       const pending = state.bridgePending
+      // A suspended turn is resumed only if DSH's history still agrees with
+      // what this conversation was told.
+      //
+      // Rewind, compaction and repair all land while the vendor sits blocked
+      // inside the MCP call, and answering across one of them resumes a turn
+      // against a history that no longer exists -- silently, because nothing
+      // downstream can tell that the result it was handed belongs to a
+      // conversation rewritten underneath it. The schema path has checked this
+      // on every step since it was written; this path used to skip it for the
+      // whole suspension, which is the one window where the check matters most.
+      //
+      // Growth is deliberately NOT required here: the missing-result throw
+      // below is the better answer for a request that merely repeats itself.
+      if (state.signature !== requestSignature(options)
+        || !this.agreesWithConversation(state, options.messages)) {
+        await this.closeSession(key)
+        return await this.runMcpTurn(options)
+      }
       const result = bridgeToolResult(options.messages, pending.dshId)
       if (result === undefined) {
         await this.closeSession(key)
@@ -2000,6 +2039,11 @@ export class AntigravityCliAdapter extends LlmAdapter {
         return { kind: 'final', outcome, session: state }
       }
       this.armIdleReaper(key, state)
+      // Committing the prefix here is what gives the check in `runMcpTurn` a
+      // prefix to check. Left at its previous value -- empty, for the first
+      // call of a conversation -- every history would agree with it trivially
+      // and the guard would pass whatever it was handed.
+      state.sentDigests = options.messages.map(messageDigest)
       return { kind: 'tool-call', call: winner.value, session: state }
     } catch (error: unknown) {
       await this.closeSession(key)
