@@ -57,6 +57,32 @@ export const DEFAULT_ANTIGRAVITY_SESSION_IDLE_MS = 15 * 60_000
  */
 export const DEFAULT_ANTIGRAVITY_SEARCH_TIMEOUT_MS = 60_000
 
+/**
+ * How the model reaches DSH's tools on this route.
+ *
+ * `schema` is the transport this package shipped with: `agy` is stripped to a
+ * model endpoint (`tools: [finish]`) and its reply is forced through
+ * `--json-schema` into a `{kind, text, tool_calls}` envelope.
+ *
+ * `mcp-bridge` hands the catalog to the vendor's own harness as MCP tools, so
+ * the model calls them natively; DSH still executes every call, through the
+ * same agent loop with the same permissions and durable history. This is the
+ * shape `packages/codex` already uses for App Server dynamic tools. It
+ * requires the bridge server to be registered once per machine in the user's
+ * own `agy` configuration -- deliberately not written by this package, which
+ * keeps vendor configuration user-owned the way vendor auth is.
+ *
+ * `schema` stays the default until the bridge earns its own live acceptance:
+ * switching back is a one-key config change, not a downgrade.
+ */
+export type AntigravityTransport = 'schema' | 'mcp-bridge'
+
+/** The transport in force when the config says nothing. */
+export const DEFAULT_ANTIGRAVITY_TRANSPORT: AntigravityTransport = 'schema'
+
+/** Every accepted `transport` value, for validation and diagnostics. */
+export const ANTIGRAVITY_TRANSPORTS: readonly AntigravityTransport[] = ['schema', 'mcp-bridge']
+
 /** Identity and lookup facts for the Antigravity CLI executable. */
 const ANTIGRAVITY_DESCRIPTOR: VendorExecutableDescriptor = {
   id: 'antigravity',
@@ -86,6 +112,7 @@ export interface Config {
   stderrMaxBytes?: number
   contextWindowTokens?: number
   sessionIdleMs?: number
+  transport?: string
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -99,6 +126,7 @@ export const Config: Schema<Config> = Schema.object({
   searchTimeoutMs: Schema.number().default(DEFAULT_ANTIGRAVITY_SEARCH_TIMEOUT_MS),
   contextWindowTokens: Schema.number().default(DEFAULT_ANTIGRAVITY_CONTEXT_WINDOW_TOKENS),
   sessionIdleMs: Schema.number().default(DEFAULT_ANTIGRAVITY_SESSION_IDLE_MS),
+  transport: Schema.string().default(DEFAULT_ANTIGRAVITY_TRANSPORT),
 })
 
 /** Config after merge-and-validate: every field is present, `executable` is Antigravity-specific. */
@@ -107,6 +135,7 @@ interface ResolvedAntigravityConfig extends SharedProviderDefaults {
   readonly searchTimeoutMs: number
   readonly contextWindowTokens: number
   readonly sessionIdleMs: number
+  readonly transport: AntigravityTransport
 }
 
 /**
@@ -203,12 +232,20 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
     throw new Error('antigravity: sessionIdleMs must be a positive integer')
   }
 
+  const transport = rawConfig.transport ?? DEFAULT_ANTIGRAVITY_TRANSPORT
+  if (!ANTIGRAVITY_TRANSPORTS.includes(transport as AntigravityTransport)) {
+    throw new Error(
+      `antigravity: transport must be one of ${ANTIGRAVITY_TRANSPORTS.map(t => JSON.stringify(t)).join(', ')}`,
+    )
+  }
+
   const config: ResolvedAntigravityConfig = {
     ...shared,
     executable,
     searchTimeoutMs,
     contextWindowTokens,
     sessionIdleMs,
+    transport: transport as AntigravityTransport,
   }
 
   await registerProvider(ctx, buildAntigravityDescriptor(), config)
