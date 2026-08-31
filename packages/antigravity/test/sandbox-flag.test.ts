@@ -217,3 +217,61 @@ test('argv mapping: single custom-model-high without sibling variants leaves cus
 
   assert.equal(capturedArgv!.includes('--effort'), false, `expected no --effort in argv: ${JSON.stringify(capturedArgv)}`)
 })
+
+test('argv mapping: a legacy id maps without a prior catalog call, so an expired cache cannot send a contradictory pair', async () => {
+  let capturedArgv: readonly string[] | undefined
+  const ctx = {
+    subprocess: createPrimarySubprocessMock(argv => {
+      capturedArgv = argv
+    }),
+  } as any
+  // Nothing warms the catalog first: this is a turn taken on a cold adapter,
+  // or after `modelCacheMs` expired between route resolution and the turn.
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const options = {
+    provider: 'antigravity-cli',
+    model: 'gemini-3.7-flash-low',
+    reasoningEffort: 'high',
+    messages: [],
+  } as any
+
+  await assert.rejects(drain(adapter.stream(options)))
+
+  assert.ok(capturedArgv, 'spawn was called for turn')
+  const modelIdx = capturedArgv!.indexOf('--model')
+  assert.equal(capturedArgv![modelIdx + 1], 'gemini-3.7-flash')
+  const effortIdx = capturedArgv!.indexOf('--effort')
+  assert.equal(capturedArgv![effortIdx + 1], 'high')
+})
+
+test('argv mapping: catalog discovery failure invokes the requested id rather than losing the turn', async () => {
+  let capturedArgv: readonly string[] | undefined
+  const ctx = {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/agy' },
+      spawn(spec: { argv: readonly string[] }) {
+        // Discovery fails; the turn itself must still reach the vendor.
+        if (spec.argv.includes('models')) {
+          return streamingChild({ lines: [], stderr: 'catalog unavailable', exitCode: 1 })
+        }
+        capturedArgv = spec.argv
+        return streamingChild({ lines: [], stderr: '', exitCode: 1 })
+      },
+    },
+  } as any
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const options = {
+    provider: 'antigravity-cli',
+    model: 'gemini-3.7-flash-low',
+    reasoningEffort: 'medium',
+    messages: [],
+  } as any
+
+  await assert.rejects(drain(adapter.stream(options)))
+
+  assert.ok(capturedArgv, 'the turn must still be spawned when discovery fails')
+  const modelIdx = capturedArgv!.indexOf('--model')
+  assert.equal(capturedArgv![modelIdx + 1], 'gemini-3.7-flash-low')
+  const effortIdx = capturedArgv!.indexOf('--effort')
+  assert.equal(capturedArgv![effortIdx + 1], 'medium')
+})

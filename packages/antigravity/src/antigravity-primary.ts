@@ -808,26 +808,44 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
   }
 
-  private resolveInvocationModel(
+  /**
+   * Map one requested route onto the arguments the vendor actually takes.
+   *
+   * A collapsed family is requested as a base id, or as one of the suffixed
+   * ids it absorbed; both invoke the base id, with the effort coming from the
+   * request or from the suffix the alias carries. This resolves through
+   * {@link models}, not through a peek at its cache: a cache that has expired
+   * between route resolution and the turn would otherwise send the suffixed id
+   * and an `--effort` flag that disagrees with it.
+   *
+   * Discovery failure is not a reason to lose a turn whose model id is already
+   * valid, so it falls back to invoking exactly what was requested.
+   * @param modelId - Requested exact model id: a collapsed base id, an absorbed suffixed id, or neither.
+   * @param explicitEffort - Reasoning effort from the request, which always wins over the alias suffix.
+   * @param signal - Turn cancellation signal, used for the discovery call.
+   * @returns The `--model` value and the `--effort` value, if any.
+   */
+  private async resolveInvocationModel(
     modelId: string,
     explicitEffort?: ReasoningEffortId | string,
-  ): { model: string; effort: string | undefined } {
-    const now = Date.now()
-    const cached = this.cachedModels && this.cachedModels.expiresAt >= now ? this.cachedModels.models : undefined
-    if (cached) {
-      const match = cached.find(candidate => candidate.id === modelId || candidate.aliases?.includes(modelId))
-      if (match) {
-        const aliasEffort = match.efforts?.find(e => e.aliasId === modelId)
-        const model = match.id
-        const effort = explicitEffort !== undefined
-          ? String(explicitEffort)
-          : aliasEffort?.id
-        return { model, effort }
-      }
-    }
-    return {
+    signal?: AbortSignal,
+  ): Promise<{ model: string; effort: string | undefined }> {
+    const passthrough = {
       model: modelId,
       effort: explicitEffort !== undefined ? String(explicitEffort) : undefined,
+    }
+    let catalog: readonly CatalogModel[]
+    try {
+      catalog = await this.models(signal)
+    } catch {
+      return passthrough
+    }
+    const match = catalog.find(candidate => candidate.id === modelId || candidate.aliases?.includes(modelId))
+    if (match === undefined) return passthrough
+    const aliasEffort = match.efforts?.find(effort => effort.aliasId === modelId)
+    return {
+      model: match.id,
+      effort: explicitEffort !== undefined ? String(explicitEffort) : aliasEffort?.id,
     }
   }
 
@@ -835,9 +853,10 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const payload = `${JSON.stringify({ event: 'user', message: { content: bridgeEnvelope(options) } })}\n`
     const workspace = await this.ensureBridgeWorkspace()
     const signal = this.combinedSignal(options.signal, this.config.turnTimeoutMs)
-    const { model, effort } = this.resolveInvocationModel(
+    const { model, effort } = await this.resolveInvocationModel(
       options.model,
       options.reasoningEffort,
+      signal,
     )
     const args = [
       '--add-dir', workspace.root,

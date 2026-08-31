@@ -13,6 +13,12 @@ The distinction between provider id and route is intentional: `antigravity` is t
 
 Vendor-specific delegation was removed in `0.1.0-rc.3`. Project Memory remains on the normal DSH primary plane and this package does not own or prefix its own memory implementation.
 
+### Model catalog and reasoning efforts
+
+The vendor names effort tiers inside the model id — `gemini-3.7-flash-low`, `-medium`, `-high`. This package presents such a family as one model, `gemini-3.7-flash`, advertising `low`/`medium`/`high` as reasoning efforts, and keeps the suffixed ids as aliases so saved sessions and existing configuration keep resolving. A model with only one suffixed variant is left as the vendor named it and advertises no efforts.
+
+An invocation maps back to `--model <base> --effort <level>`; an effort in the request wins over the one an alias implies. A base id resolved without an explicit effort reports `high` as its default, which is a deliberate choice of the strongest tier rather than a vendor-stated default — name an effort on the route to get another. `docs/ARCHITECTURE.md` carries the reasoning and the allowlist consequence.
+
 ## Runtime boundary
 
 The package owns Antigravity-specific protocol translation and process behavior. Shared registration, executable/runtime helpers, routed web-search dispatch and Usage & Limits projection live in `nishi-dsh-core`.
@@ -37,7 +43,7 @@ Project Memory and DSH-native child-agent delegation are external to this provid
 
 The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 62 unit tests plus 10 live scenarios (8 primary, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 73 unit tests plus 10 live scenarios (8 primary, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline.
 
 ## Validation status — PENDING PROVIDER STAGE
 
