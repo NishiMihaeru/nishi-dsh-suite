@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -258,6 +258,93 @@ test('the real server process serves the catalog and blocks a call until DSH ans
   } finally {
     child.kill('SIGTERM')
     await host.close()
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a socket directory another user could write into is refused, and our own loose one is tightened', async () => {
+  // `mkdir(dir, {recursive: true, mode: 0o700})` does NOT change the mode of a
+  // directory that already exists -- verified, not assumed. The path is
+  // predictable by design (the bridge server finds it without being told), so
+  // it has to be checked rather than trusted.
+  const parent = await mkdtemp(join(tmpdir(), 'bridge-perm-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  try {
+    const loose = join(parent, 'loose')
+    await mkdir(loose, { recursive: true, mode: 0o777 })
+    await chmod(loose, 0o777)
+    process.env[BRIDGE_SOCKET_DIR_ENV] = loose
+    const host = await AgyMcpBridgeHost.listen(1_000)
+    try {
+      const mode = (await stat(loose)).mode & 0o777
+      assert.equal(mode & 0o077, 0, `our own directory must be tightened, got ${mode.toString(8)}`)
+    } finally {
+      await host.close()
+    }
+
+    const target = join(parent, 'target')
+    await mkdir(target, { recursive: true, mode: 0o700 })
+    const link = join(parent, 'link')
+    await symlink(target, link)
+    process.env[BRIDGE_SOCKET_DIR_ENV] = link
+    await assert.rejects(() => AgyMcpBridgeHost.listen(1_000), /is not a directory/)
+  } finally {
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(parent, { recursive: true, force: true })
+  }
+})
+
+test('an unrelated adapter on the machine does not delay a server finding its own', async () => {
+  // The regression: the server used to offer to each socket in turn, and an
+  // adapter that does not yet know the pid parks the offer for its whole claim
+  // window. One unrelated adapter therefore cost a full window per turn, and
+  // two of them exceeded the server's claim deadline entirely, leaving the model
+  // with no tools. The claim window here is deliberately long: a sequential
+  // implementation cannot pass this test.
+  const dir = await mkdtemp(join(tmpdir(), 'bridge-hol-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+  const strangers = [await AgyMcpBridgeHost.listen(30_000), await AgyMcpBridgeHost.listen(30_000)]
+  const owner = await AgyMcpBridgeHost.listen(30_000)
+  // The owner's socket is created last, so a first-come scan reaches it last.
+  const channel = owner.expect(process.pid, TOOLS)
+  const child = spawn(process.execPath, ['--import', 'tsx', SERVER_ENTRY], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, [BRIDGE_SOCKET_DIR_ENV]: dir },
+  })
+  child.stderr.resume()
+  const replies = new Map<number, (value: any) => void>()
+  let buffer = ''
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', chunk => {
+    buffer += chunk
+    const { frames, rest } = decodeFrames(buffer)
+    buffer = rest
+    for (const frame of frames) {
+      const message = frame as { id?: number }
+      const waiter = message.id === undefined ? undefined : replies.get(message.id)
+      if (waiter !== undefined) { replies.delete(message.id!); waiter(message) }
+    }
+  })
+  const rpc = (id: number, method: string, params?: unknown): Promise<any> => {
+    const answer = new Promise<any>(resolve => replies.set(id, resolve))
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, ...params === undefined ? {} : { params } }) + '\n')
+    return answer
+  }
+  try {
+    await rpc(1, 'initialize', { protocolVersion: '2025-06-18' })
+    const started = Date.now()
+    const listed = await rpc(2, 'tools/list')
+    const elapsed = Date.now() - started
+    assert.deepEqual(listed.result.tools.map((t: BridgeToolDeclaration) => t.name), ['read_file', 'memory_write'])
+    assert.ok(elapsed < 5_000, `finding the owning adapter took ${elapsed}ms with two unrelated adapters present`)
+    assert.equal(channel.attached(), true)
+  } finally {
+    child.kill('SIGTERM')
+    await Promise.all([owner, ...strangers].map(host => host.close()))
     if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
     await rm(dir, { recursive: true, force: true })

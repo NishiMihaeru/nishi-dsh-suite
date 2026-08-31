@@ -92,20 +92,67 @@ function offer(path: string, ppid: number, outstanding: Map<string, Outstanding>
   })
 }
 
-/** Try every adapter socket until one claims this server's parent. */
+/**
+ * Find the adapter that owns this server's parent, offering to every socket at
+ * once.
+ *
+ * Concurrently, not in sequence, and that is the whole point. An adapter that
+ * does not yet know the pid parks the offer for its claim window rather than
+ * declining immediately -- deliberately, because the adapter learns its child's
+ * pid only after spawning it. Probing sequentially therefore made one unrelated
+ * adapter on the machine cost a full claim window per turn, and two of them
+ * exceed this deadline outright, leaving the model with no tools at all.
+ *
+ * Losing offers are closed as soon as one claim wins, so a parked offer does not
+ * outlive the search.
+ */
 async function findAdapter(outstanding: Map<string, Outstanding>): Promise<Claim | undefined> {
   const deadline = Date.now() + CLAIM_TIMEOUT_MS
-  // The adapter spawns the vendor child and only then registers its pid, so a
-  // socket that declines now may claim a moment later. Re-scan until the
-  // deadline rather than deciding on one pass.
   for (;;) {
-    for (const path of await listAdapterSockets()) {
-      const claim = await offer(path, process.ppid, outstanding)
+    const paths = await listAdapterSockets()
+    if (paths.length > 0) {
+      const offers = paths.map(path => offer(path, process.ppid, outstanding))
+      const claim = await firstClaim(offers)
       if (claim !== undefined) return claim
     }
     if (Date.now() >= deadline) return undefined
     await new Promise(r => setTimeout(r, 250))
   }
+}
+
+/**
+ * The first offer to be claimed, with every other claimed socket closed.
+ *
+ * Two adapters cannot both legitimately claim one parent pid, but a buggy or
+ * hostile peer could answer for a pid it does not own; taking the first and
+ * closing the rest keeps exactly one channel either way.
+ */
+function firstClaim(offers: readonly Promise<Claim | undefined>[]): Promise<Claim | undefined> {
+  if (offers.length === 0) return Promise.resolve(undefined)
+  return new Promise<Claim | undefined>(resolve => {
+    let decided = false
+    let pending = offers.length
+    const declined = (): void => {
+      pending -= 1
+      // Only every offer declining is an answer. Waiting for all of them when
+      // one has already claimed would reintroduce exactly the stall this
+      // function exists to remove: a parked offer settles at its adapter's
+      // claim window, not at ours.
+      if (pending === 0 && !decided) { decided = true; resolve(undefined) }
+    }
+    for (const promise of offers) {
+      void promise.then(claim => {
+        if (claim === undefined) { declined(); return }
+        if (decided) {
+          // A late second claimant for the same parent pid: keep one channel.
+          try { claim.socket.destroy() } catch { /* already gone */ }
+          return
+        }
+        decided = true
+        resolve(claim)
+      }, declined)
+    }
+  })
 }
 
 export async function main(): Promise<void> {

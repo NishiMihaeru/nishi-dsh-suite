@@ -32,7 +32,7 @@
  * @module nishi-dsh-antigravity/mcp-bridge
  */
 import { createServer, type Server, type Socket } from 'node:net'
-import { mkdir, readdir, rm } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -68,6 +68,39 @@ export type BridgeDownstream =
   | { readonly t: 'claimed'; readonly tools: readonly BridgeToolDeclaration[] }
   | { readonly t: 'unclaimed' }
   | { readonly t: 'result'; readonly id: string; readonly text: string; readonly isError: boolean }
+
+/**
+ * Refuse a socket directory that is not private to this user.
+ *
+ * Ownership and mode are both checked: another user's directory, or one any
+ * local user can write into, would let a third party read the tool catalogs
+ * DSH hands out and forge the frames that answer a blocked vendor turn. A
+ * symlink is refused outright rather than followed.
+ */
+async function assertPrivateDirectory(dir: string): Promise<void> {
+  const stats = await lstat(dir)
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error(`Antigravity MCP bridge directory ${JSON.stringify(dir)} is not a directory`)
+  }
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined
+  if (uid !== undefined && stats.uid !== uid) {
+    throw new Error(
+      `Antigravity MCP bridge directory ${JSON.stringify(dir)} belongs to another user (uid ${stats.uid})`,
+    )
+  }
+  if ((stats.mode & 0o077) !== 0) {
+    // Ours and fixable: tighten rather than fail, since we may have created it
+    // under a permissive umask.
+    await chmod(dir, 0o700)
+    const tightened = await lstat(dir)
+    if ((tightened.mode & 0o077) !== 0) {
+      throw new Error(
+        `Antigravity MCP bridge directory ${JSON.stringify(dir)} is accessible to other users `
+        + `(mode ${(tightened.mode & 0o777).toString(8)}) and could not be tightened`,
+      )
+    }
+  }
+}
 
 /** Resolve the directory holding adapter sockets. */
 export function bridgeSocketDir(): string {
@@ -158,6 +191,14 @@ export class AgyMcpBridgeHost {
   static async listen(claimWindowMs = 10_000): Promise<AgyMcpBridgeHost> {
     const dir = bridgeSocketDir()
     await mkdir(dir, { recursive: true, mode: 0o700 })
+    // `mkdir` with a mode does NOT change the mode of a directory that already
+    // exists -- verified, not assumed. So the well-known path in the temp
+    // directory can have been created by any local user, with any mode, before
+    // this process ever ran: a world-writable one would put every adapter
+    // socket, and with it every tool catalog, inside a directory an attacker can
+    // enumerate and connect into. The path has to be predictable, because the
+    // bridge server discovers it without being told; so it is verified instead.
+    await assertPrivateDirectory(dir)
     const socketPath = join(dir, `adapter-${process.pid}-${randomUUID()}.sock`)
     const server = createServer()
     const host = new AgyMcpBridgeHost(socketPath, server, claimWindowMs)
