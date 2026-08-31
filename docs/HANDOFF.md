@@ -1,6 +1,6 @@
 # Handoff
 
-Rewritten for a fresh session at HEAD `28883af`, kept current through the subagent-model-route change (`b023d21`) and the documentation pass on top of it. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
+Rewritten for a fresh session at HEAD `28883af`, kept current through the working-discipline and MCP-route documentation pass (`f2b273b`). It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
 
 This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
@@ -10,7 +10,7 @@ This is the only session handoff file. Update it in place when the active task c
 feat/core-provider-plugins-rc3
 ```
 
-Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin, through the Core sidebar selection/ordering feature (`52f03ab`). Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
+Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin at `f2b273b`. Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
 
 Only supported DSH generation:
 
@@ -41,7 +41,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 
 | Package | State |
 |---|---|
-| Core | remediated; Model Accounts surface removed outright; sidebar provider selection and ordering added; 199 tests |
+| Core | remediated; Model Accounts surface removed outright; sidebar provider selection and ordering added; 200 tests |
 | Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
 | Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; mid-turn route-switch defect fixed and covered live; 81 tests |
 | Antigravity | provider stage complete except the freeze; one live `agy` child per session replaces one process per step, and tool arguments are now typed by the forced schema; 99 tests |
