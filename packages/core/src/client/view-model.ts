@@ -183,22 +183,46 @@ export function updateProviderVisibility(
   }
 }
 
+/**
+ * Move one provider one slot up or down, without forgetting the providers
+ * that are not registered right now.
+ *
+ * The move itself happens among the providers the user can actually see, so
+ * a step never lands on an invisible neighbour and appears to do nothing.
+ * What is written back is wider than that: an id in the saved order that no
+ * provider currently claims keeps its exact slot, and the reordered visible
+ * providers fill the slots around it. Writing back only the present ids --
+ * which is what this did first -- meant that reordering anything while a
+ * provider happened to be unregistered discarded that provider's remembered
+ * position for good, and it returned at the end of the list.
+ */
 export function moveProviderInOrder(
   roster: readonly { providerId: string }[],
   settings: UsageSidebarSettings | undefined,
   providerId: string,
   direction: 'up' | 'down',
 ): UsageSidebarSettings {
-  const ordered = resolveOrderedRoster(roster, settings).map((i) => i.entry.providerId)
-  const index = ordered.indexOf(providerId)
+  const present = resolveOrderedRoster(roster, settings).map((i) => i.entry.providerId)
+  const index = present.indexOf(providerId)
   if (index === -1) return settings ?? {}
   const targetIndex = direction === 'up' ? index - 1 : index + 1
-  if (targetIndex < 0 || targetIndex >= ordered.length) return settings ?? {}
-  const nextOrder = [...ordered]
-  const [removed] = nextOrder.splice(index, 1)
-  nextOrder.splice(targetIndex, 0, removed!)
+  if (targetIndex < 0 || targetIndex >= present.length) return settings ?? {}
+  const nextPresent = [...present]
+  const [removed] = nextPresent.splice(index, 1)
+  nextPresent.splice(targetIndex, 0, removed!)
+
+  // Every id this setting has ever placed, in its placed order, followed by
+  // whatever the roster offers that it has not placed yet. Deduplicated
+  // because a hand-edited or migrated setting may repeat an id, and a repeat
+  // would consume two slots from a list that has one entry for it.
+  const saved = [...new Set(settings?.order ?? [])]
+  const union = [...saved, ...present.filter((id) => !saved.includes(id))]
+
+  const presentSet = new Set(present)
+  let cursor = 0
+  const order = union.map((id) => (presentSet.has(id) ? nextPresent[cursor++]! : id))
   return {
     ...settings,
-    order: nextOrder,
+    order,
   }
 }

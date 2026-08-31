@@ -432,3 +432,38 @@ test('controller integration: dispose prevents notifications on subsequent setti
   assert.equal(notifications, 1, 'listeners must not be called after controller is disposed')
 })
 
+
+test('ordering: reordering while a provider is unregistered keeps that provider\'s remembered slot', () => {
+  const settings: UsageSidebarSettings = { order: ['codex', 'antigravity', 'claude'] }
+  // 'antigravity' is not registered in this session at all.
+  const reducedRoster = [createEntry('codex'), createEntry('claude')]
+  assert.deepEqual(
+    resolveOrderedRoster(reducedRoster, settings).map((item) => item.entry.providerId),
+    ['codex', 'claude'],
+  )
+
+  // The user moves 'claude' above 'codex' while 'antigravity' is away.
+  const moved = moveProviderInOrder(reducedRoster, settings, 'claude', 'up')
+  assert.deepEqual(
+    resolveOrderedRoster(reducedRoster, moved).map((item) => item.entry.providerId),
+    ['claude', 'codex'],
+    'the visible move takes effect',
+  )
+
+  // When it comes back it must land where it was put, not at the end.
+  const fullRoster = [createEntry('codex'), createEntry('antigravity'), createEntry('claude')]
+  assert.deepEqual(
+    resolveOrderedRoster(fullRoster, moved).map((item) => item.entry.providerId),
+    ['claude', 'antigravity', 'codex'],
+  )
+})
+
+test('ordering: a duplicated id in a saved order does not desynchronise the rewrite', () => {
+  const settings: UsageSidebarSettings = { order: ['codex', 'codex', 'claude'] }
+  const roster = [createEntry('codex'), createEntry('claude')]
+  const moved = moveProviderInOrder(roster, settings, 'claude', 'up')
+  assert.deepEqual(
+    resolveOrderedRoster(roster, moved).map((item) => item.entry.providerId),
+    ['claude', 'codex'],
+  )
+})
