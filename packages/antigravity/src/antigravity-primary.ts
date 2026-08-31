@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -22,7 +22,13 @@ import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
 import { AgyTurnProcess, type AgyTurnOutcome, type AgyTurnResult } from './agy-session.js'
 import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
-import { AgyMcpBridgeHost, type BridgeCall, type BridgeChannel } from './mcp-bridge.js'
+import {
+  AgyMcpBridgeHost,
+  BRIDGE_SOCKET_ENV,
+  BRIDGE_TOKEN_ENV,
+  type BridgeCall,
+  type BridgeChannel,
+} from './mcp-bridge.js'
 import {
   bridgeEligible,
   bridgeMcpAgentMarkdown,
@@ -986,7 +992,7 @@ interface AgySessionState {
   /** Idle reaper, refreshed on every turn. */
   idleTimer: NodeJS.Timeout | undefined
   /**
-   * `mcp-bridge` only: this child's bridge channel, claimed by its pid.
+   * `mcp-bridge` only: this child's bridge channel, claimed by its token.
    */
   bridge?: BridgeChannel
   /**
@@ -1633,6 +1639,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
     lifetime: AbortSignal,
     resolveSignal: AbortSignal,
     viaMcpBridge = false,
+    bridgeEnv?: Record<string, string>,
   ): Promise<AgyTurnProcess> {
     const bridged = viaMcpBridge
     const workspace = bridged
@@ -1667,7 +1674,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const invocation = await this.invocation(args, resolveSignal)
     const child = await AgyTurnProcess.start(this.ctx, {
       argv: invocation.argv,
-      env: invocation.env,
+      env: bridgeEnv ? { ...invocation.env, ...bridgeEnv } : invocation.env,
       cwd: workspace.root,
       graceMs: this.config.disposeGraceMs,
       stderrMaxBytes: this.config.stderrMaxBytes,
@@ -1952,14 +1959,21 @@ export class AntigravityCliAdapter extends LlmAdapter {
 
     if (state === undefined) {
       const host = await this.ensureBridgeHost()
+      const token = randomUUID()
+      const bridge = host.expect(token, bridgeToolDeclarations(options.tools))
       const lifetime = new AbortController()
-      const child = await this.startProcess(options, lifetime.signal, this.combinedSignal(options.signal, this.config.turnTimeoutMs), true)
-      const pid = child.pid
-      if (typeof pid !== 'number') {
-        lifetime.abort()
-        this.turnChildren.delete(child)
-        await child.close()
-        throw new LlmError('Antigravity child exposed no pid, so its bridge server cannot be claimed', 'ANTIGRAVITY_CLI')
+      let child: AgyTurnProcess
+      try {
+        child = await this.startProcess(
+          options,
+          lifetime.signal,
+          this.combinedSignal(options.signal, this.config.turnTimeoutMs),
+          true,
+          { [BRIDGE_SOCKET_ENV]: host.socketPath, [BRIDGE_TOKEN_ENV]: token },
+        )
+      } catch (error) {
+        bridge.dispose()
+        throw error
       }
       state = {
         process: child,
@@ -1969,7 +1983,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
         vendorCallIds: new Map(),
         lastUsage: undefined,
         idleTimer: undefined,
-        bridge: host.expect(pid, bridgeToolDeclarations(options.tools)),
+        bridge,
       }
       this.sessions.set(key, state)
       const abort = new AbortController()

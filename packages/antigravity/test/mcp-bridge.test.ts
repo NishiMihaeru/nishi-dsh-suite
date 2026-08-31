@@ -9,6 +9,8 @@ import test from 'node:test'
 import {
   AgyMcpBridgeHost,
   BRIDGE_SOCKET_DIR_ENV,
+  BRIDGE_SOCKET_ENV,
+  BRIDGE_TOKEN_ENV,
   decodeFrames,
   encodeFrame,
   type BridgeToolDeclaration,
@@ -18,10 +20,10 @@ import {
  * The tool bridge, tested without the vendor.
  *
  * The correlation rule these tests pin down is the one the vendor's process
- * model forces: a bridge server is a child of `agy`, not of the adapter, so
- * the only thing it can prove about itself is its parent pid. Everything else
- * -- which catalog it serves, whether it serves one at all -- follows from
- * whether a live adapter claims that parent.
+ * model forces: a bridge server is a child of `agy`, not of the adapter. The
+ * adapter passes its socket path and a secret token through the environment;
+ * the server connects to that socket and announces the token to claim its
+ * tool catalog.
  *
  * The last test drives the real server process over real MCP stdio, so the
  * whole path is exercised end to end: the vendor's three calls (`initialize`,
@@ -70,7 +72,7 @@ async function withHost(fn: (host: AgyMcpBridgeHost, dir: string) => Promise<voi
   const dir = await mkdtemp(join(tmpdir(), 'bridge-test-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
-  const host = await AgyMcpBridgeHost.listen(1_000)
+  const host = await AgyMcpBridgeHost.listen()
   try {
     await fn(host, dir)
   } finally {
@@ -82,19 +84,19 @@ async function withHost(fn: (host: AgyMcpBridgeHost, dir: string) => Promise<voi
 }
 
 test('a frame stream survives partial and malformed lines', () => {
-  const first = decodeFrames('{"t":"hello","ppid":1}\n{"t":"cal')
-  assert.deepEqual(first.frames, [{ t: 'hello', ppid: 1 }])
+  const first = decodeFrames('{"t":"hello","token":"tok-1"}\n{"t":"cal')
+  assert.deepEqual(first.frames, [{ t: 'hello', token: 'tok-1' }])
   assert.equal(first.rest, '{"t":"cal')
   const second = decodeFrames(first.rest + 'l","id":"a"}\nnot json\n{"t":"ping"}\n')
   assert.deepEqual(second.frames, [{ t: 'call', id: 'a' }, { t: 'ping' }])
   assert.equal(second.rest, '')
 })
 
-test('the adapter claims a server whose parent it spawned, and serves it the catalog', async () => {
+test('the adapter claims a server whose token was registered, and serves it the catalog', async () => {
   await withHost(async host => {
-    host.expect(4242, TOOLS)
+    host.expect('tok-4242', TOOLS)
     const server = fakeServer(host.socketPath)
-    server.send({ t: 'hello', ppid: 4242 })
+    server.send({ t: 'hello', token: 'tok-4242' })
     const claim = await server.next()
     assert.equal(claim.t, 'claimed')
     assert.deepEqual(claim.tools.map((t: BridgeToolDeclaration) => t.name), ['read_file', 'memory_write'])
@@ -102,37 +104,22 @@ test('the adapter claims a server whose parent it spawned, and serves it the cat
   })
 })
 
-test('a server whose parent no adapter claims is declined, so a stray agy session gets no tools', async () => {
+test('a server whose token no adapter claims is declined, so a stray agy session gets no tools', async () => {
   await withHost(async host => {
-    host.expect(4242, TOOLS)
+    host.expect('tok-4242', TOOLS)
     const stray = fakeServer(host.socketPath)
-    stray.send({ t: 'hello', ppid: 9999 })
+    stray.send({ t: 'hello', token: 'tok-9999' })
     const answer = await stray.next()
     assert.equal(answer.t, 'unclaimed')
     stray.end()
   })
 })
 
-test('a hello that arrives before the adapter knows the child pid is matched when it registers', async () => {
-  await withHost(async host => {
-    // The adapter cannot register a pid it does not have yet: it learns the pid
-    // only after spawning, while the child's server connects immediately.
-    const server = fakeServer(host.socketPath)
-    server.send({ t: 'hello', ppid: 7777 })
-    await new Promise(r => setTimeout(r, 50))
-    host.expect(7777, TOOLS)
-    const claim = await server.next()
-    assert.equal(claim.t, 'claimed')
-    assert.equal(claim.tools.length, 2)
-    server.end()
-  })
-})
-
 test('a vendor call surfaces to the adapter and its answer goes back to the same call id', async () => {
   await withHost(async host => {
-    const channel = host.expect(4242, TOOLS)
+    const channel = host.expect('tok-4242', TOOLS)
     const server = fakeServer(host.socketPath)
-    server.send({ t: 'hello', ppid: 4242 })
+    server.send({ t: 'hello', token: 'tok-4242' })
     await server.next()
 
     server.send({ t: 'call', id: 'bridge-1', name: 'read_file', arguments: { path: '/etc/hosts' } })
@@ -151,9 +138,9 @@ test('a vendor call surfaces to the adapter and its answer goes back to the same
 
 test('an answer citing an id that is not outstanding is ignored', async () => {
   await withHost(async host => {
-    const channel = host.expect(4242, TOOLS)
+    const channel = host.expect('tok-4242', TOOLS)
     const server = fakeServer(host.socketPath)
-    server.send({ t: 'hello', ppid: 4242 })
+    server.send({ t: 'hello', token: 'tok-4242' })
     await server.next()
     server.send({ t: 'call', id: 'bridge-1', name: 'read_file', arguments: {} })
     await channel.next(AbortSignal.timeout(2_000))
@@ -170,9 +157,9 @@ test('an answer citing an id that is not outstanding is ignored', async () => {
 
 test('a vendor child that dies ends the wait rather than hanging the adapter', async () => {
   await withHost(async host => {
-    const channel = host.expect(4242, TOOLS)
+    const channel = host.expect('tok-4242', TOOLS)
     const server = fakeServer(host.socketPath)
-    server.send({ t: 'hello', ppid: 4242 })
+    server.send({ t: 'hello', token: 'tok-4242' })
     await server.next()
     const waiting = channel.next(AbortSignal.timeout(3_000))
     server.end()
@@ -182,9 +169,9 @@ test('a vendor child that dies ends the wait rather than hanging the adapter', a
 
 test('disposing a channel stops serving that child', async () => {
   await withHost(async host => {
-    const channel = host.expect(4242, TOOLS)
+    const channel = host.expect('tok-4242', TOOLS)
     const server = fakeServer(host.socketPath)
-    server.send({ t: 'hello', ppid: 4242 })
+    server.send({ t: 'hello', token: 'tok-4242' })
     await server.next()
     channel.dispose()
     assert.equal(await channel.next(AbortSignal.timeout(1_000)), undefined)
@@ -196,13 +183,17 @@ test('the real server process serves the catalog and blocks a call until DSH ans
   const dir = await mkdtemp(join(tmpdir(), 'bridge-e2e-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
-  const host = await AgyMcpBridgeHost.listen(5_000)
-  // The server reports process.ppid, and this test process is its parent, so
-  // this is the same claim the adapter makes about the agy child it spawned.
-  const channel = host.expect(process.pid, TOOLS)
+  const host = await AgyMcpBridgeHost.listen()
+  const token = 'tok-e2e'
+  const channel = host.expect(token, TOOLS)
   const child = spawn(process.execPath, ['--import', 'tsx', SERVER_ENTRY], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, [BRIDGE_SOCKET_DIR_ENV]: dir },
+    env: {
+      ...process.env,
+      [BRIDGE_SOCKET_DIR_ENV]: dir,
+      [BRIDGE_SOCKET_ENV]: host.socketPath,
+      [BRIDGE_TOKEN_ENV]: token,
+    },
   })
   let stderr = ''
   child.stderr.setEncoding('utf8')
@@ -272,9 +263,9 @@ test('the real server process serves the catalog and blocks a call until DSH ans
 
 test('a socket directory another user could write into is refused, and our own loose one is tightened', async () => {
   // `mkdir(dir, {recursive: true, mode: 0o700})` does NOT change the mode of a
-  // directory that already exists -- verified, not assumed. The path is
-  // predictable by design (the bridge server finds it without being told), so
-  // it has to be checked rather than trusted.
+  // directory that already exists -- verified, not assumed. The directory sits
+  // at a fixed well-known path, which any local user can pre-create, so it has
+  // to be checked rather than trusted.
   const parent = await mkdtemp(join(tmpdir(), 'bridge-perm-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   try {
@@ -282,7 +273,7 @@ test('a socket directory another user could write into is refused, and our own l
     await mkdir(loose, { recursive: true, mode: 0o777 })
     await chmod(loose, 0o777)
     process.env[BRIDGE_SOCKET_DIR_ENV] = loose
-    const host = await AgyMcpBridgeHost.listen(1_000)
+    const host = await AgyMcpBridgeHost.listen()
     try {
       const mode = (await stat(loose)).mode & 0o777
       assert.equal(mode & 0o077, 0, `our own directory must be tightened, got ${mode.toString(8)}`)
@@ -295,7 +286,7 @@ test('a socket directory another user could write into is refused, and our own l
     const link = join(parent, 'link')
     await symlink(target, link)
     process.env[BRIDGE_SOCKET_DIR_ENV] = link
-    await assert.rejects(() => AgyMcpBridgeHost.listen(1_000), /is not a directory/)
+    await assert.rejects(() => AgyMcpBridgeHost.listen(), /is not a directory/)
   } finally {
     if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
@@ -308,18 +299,22 @@ test('an unrelated adapter on the machine does not delay a server finding its ow
   // adapter that does not yet know the pid parks the offer for its whole claim
   // window. One unrelated adapter therefore cost a full window per turn, and
   // two of them exceeded the server's claim deadline entirely, leaving the model
-  // with no tools. The claim window here is deliberately long: a sequential
-  // implementation cannot pass this test.
+  // with no tools.
   const dir = await mkdtemp(join(tmpdir(), 'bridge-hol-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
-  const strangers = [await AgyMcpBridgeHost.listen(30_000), await AgyMcpBridgeHost.listen(30_000)]
-  const owner = await AgyMcpBridgeHost.listen(30_000)
-  // The owner's socket is created last, so a first-come scan reaches it last.
-  const channel = owner.expect(process.pid, TOOLS)
+  const strangers = [await AgyMcpBridgeHost.listen(), await AgyMcpBridgeHost.listen()]
+  const owner = await AgyMcpBridgeHost.listen()
+  const token = 'tok-owner'
+  const channel = owner.expect(token, TOOLS)
   const child = spawn(process.execPath, ['--import', 'tsx', SERVER_ENTRY], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, [BRIDGE_SOCKET_DIR_ENV]: dir },
+    env: {
+      ...process.env,
+      [BRIDGE_SOCKET_DIR_ENV]: dir,
+      [BRIDGE_SOCKET_ENV]: owner.socketPath,
+      [BRIDGE_TOKEN_ENV]: token,
+    },
   })
   child.stderr.resume()
   const replies = new Map<number, (value: any) => void>()
@@ -364,7 +359,7 @@ test('closing the host does not wait out the claim window for a silent connectio
   const dir = await mkdtemp(join(tmpdir(), 'bridge-close-'))
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
-  const host = await AgyMcpBridgeHost.listen(30_000)
+  const host = await AgyMcpBridgeHost.listen()
   try {
     const silent = connect(host.socketPath)
     silent.on('error', () => {})
@@ -379,4 +374,72 @@ test('closing the host does not wait out the claim window for a silent connectio
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+/**
+ * The capability the bridge hands out, and the one way it can leak.
+ *
+ * The adapter mints a token before it spawns `agy` and passes it through the
+ * child's environment. Measured against real `agy 1.1.22`: the vendor passes
+ * its environment to MCP servers verbatim -- 95 keys in, 95 keys out, nothing
+ * injected and nothing dropped -- and it passes it to EVERY server it launches,
+ * including third-party ones the user registered, not only ours. A probe
+ * registered with no environment of its own still read the planted variable.
+ *
+ * So the token is readable by a co-resident server, and the thing that keeps
+ * that from being a way in is that a token binds exactly once. The second
+ * claimant is refused, and the legitimate server keeps the channel; if the
+ * impostor wins the race instead, the real server is refused and the turn fails
+ * loudly. Either way nobody is quietly served DSH's tools.
+ */
+test('a token binds to exactly one server, and a later claimant is refused rather than served', async () => {
+  await withHost(async host => {
+    const channel = host.expect('tok-alpha', TOOLS)
+
+    const first = fakeServer(host.socketPath)
+    first.send({ t: 'hello', token: 'tok-alpha' })
+    const claimed = await first.next()
+    assert.equal(claimed.t, 'claimed')
+    assert.deepEqual(claimed.tools.map((tool: BridgeToolDeclaration) => tool.name), ['read_file', 'memory_write'])
+
+    const second = fakeServer(host.socketPath)
+    second.send({ t: 'hello', token: 'tok-alpha' })
+    const refused = await second.next()
+    assert.equal(refused.t, 'unclaimed', 'a bound token must not be honoured twice')
+    assert.equal(refused.tools, undefined, 'a refused claimant must be told no catalog at all')
+
+    // The channel still belongs to the server that bound it.
+    first.send({ t: 'call', id: 'c1', name: 'read_file', arguments: { path: '/etc/hosts' } })
+    const call = await channel.next(AbortSignal.timeout(2_000))
+    assert.equal(call?.id, 'c1', 'the first claimant must keep the channel it bound')
+
+    first.end()
+    second.end()
+  })
+})
+
+/**
+ * A token names its channel outright, so an unknown one is answerable
+ * immediately.
+ *
+ * Under the pid claim protocol this had to wait out a window: the adapter
+ * learned its child's pid only after spawning it, so a hello for a pid nobody
+ * had registered yet might still be claimed a moment later. A token is minted
+ * BEFORE the spawn and registered before the child exists, which is what turns
+ * "not yet" into "never" and lets the refusal be instant.
+ */
+test('an unknown token is refused at once, with no claim window to wait out', async () => {
+  await withHost(async host => {
+    host.expect('tok-real', TOOLS)
+    const stray = fakeServer(host.socketPath)
+    const started = Date.now()
+    stray.send({ t: 'hello', token: 'tok-bogus' })
+    const refused = await stray.next()
+    assert.equal(refused.t, 'unclaimed')
+    assert.ok(
+      Date.now() - started < 500,
+      'the refusal must be immediate: removing the claim window is the point of the token',
+    )
+    stray.end()
+  })
 })

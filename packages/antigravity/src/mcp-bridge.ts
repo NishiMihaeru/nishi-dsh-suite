@@ -3,23 +3,23 @@
  *
  * The vendor launches its own MCP servers from the user's global `agy`
  * configuration, so a bridge server is NOT a child of this adapter: it is a
- * child of the `agy` process the adapter spawned. Probed against real
- * `agy 1.1.22`: exactly one server process per `agy` process, its `ppid` is
- * the `agy` pid the adapter itself spawned, and it receives `initialize` plus
- * `tools/list` within 4ms of vendor start -- before the adapter has said
- * anything. Two consequences shape everything below.
+ * child of the `agy` process the adapter spawned. Measured against real
+ * `agy 1.1.22`: the vendor passes its environment to the MCP servers it
+ * launches verbatim -- 95 keys in, 95 keys out, nothing injected and nothing
+ * dropped -- and `agy mcp add --env` merges with that rather than replacing it.
  *
- * First, correlation is by parent pid. A server announces its `ppid`; only the
- * adapter that spawned that exact process claims it. A server whose parent no
- * adapter claims is served an EMPTY catalog, which is what keeps a globally
- * registered server from handing DSH's tools to an unrelated `agy` session on
- * the same machine.
+ * The adapter therefore mints a secret token before spawning and hands it
+ * with the socket path to the child through the environment. Registered
+ * before the child exists, the channel is ready before the server connects,
+ * avoiding any need to park or wait for claims.
  *
- * Second, `tools/list` arrives before the adapter can answer it, so the server
- * blocks until its claim lands. The catalog is therefore fixed for the life of
- * one vendor child, which matches the rule already enforced by
- * `requestSignature`: a changed tool catalog rebuilds the child rather than
- * revising a live conversation.
+ * Because the environment reaches every MCP server the vendor launches,
+ * including third-party servers registered by the user, the token is visible
+ * to co-resident servers. To prevent unauthorized access, each token binds
+ * exactly once: the first claimant gets the channel, and every later claimant
+ * for that token is refused outright. If an impostor races and claims the token,
+ * the real server is refused and the turn fails loudly, ensuring no third party
+ * is quietly served DSH's tools.
  *
  * This module executes nothing. A vendor call becomes a DSH `tool_calls`
  * reply, DSH's own agent loop executes it with its permissions, hooks and
@@ -32,16 +32,22 @@
  * @module nishi-dsh-antigravity/mcp-bridge
  */
 import { createServer, type Server, type Socket } from 'node:net'
-import { chmod, lstat, mkdir, readdir, rm } from 'node:fs/promises'
+import { chmod, lstat, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-/** Directory name holding one socket per live adapter, scanned by servers. */
+/** Directory name holding one socket per live adapter. */
 export const BRIDGE_SOCKET_DIR_NAME = 'nishi-agy-mcp-bridge'
 
 /** Environment variable overriding the socket directory (tests, sandboxes). */
 export const BRIDGE_SOCKET_DIR_ENV = 'NISHI_AGY_BRIDGE_DIR'
+
+/** Environment variable passing the adapter's bridge socket path to the server. */
+export const BRIDGE_SOCKET_ENV = 'NISHI_AGY_BRIDGE_SOCKET'
+
+/** Environment variable passing the one-time secret claim token to the server. */
+export const BRIDGE_TOKEN_ENV = 'NISHI_AGY_BRIDGE_TOKEN'
 
 /** One DSH tool as the vendor's MCP client sees it. */
 export interface BridgeToolDeclaration {
@@ -60,7 +66,7 @@ export interface BridgeCall {
 
 /** Server -> adapter frames. */
 export type BridgeUpstream =
-  | { readonly t: 'hello'; readonly ppid: number }
+  | { readonly t: 'hello'; readonly token: string }
   | { readonly t: 'call'; readonly id: string; readonly name: string; readonly arguments: unknown }
 
 /** Adapter -> server frames. */
@@ -170,16 +176,13 @@ interface ChannelState {
  * server connects within milliseconds of starting.
  */
 export class AgyMcpBridgeHost {
-  private readonly channels = new Map<number, ChannelState>()
-  /** Hellos that arrived before the adapter registered the pid they name. */
-  private readonly earlyHellos = new Map<number, Socket>()
+  private readonly channels = new Map<string, ChannelState>()
   /**
    * Every connection currently open, whether or not it has said anything.
    *
    * `server.close()` resolves only once every connection has ended, so a peer
-   * that connects and then says nothing used to hold `close()` open for the
-   * whole claim window. Tracking connections rather than only claims is what
-   * makes disposal prompt.
+   * that connects and then says nothing used to hold `close()` open. Tracking
+   * connections rather than only claims is what makes disposal prompt.
    */
   private readonly connections = new Set<Socket>()
 
@@ -189,15 +192,12 @@ export class AgyMcpBridgeHost {
   private constructor(
     readonly socketPath: string,
     private readonly server: Server,
-    private readonly claimWindowMs: number,
   ) {}
 
   /**
    * Start listening. The caller owns the returned host and must `close()` it.
-   * @param claimWindowMs - how long an unmatched server waits before it is
-   *   told it is unclaimed and serves an empty catalog.
    */
-  static async listen(claimWindowMs = 10_000): Promise<AgyMcpBridgeHost> {
+  static async listen(): Promise<AgyMcpBridgeHost> {
     const dir = bridgeSocketDir()
     await mkdir(dir, { recursive: true, mode: 0o700 })
     // `mkdir` with a mode does NOT change the mode of a directory that already
@@ -205,12 +205,14 @@ export class AgyMcpBridgeHost {
     // directory can have been created by any local user, with any mode, before
     // this process ever ran: a world-writable one would put every adapter
     // socket, and with it every tool catalog, inside a directory an attacker can
-    // enumerate and connect into. The path has to be predictable, because the
-    // bridge server discovers it without being told; so it is verified instead.
+    // enumerate and connect into. The directory stays at a fixed well-known
+    // path even now that the server is TOLD its socket rather than finding it:
+    // a fixed path is one any local user can pre-create, so it is verified
+    // rather than trusted.
     await assertPrivateDirectory(dir)
     const socketPath = join(dir, `adapter-${process.pid}-${randomUUID()}.sock`)
     const server = createServer()
-    const host = new AgyMcpBridgeHost(socketPath, server, claimWindowMs)
+    const host = new AgyMcpBridgeHost(socketPath, server)
     server.on('connection', socket => host.onConnection(socket))
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
@@ -228,11 +230,11 @@ export class AgyMcpBridgeHost {
   }
 
   /**
-   * Declare the catalog a vendor child must be served, keyed by the pid of the
-   * `agy` process this adapter spawned. Safe to call after the child's server
-   * has already connected: an early hello is matched here.
+   * Declare the catalog a vendor child must be served, keyed by the secret
+   * token minted for this process. Must be called before the vendor child is
+   * spawned so the channel is ready when the server connects.
    */
-  expect(agyPid: number, tools: readonly BridgeToolDeclaration[]): BridgeChannel {
+  expect(token: string, tools: readonly BridgeToolDeclaration[]): BridgeChannel {
     const state: ChannelState = {
       tools,
       socket: undefined,
@@ -242,16 +244,11 @@ export class AgyMcpBridgeHost {
       waiters: [],
       closed: false,
     }
-    this.channels.set(agyPid, state)
-    const early = this.earlyHellos.get(agyPid)
-    if (early !== undefined) {
-      this.earlyHellos.delete(agyPid)
-      this.attach(agyPid, state, early)
-    }
-    return this.channelFor(agyPid, state)
+    this.channels.set(token, state)
+    return this.channelFor(token, state)
   }
 
-  private channelFor(agyPid: number, state: ChannelState): BridgeChannel {
+  private channelFor(token: string, state: ChannelState): BridgeChannel {
     return {
       attached: () => state.everAttached,
       pending: () => state.outstanding,
@@ -283,7 +280,7 @@ export class AgyMcpBridgeHost {
         state.socket?.write(encodeFrame({ t: 'result', id, text, isError }))
       },
       dispose: () => {
-        this.channels.delete(agyPid)
+        this.channels.delete(token)
         state.closed = true
         for (const waiter of state.waiters.splice(0)) waiter(undefined)
         try { state.socket?.destroy() } catch { /* already gone */ }
@@ -296,45 +293,26 @@ export class AgyMcpBridgeHost {
     this.connections.add(socket)
     socket.once('close', () => { this.connections.delete(socket) })
     let buffer = ''
-    let claimedPid: number | undefined
-    let holdTimer: NodeJS.Timeout | undefined
-    const timer = setTimeout(() => {
-      if (claimedPid === undefined) {
-        socket.write(encodeFrame({ t: 'unclaimed' }))
-        socket.destroy()
-      }
-    }, this.claimWindowMs)
-    timer.unref?.()
+    let boundToken: string | undefined
     socket.on('data', chunk => {
       buffer += chunk
       const { frames, rest } = decodeFrames(buffer)
       buffer = rest
       for (const raw of frames) {
         const frame = raw as BridgeUpstream
-        if (frame?.t === 'hello' && typeof frame.ppid === 'number') {
-          claimedPid = frame.ppid
-          clearTimeout(timer)
-          const state = this.channels.get(frame.ppid)
-          if (state === undefined) {
-            // The adapter may not have registered this pid yet: it spawns the
-            // child and only then knows its pid, while the child's server
-            // connects immediately. Hold the socket for `expect()` to match.
-            this.earlyHellos.set(frame.ppid, socket)
-            holdTimer = setTimeout(() => {
-              if (this.earlyHellos.get(frame.ppid) === socket) {
-                this.earlyHellos.delete(frame.ppid)
-                socket.write(encodeFrame({ t: 'unclaimed' }))
-                socket.destroy()
-              }
-            }, this.claimWindowMs)
-            holdTimer.unref?.()
+        if (frame?.t === 'hello' && typeof frame.token === 'string') {
+          const state = this.channels.get(frame.token)
+          if (state === undefined || state.everAttached || state.closed) {
+            socket.write(encodeFrame({ t: 'unclaimed' }))
+            socket.destroy()
             continue
           }
-          this.attach(frame.ppid, state, socket)
+          boundToken = frame.token
+          this.attach(state, socket)
           continue
         }
-        if (frame?.t === 'call' && claimedPid !== undefined) {
-          const state = this.channels.get(claimedPid)
+        if (frame?.t === 'call' && boundToken !== undefined) {
+          const state = this.channels.get(boundToken)
           if (state === undefined || state.closed) continue
           const call: BridgeCall = { id: frame.id, name: frame.name, arguments: frame.arguments }
           const waiter = state.waiters.shift()
@@ -345,16 +323,8 @@ export class AgyMcpBridgeHost {
     })
     socket.on('error', () => { /* a vendor child dying is ordinary */ })
     socket.on('close', () => {
-      clearTimeout(timer)
-      if (claimedPid === undefined) return
-      // A hello whose pid no adapter had registered yet is parked in
-      // `earlyHellos` with its own timer. Dropping the socket without clearing
-      // both leaves a dead entry and a live timer behind for the hold window.
-      if (this.earlyHellos.get(claimedPid) === socket) {
-        this.earlyHellos.delete(claimedPid)
-        clearTimeout(holdTimer)
-      }
-      const state = this.channels.get(claimedPid)
+      if (boundToken === undefined) return
+      const state = this.channels.get(boundToken)
       if (state === undefined) return
       state.socket = undefined
       state.closed = true
@@ -362,7 +332,7 @@ export class AgyMcpBridgeHost {
     })
   }
 
-  private attach(agyPid: number, state: ChannelState, socket: Socket): void {
+  private attach(state: ChannelState, socket: Socket): void {
     state.socket = socket
     state.everAttached = true
     socket.write(encodeFrame({ t: 'claimed', tools: state.tools }))
@@ -376,10 +346,6 @@ export class AgyMcpBridgeHost {
       try { state.socket?.destroy() } catch { /* already gone */ }
     }
     this.channels.clear()
-    for (const [, socket] of this.earlyHellos) {
-      try { socket.destroy() } catch { /* already gone */ }
-    }
-    this.earlyHellos.clear()
     for (const socket of this.connections) {
       try { socket.destroy() } catch { /* already gone */ }
     }
@@ -389,12 +355,3 @@ export class AgyMcpBridgeHost {
   }
 }
 
-/**
- * List adapter sockets a bridge server should try, newest first. Ordering is a
- * heuristic only: correctness rests on the `ppid` claim, not on which socket
- * is tried first.
- */
-export async function listAdapterSockets(dir = bridgeSocketDir()): Promise<string[]> {
-  const entries = await readdir(dir).catch(() => [] as string[])
-  return entries.filter(name => name.startsWith('adapter-') && name.endsWith('.sock')).map(name => join(dir, name))
-}

@@ -8,9 +8,10 @@ import test from 'node:test'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import {
   BRIDGE_SOCKET_DIR_ENV,
+  BRIDGE_SOCKET_ENV,
+  BRIDGE_TOKEN_ENV,
   decodeFrames,
   encodeFrame,
-  listAdapterSockets,
 } from '../src/mcp-bridge.ts'
 import { DEFAULT_ANTIGRAVITY_TRANSPORT } from '../src/antigravity-primary.ts'
 import {
@@ -255,20 +256,22 @@ test('a vendor tool call becomes a DSH tool call, and its result reaches the sti
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
   const child = controllableChild(3200)
+  let turnEnv: Record<string, string> | undefined
   const ctx = {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn(spec: { argv: readonly string[] }) {
+      spawn(spec: { argv: readonly string[]; env?: Record<string, string> }) {
         if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
         if (spec.argv.includes('models')) {
           return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
         }
+        turnEnv = spec.env
         return child.handle
       },
     },
   }
   const adapter = new AntigravityCliAdapter(ctx as any, baseConfig)
-  let server: ReturnType<typeof connect> | undefined
+  let server: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
   try {
     const request = {
       provider: 'antigravity-cli',
@@ -279,35 +282,21 @@ test('a vendor tool call becomes a DSH tool call, and its result reaches the sti
     }
 
     // Step one: drive the stream, and stand in for the bridge server the
-    // vendor would have launched -- claiming the child by its pid, then asking
+    // vendor would have launched -- claiming the child by its token, then asking
     // for a DSH tool.
     const firstChunks: any[] = []
     const firstStep = (async () => {
       for await (const chunk of adapter.stream(request as any)) firstChunks.push(chunk)
     })()
 
-    let claimedTools: any[] = []
-    const serverFrames: any[] = []
     await new Promise(r => setTimeout(r, 300))
-    const sockets = await listAdapterSockets(dir)
-    assert.equal(sockets.length, 1, 'the adapter must be listening before its child is spawned')
-    server = connect(sockets[0]!)
-    server.setEncoding('utf8')
-    let buffer = ''
-    server.on('data', c => {
-      buffer += c
-      const { frames, rest } = decodeFrames(buffer)
-      buffer = rest
-      for (const frame of frames) {
-        serverFrames.push(frame)
-        if ((frame as any).t === 'claimed') claimedTools = (frame as any).tools
-      }
-    })
-    server.write(encodeFrame({ t: 'hello', ppid: 3200 }))
-    await new Promise(r => setTimeout(r, 150))
-    assert.deepEqual(claimedTools.map(t => t.name), ['read_file'], 'the child must be served this request\'s catalog')
+    assert.ok(turnEnv, 'the adapter must spawn the child with environment')
+    server = await attachServer(turnEnv)
+    const claimed = server.frames.find(f => f.t === 'claimed')
+    assert.ok(claimed, 'expected claimed frame')
+    assert.deepEqual(claimed.tools.map((t: any) => t.name), ['read_file'], 'the child must be served this request\'s catalog')
 
-    server.write(encodeFrame({ t: 'call', id: 'bridge-1', name: 'read_file', arguments: { path: '/etc/hosts' } } as any))
+    server.socket.write(encodeFrame({ t: 'call', id: 'bridge-1', name: 'read_file', arguments: { path: '/etc/hosts' } } as any))
     await firstStep
 
     const toolCall = firstChunks.find(c => c.type === 'block-end' && c.block?.type === 'tool-call')
@@ -334,8 +323,8 @@ test('a vendor tool call becomes a DSH tool call, and its result reaches the sti
     })()
 
     await new Promise(r => setTimeout(r, 200))
-    const result = serverFrames.find(f => f.t === 'result')
-    assert.ok(result, `the blocked call was never answered: ${JSON.stringify(serverFrames)}`)
+    const result = server.frames.find(f => f.t === 'result')
+    assert.ok(result, `the blocked call was never answered: ${JSON.stringify(server.frames)}`)
     assert.equal(result.id, 'bridge-1')
     assert.equal(result.text, '127.0.0.1 localhost')
     assert.equal(result.isError, false)
@@ -348,7 +337,7 @@ test('a vendor tool call becomes a DSH tool call, and its result reaches the sti
     assert.deepEqual(secondChunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
     assert.ok(secondChunks.some(c => c.type === 'usage'), 'the finished turn must report usage')
   } finally {
-    server?.destroy()
+    server?.socket.destroy()
     await adapter.dispose()
     if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
@@ -406,19 +395,22 @@ test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothin
     const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
     process.env[BRIDGE_SOCKET_DIR_ENV] = dir
     const child = controllableChild(3300)
+    let turnEnv: Record<string, string> | undefined
     const ctx = {
       subprocess: {
         async resolveExecutable() { return '/resolved/agy' },
-        spawn(spec: { argv: readonly string[] }) {
+        spawn(spec: { argv: readonly string[]; env?: Record<string, string> }) {
           if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
           if (spec.argv.includes('models')) {
             return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
           }
+          turnEnv = spec.env
           return child.handle
         },
       },
     }
     const adapter = new AntigravityCliAdapter(ctx as any, baseConfig)
+    let server: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
     try {
       const run = (async () => {
         const chunks: any[] = []
@@ -434,10 +426,8 @@ test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothin
       await new Promise(r => setTimeout(r, 250))
       // Attach a bridge server, or the never-attached guard fires first and the
       // backstop is never reached.
-      const server = connect((await listAdapterSockets(dir))[0]!)
-      server.on('error', () => {})
-      server.write(encodeFrame({ t: 'hello', ppid: 3300 }))
-      await new Promise(r => setTimeout(r, 150))
+      assert.ok(turnEnv, 'turn env must be captured')
+      server = await attachServer(turnEnv)
       child.emitToolStep(toolName)
       child.finishTurn('answered')
       if (shouldThrow) {
@@ -447,6 +437,7 @@ test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothin
         assert.equal(chunks.at(-1)?.reason?.kind, 'stop', `${toolName} must not trip the backstop`)
       }
     } finally {
+      server?.socket.destroy()
       await adapter.dispose()
       if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
       else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
@@ -471,14 +462,16 @@ async function runOneTurn(
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
   const child = controllableChild(3400)
+  let turnEnv: Record<string, string> | undefined
   const ctx = {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn(spec: { argv: readonly string[] }) {
+      spawn(spec: { argv: readonly string[]; env?: Record<string, string> }) {
         if (spec.argv.includes('list')) return collected(mcpListStdout)
         if (spec.argv.includes('models')) {
           return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
         }
+        turnEnv = spec.env
         return child.handle
       },
     },
@@ -486,7 +479,7 @@ async function runOneTurn(
   const adapter = new AntigravityCliAdapter(ctx as any, baseConfig)
   const chunks: any[] = []
   let error: unknown
-  let server: any
+  let server: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
   try {
     const run = (async () => {
       for await (const chunk of adapter.stream({
@@ -498,19 +491,13 @@ async function runOneTurn(
       } as any)) chunks.push(chunk)
     })().catch(e => { error = e })
     await new Promise(r => setTimeout(r, 250))
-    if (attach) {
-      const sockets = await listAdapterSockets(dir)
-      if (sockets.length > 0) {
-        server = connect(sockets[0]!)
-        server.on('error', () => {})
-        server.write(encodeFrame({ t: 'hello', ppid: 3400 }))
-        await new Promise(r => setTimeout(r, 150))
-      }
+    if (attach && turnEnv !== undefined) {
+      server = await attachServer(turnEnv)
     }
     child.finishTurn('answered')
     await run
   } finally {
-    server?.destroy()
+    server?.socket.destroy()
     await adapter.dispose()
     if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
     else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
@@ -575,10 +562,12 @@ test('a turn whose bridge server never connected fails loudly rather than answer
 
 
 /** A fake bridge server on the adapter's socket, claiming one vendor child. */
-async function attachServer(dir: string, ppid: number) {
-  const sockets = await listAdapterSockets(dir)
-  assert.equal(sockets.length, 1, 'one adapter, one socket')
-  const socket = connect(sockets[0]!)
+async function attachServer(env: Record<string, string | undefined>) {
+  const socketPath = env[BRIDGE_SOCKET_ENV]
+  const token = env[BRIDGE_TOKEN_ENV]
+  assert.ok(socketPath, 'adapter must pass the bridge socket path in the environment')
+  assert.ok(token, 'adapter must pass the bridge token in the environment')
+  const socket = connect(socketPath)
   socket.setEncoding('utf8')
   const frames: any[] = []
   let buffer = ''
@@ -589,7 +578,7 @@ async function attachServer(dir: string, ppid: number) {
     for (const frame of decoded.frames) frames.push(frame)
   })
   socket.on('error', () => {})
-  socket.write(encodeFrame({ t: 'hello', ppid }))
+  socket.write(encodeFrame({ t: 'hello', token }))
   await new Promise(r => setTimeout(r, 150))
   return { socket, frames }
 }
@@ -598,13 +587,19 @@ async function attachServer(dir: string, ppid: number) {
  * Drive one step to the point where the vendor turn is suspended on a tool
  * call, and hand back everything the second step needs.
  */
-async function suspendOnToolCall(dir: string, adapter: AntigravityCliAdapter, request: unknown, ppid: number) {
+async function suspendOnToolCall(
+  adapter: AntigravityCliAdapter,
+  request: unknown,
+  getTurnEnv: () => Record<string, string> | undefined,
+) {
   const chunks: any[] = []
   const step = (async () => {
     for await (const chunk of adapter.stream(request as any)) chunks.push(chunk)
   })()
   await new Promise(r => setTimeout(r, 300))
-  const server = await attachServer(dir, ppid)
+  const env = getTurnEnv()
+  assert.ok(env, 'expected turn process to have spawned with environment')
+  const server = await attachServer(env)
   server.socket.write(encodeFrame({ t: 'call', id: 'bridge-1', name: 'read_file', arguments: { path: '/etc/hosts' } } as any))
   await step
   const toolCall = chunks.find(c => c.type === 'block-end' && c.block?.type === 'tool-call')
@@ -631,15 +626,17 @@ test('a history rewritten while a turn is suspended rebuilds instead of answerin
   const first = controllableChild(3300)
   const second = controllableChild(3301)
   const turnChildren = [first, second]
+  const turnEnvs: Record<string, string>[] = []
   let spawned = 0
   const ctx = {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn(spec: { argv: readonly string[] }) {
+      spawn(spec: { argv: readonly string[]; env?: Record<string, string> }) {
         if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
         if (spec.argv.includes('models')) {
           return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
         }
+        if (spec.env) turnEnvs.push(spec.env)
         const child = turnChildren[Math.min(spawned, turnChildren.length - 1)]!
         spawned += 1
         return child.handle
@@ -657,7 +654,7 @@ test('a history rewritten while a turn is suspended rebuilds instead of answerin
       messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'read /etc/hosts' }] }],
       tools: TOOLS,
     }
-    const suspended = await suspendOnToolCall(dir, adapter, request, 3300)
+    const suspended = await suspendOnToolCall(adapter, request, () => turnEnvs[0])
     serverOne = suspended.server
     assert.equal(spawned, 1)
 
@@ -687,7 +684,8 @@ test('a history rewritten while a turn is suspended rebuilds instead of answerin
       'the blocked call must never be answered across a rewritten history',
     )
 
-    serverTwo = await attachServer(dir, 3301)
+    assert.ok(turnEnvs[1], 'second child env must be captured')
+    serverTwo = await attachServer(turnEnvs[1])
     second.finishTurn('reading /etc/passwd now')
     await secondStep
 
@@ -722,15 +720,17 @@ test('a repeated request on a suspended turn still fails by name rather than reb
   const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
   process.env[BRIDGE_SOCKET_DIR_ENV] = dir
   const child = controllableChild(3400)
+  let turnEnv: Record<string, string> | undefined
   let spawned = 0
   const ctx = {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn(spec: { argv: readonly string[] }) {
+      spawn(spec: { argv: readonly string[]; env?: Record<string, string> }) {
         if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
         if (spec.argv.includes('models')) {
           return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
         }
+        turnEnv = spec.env
         spawned += 1
         return child.handle
       },
@@ -746,7 +746,7 @@ test('a repeated request on a suspended turn still fails by name rather than reb
       messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'read /etc/hosts' }] }],
       tools: TOOLS,
     }
-    const suspended = await suspendOnToolCall(dir, adapter, request, 3400)
+    const suspended = await suspendOnToolCall(adapter, request, () => turnEnv)
     server = suspended.server
     assert.equal(spawned, 1)
 
