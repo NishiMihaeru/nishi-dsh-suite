@@ -36,6 +36,21 @@ export const DEFAULT_ANTIGRAVITY_TURN_TIMEOUT_MS = 10 * 60_000
 export const DEFAULT_ANTIGRAVITY_DISPOSE_GRACE_MS = 3_000
 export const DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES = 64_000
 /**
+ * Context capacity advertised for every `antigravity-cli` model.
+ *
+ * Not discovered: `agy models` discloses an id and a display name and
+ * nothing else, and no vendor surface reports a per-model window. The figure
+ * exists so automatic compaction runs at all -- `compaction-basic` refuses a
+ * route with no capacity and swallows the refusal as a single warning, so an
+ * unset window means unbounded history growth with no visible symptom. It is
+ * deliberately below every current Gemini window: compacting earlier than
+ * strictly necessary costs one extra fold, while not compacting costs the
+ * whole session. Deployments that know their real window may raise it.
+ */
+export const DEFAULT_ANTIGRAVITY_CONTEXT_WINDOW_TOKENS = 200_000
+/** Idle time after which a session's live `agy` child is reaped. */
+export const DEFAULT_ANTIGRAVITY_SESSION_IDLE_MS = 15 * 60_000
+/**
  * Timeout for one native `agy search_web` run. It lives here rather than on
  * the core's web-search tool because the vendor's own knobs belong to the
  * vendor's plugin; the tool keeps its separate per-call timeout.
@@ -69,6 +84,8 @@ export interface Config {
   turnTimeoutMs?: number
   disposeGraceMs?: number
   stderrMaxBytes?: number
+  contextWindowTokens?: number
+  sessionIdleMs?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -80,12 +97,16 @@ export const Config: Schema<Config> = Schema.object({
   disposeGraceMs: Schema.number().default(DEFAULT_ANTIGRAVITY_DISPOSE_GRACE_MS),
   stderrMaxBytes: Schema.number().default(DEFAULT_ANTIGRAVITY_STDERR_MAX_BYTES),
   searchTimeoutMs: Schema.number().default(DEFAULT_ANTIGRAVITY_SEARCH_TIMEOUT_MS),
+  contextWindowTokens: Schema.number().default(DEFAULT_ANTIGRAVITY_CONTEXT_WINDOW_TOKENS),
+  sessionIdleMs: Schema.number().default(DEFAULT_ANTIGRAVITY_SESSION_IDLE_MS),
 })
 
 /** Config after merge-and-validate: every field is present, `executable` is Antigravity-specific. */
 interface ResolvedAntigravityConfig extends SharedProviderDefaults {
   readonly executable: string
   readonly searchTimeoutMs: number
+  readonly contextWindowTokens: number
+  readonly sessionIdleMs: number
 }
 
 /**
@@ -172,7 +193,23 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
     throw new Error('antigravity: searchTimeoutMs must be a positive integer')
   }
 
-  const config: ResolvedAntigravityConfig = { ...shared, executable, searchTimeoutMs }
+  const contextWindowTokens = rawConfig.contextWindowTokens ?? DEFAULT_ANTIGRAVITY_CONTEXT_WINDOW_TOKENS
+  if (!Number.isSafeInteger(contextWindowTokens) || contextWindowTokens < 1) {
+    throw new Error('antigravity: contextWindowTokens must be a positive integer')
+  }
+
+  const sessionIdleMs = rawConfig.sessionIdleMs ?? DEFAULT_ANTIGRAVITY_SESSION_IDLE_MS
+  if (!Number.isSafeInteger(sessionIdleMs) || sessionIdleMs < 1) {
+    throw new Error('antigravity: sessionIdleMs must be a positive integer')
+  }
+
+  const config: ResolvedAntigravityConfig = {
+    ...shared,
+    executable,
+    searchTimeoutMs,
+    contextWindowTokens,
+    sessionIdleMs,
+  }
 
   await registerProvider(ctx, buildAntigravityDescriptor(), config)
 }

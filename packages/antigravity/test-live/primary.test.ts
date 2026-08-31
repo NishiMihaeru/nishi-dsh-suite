@@ -121,6 +121,8 @@ const testConfig = {
   turnTimeoutMs: 120_000,
   disposeGraceMs: 3_000,
   stderrMaxBytes: 64_000,
+  contextWindowTokens: 200_000,
+  sessionIdleMs: 600_000,
 } as const
 
 async function collectStreamText(stream: AsyncIterable<StreamChunk>): Promise<{
