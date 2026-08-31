@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   ToolCallId,
@@ -42,6 +43,20 @@ const MCP_AGENT_NAME = 'dsh-primary-mcp'
  * server's registered name lets the user call it whatever they like.
  */
 const MCP_BRIDGE_SERVER_FILE = 'mcp-bridge-server.js'
+
+/**
+ * The transport in force when a config says nothing.
+ *
+ * Lives here rather than in `index.ts` so the adapter and the config resolver
+ * cannot disagree: a default declared in one place and re-derived in the other
+ * is how a reader ends up believing the wrong one.
+ */
+export const DEFAULT_ANTIGRAVITY_TRANSPORT: 'schema' | 'mcp-bridge' = 'mcp-bridge'
+
+/** Absolute path of this package's built bridge server, for the setup hint. */
+function bridgeServerPath(): string {
+  return fileURLToPath(new URL(MCP_BRIDGE_SERVER_FILE, import.meta.url))
+}
 
 /** One `mcp-bridge` step: the vendor asked for a tool, or its turn finished. */
 type McpStep =
@@ -285,8 +300,7 @@ export interface AntigravityPrimaryConfig {
   /**
    * How the model reaches DSH's tools. `schema` forces the reply through
    * `--json-schema`; `mcp-bridge` hands the catalog to the vendor's own
-   * harness as MCP tools. Optional so every existing caller and test that
-   * builds this config keeps meaning `schema`.
+   * harness as MCP tools. Omitted means {@link DEFAULT_ANTIGRAVITY_TRANSPORT}.
    */
   readonly transport?: 'schema' | 'mcp-bridge'
   /** Idle time after which a live per-session `agy` child is reaped. */
@@ -1076,7 +1090,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
     // An auxiliary call and a toolless request stay on the schema transport
     // even when the bridge is selected: giving a summarizer a live tool
     // catalog is how compaction started answering with a tool call.
-    if (this.config.transport === 'mcp-bridge' && bridgeEligible(options.purpose, options.tools)) {
+    if ((this.config.transport ?? DEFAULT_ANTIGRAVITY_TRANSPORT) === 'mcp-bridge'
+      && bridgeEligible(options.purpose, options.tools)) {
       yield* this.streamViaMcpBridge(options, requestedTools)
       return
     }
@@ -1721,9 +1736,10 @@ export class AntigravityCliAdapter extends LlmAdapter {
     this.bridgeRegistered = undefined
     throw new LlmError(
       'Antigravity mcp-bridge transport is selected but its bridge server is not registered with agy. '
-      + 'Register it once per machine with: agy mcp add dshtools node <install>/nishi-dsh-antigravity/lib/'
-      + `${MCP_BRIDGE_SERVER_FILE} -- and allow it with "mcp(dshtools/*)" in globalPermissionGrants.allow. `
-      + 'Set transport back to "schema" to use the forced-schema path instead.',
+      + `Register it once per machine:\n  agy mcp add dshtools node ${bridgeServerPath()}\n`
+      + 'then add "mcp(dshtools/*)" to userSettings.globalPermissionGrants.allow in '
+      + '~/.gemini/config/config.json. Or set the provider config\'s transport to "schema" to use '
+      + 'the forced-schema path instead.',
       'ANTIGRAVITY_CLI',
     )
   }

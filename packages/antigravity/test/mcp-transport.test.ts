@@ -12,6 +12,7 @@ import {
   encodeFrame,
   listAdapterSockets,
 } from '../src/mcp-bridge.ts'
+import { DEFAULT_ANTIGRAVITY_TRANSPORT } from '../src/antigravity-primary.ts'
 import {
   bridgeEligible,
   bridgeMcpAgentMarkdown,
@@ -409,4 +410,10 @@ test('the vendor MCP wrapper is exempt from the native-tool backstop, and nothin
       await rm(dir, { recursive: true, force: true })
     }
   }
+})
+
+test('mcp-bridge is the package default, and a config that says nothing gets it', () => {
+  // Pinned deliberately: the default decides whether a fresh deployment needs
+  // the one-time `agy mcp add`, so flipping it is a decision and not a tweak.
+  assert.equal(DEFAULT_ANTIGRAVITY_TRANSPORT, 'mcp-bridge')
 })

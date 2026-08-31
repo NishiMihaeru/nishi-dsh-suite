@@ -43,6 +43,24 @@ DSH tool schemas are rewritten into the vendor's accepted subset first. Annotati
 
 The route advertises `contextWindowTokens` (default `200_000`). It is configured, not discovered: the vendor discloses no per-model window. Without any capacity `compaction-basic` refuses automatic pressure compaction and the refusal is swallowed as a single warning, so a session's history would grow with no bound and no visible symptom.
 
+### Tool transport, and the one-time setup it needs
+
+Two transports exist, selected by `transport`.
+
+`mcp-bridge` is the **default**. DSH's tool catalog is handed to the vendor's own harness as MCP tools, so the model calls them natively; DSH still executes every call, through its own agent loop with its own permissions and durable history. This is the shape `nishi-dsh-codex` already uses for App Server dynamic tools.
+
+It requires the bridge server to be registered with `agy` **once per machine**, and this package deliberately does not write your vendor configuration — the same boundary that keeps vendor authentication outside the suite:
+
+```bash
+agy mcp add dshtools node <install>/nishi-dsh-antigravity/lib/mcp-bridge-server.js
+```
+
+then add `"mcp(dshtools/*)"` to `userSettings.globalPermissionGrants.allow` in `~/.gemini/config/config.json`. `toolPermission` stays at its strict default, no trusted workspace is needed, and `--dangerously-skip-permissions` is never used. Until both are in place the first turn fails loudly, naming the exact command and the resolved path — it does not fall back on its own, because a route that silently hands the model no tools looks healthy and reads as a disobedient model.
+
+A registered server is reachable by every `agy` session on the machine, which is the transport's one irreducible cost. It is narrowed rather than removed: the server is served a catalog only when a live DSH adapter claims its parent process as a child it spawned, so an unrelated `agy` session gets an empty catalog.
+
+`transport: "schema"` selects the transport this package shipped with: `agy` stripped to a model endpoint and its reply forced through `--json-schema`. It needs no setup, and switching is a one-key config change in either direction. It remains the transport with the larger body of live evidence.
+
 ## Runtime boundary
 
 The package owns Antigravity-specific protocol translation and process behavior. Shared registration, executable/runtime helpers, routed web-search dispatch and Usage & Limits projection live in `nishi-dsh-core`.

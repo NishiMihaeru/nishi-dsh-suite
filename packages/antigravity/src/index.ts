@@ -19,7 +19,11 @@ import {
   type SharedProviderDefaults,
   type VendorExecutableDescriptor,
 } from 'nishi-dsh-core/runtime'
-import { ANTIGRAVITY_PRIMARY_PROVIDER, createAntigravityPrimaryAdapter } from './antigravity-primary.js'
+import {
+  ANTIGRAVITY_PRIMARY_PROVIDER,
+  DEFAULT_ANTIGRAVITY_TRANSPORT,
+  createAntigravityPrimaryAdapter,
+} from './antigravity-primary.js'
 import { AntigravitySearchBackend } from './web-search-backend.js'
 import { AntigravityUsageCollector } from './usage.js'
 import { createHostPlatformDiscovery, HostAntigravityLocalUsageSource } from './usage-source.js'
@@ -72,13 +76,17 @@ export const DEFAULT_ANTIGRAVITY_SEARCH_TIMEOUT_MS = 60_000
  * own `agy` configuration -- deliberately not written by this package, which
  * keeps vendor configuration user-owned the way vendor auth is.
  *
- * `schema` stays the default until the bridge earns its own live acceptance:
- * switching back is a one-key config change, not a downgrade.
+ * `mcp-bridge` is the default since its live acceptance passed. That makes the
+ * one-time registration a REQUIREMENT rather than an opt-in: an unregistered
+ * bridge fails the first turn loudly, with the exact command in the message,
+ * because the alternative -- falling back to `schema` on its own -- would hand
+ * the model no tools on a route that looks healthy. Setting `transport` back to
+ * `schema` is a one-key change and not a downgrade; it is still the transport
+ * with ten live scenarios behind it against the bridge's one.
  */
 export type AntigravityTransport = 'schema' | 'mcp-bridge'
 
-/** The transport in force when the config says nothing. */
-export const DEFAULT_ANTIGRAVITY_TRANSPORT: AntigravityTransport = 'schema'
+export { DEFAULT_ANTIGRAVITY_TRANSPORT }
 
 /** Every accepted `transport` value, for validation and diagnostics. */
 export const ANTIGRAVITY_TRANSPORTS: readonly AntigravityTransport[] = ['schema', 'mcp-bridge']

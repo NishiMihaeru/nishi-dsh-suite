@@ -28,6 +28,9 @@ const primaryConfig = {
   turnTimeoutMs: 5_000,
   disposeGraceMs: 100,
   stderrMaxBytes: 64_000,
+  // Pinned: these assert the forced-schema transport. The package default is
+  // `mcp-bridge`, which would send them down a path they are not about.
+  transport: 'schema' as const,
   contextWindowTokens: 200_000,
   sessionIdleMs: 60_000,
 }
