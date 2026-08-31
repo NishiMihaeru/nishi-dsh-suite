@@ -5,6 +5,10 @@ import {
   updateProviderVisibility,
   moveProviderInOrder,
 } from './view-model.js'
+import {
+  buildUsageGroupsForProvider,
+  type UsageGroup,
+} from './usage-group-model.js'
 
 export type ProviderLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export interface ProviderEntryState {
@@ -141,14 +145,27 @@ export class UsageLimitsClientController {
     this.notify()
   }
 
-  setProviderVisible(providerId: string, visible: boolean): void {
-    const nextSettings = updateProviderVisibility(this.snapshot.sidebarSettings, providerId, visible)
+  setProviderVisible(targetId: string, visible: boolean): void {
+    const nextSettings = updateProviderVisibility(this.snapshot.sidebarSettings, targetId, visible)
     this.setSidebarSettings(nextSettings)
   }
 
-  moveProviderOrder(providerId: string, direction: 'up' | 'down'): void {
-    const nextSettings = moveProviderInOrder(this.snapshot.roster, this.snapshot.sidebarSettings, providerId, direction)
+  moveProviderOrder(targetId: string, direction: 'up' | 'down'): void {
+    const allGroups = this.getAllUsageGroups()
+    const items = allGroups.length > 0 ? allGroups : this.snapshot.roster
+    const nextSettings = moveProviderInOrder(items, this.snapshot.sidebarSettings, targetId, direction)
     this.setSidebarSettings(nextSettings)
+  }
+
+  getAllUsageGroups(): UsageGroup[] {
+    return this.snapshot.roster.flatMap((item) => {
+      const entry = this.snapshot.providers[item.providerId]
+      return buildUsageGroupsForProvider({
+        presentation: item.presentation,
+        loadStatus: entry?.status ?? 'idle',
+        usage: entry?.usage,
+      })
+    })
   }
 
   resetSidebarSettings(): void {

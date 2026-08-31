@@ -44,7 +44,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 | Core | remediated; Model Accounts surface removed outright; sidebar provider selection and ordering added; 199 tests |
 | Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
 | Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; mid-turn route-switch defect fixed and covered live; 81 tests |
-| Antigravity | provider stage complete except the freeze; one live `agy` child per session replaces one process per step, and tool arguments are now typed by the forced schema; 96 tests |
+| Antigravity | provider stage complete except the freeze; one live `agy` child per session replaces one process per step, and tool arguments are now typed by the forced schema; 99 tests |
 | Claude | usage-only stub, unchanged; 6 tests |
 | Suite | Orchestrator preset now allows cross-route subagents; 16 tests |
 

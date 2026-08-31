@@ -121,34 +121,46 @@ export interface OrderedRosterItem<T> {
   readonly visible: boolean
 }
 
-export function resolveOrderedRoster<T extends { providerId: string }>(
+export function resolveOrderedRoster<T extends { providerId: string; id?: string }>(
   roster: readonly T[],
   settings?: UsageSidebarSettings | null,
 ): OrderedRosterItem<T>[] {
   const hiddenSet = new Set(settings?.hidden ?? [])
-  const availableMap = new Map(roster.map((item) => [item.providerId, item] as const))
+  const getItemId = (item: T): string => (typeof item.id === 'string' && item.id.length > 0 ? item.id : item.providerId)
+  const availableMap = new Map(roster.map((item) => [getItemId(item), item] as const))
   const result: OrderedRosterItem<T>[] = []
   const seen = new Set<string>()
 
   if (settings?.order) {
     for (const id of settings.order) {
       const entry = availableMap.get(id)
-      if (entry !== undefined && !seen.has(id)) {
-        seen.add(id)
+      if (entry !== undefined && !seen.has(getItemId(entry))) {
+        seen.add(getItemId(entry))
         result.push({
           entry,
-          visible: !hiddenSet.has(id),
+          visible: !hiddenSet.has(id) && !hiddenSet.has(entry.providerId),
         })
+      } else {
+        const matchingEntries = roster.filter((item) => item.providerId === id && !seen.has(getItemId(item)))
+        for (const matching of matchingEntries) {
+          const entryId = getItemId(matching)
+          seen.add(entryId)
+          result.push({
+            entry: matching,
+            visible: !hiddenSet.has(entryId) && !hiddenSet.has(matching.providerId),
+          })
+        }
       }
     }
   }
 
   for (const item of roster) {
-    if (!seen.has(item.providerId)) {
-      seen.add(item.providerId)
+    const id = getItemId(item)
+    if (!seen.has(id)) {
+      seen.add(id)
       result.push({
         entry: item,
-        visible: !hiddenSet.has(item.providerId),
+        visible: !hiddenSet.has(id) && !hiddenSet.has(item.providerId),
       })
     }
   }
@@ -156,7 +168,7 @@ export function resolveOrderedRoster<T extends { providerId: string }>(
   return result
 }
 
-export function resolveSidebarProviders<T extends { providerId: string }>(
+export function resolveSidebarProviders<T extends { providerId: string; id?: string }>(
   roster: readonly T[],
   settings?: UsageSidebarSettings | null,
 ): T[] {
@@ -167,14 +179,14 @@ export function resolveSidebarProviders<T extends { providerId: string }>(
 
 export function updateProviderVisibility(
   settings: UsageSidebarSettings | undefined,
-  providerId: string,
+  targetId: string,
   visible: boolean,
 ): UsageSidebarSettings {
   const currentHidden = new Set(settings?.hidden ?? [])
   if (visible) {
-    currentHidden.delete(providerId)
+    currentHidden.delete(targetId)
   } else {
-    currentHidden.add(providerId)
+    currentHidden.add(targetId)
   }
   const hidden = [...currentHidden]
   return {
@@ -184,26 +196,24 @@ export function updateProviderVisibility(
 }
 
 /**
- * Move one provider one slot up or down, without forgetting the providers
+ * Move one provider or pool one slot up or down, without forgetting the items
  * that are not registered right now.
  *
- * The move itself happens among the providers the user can actually see, so
+ * The move itself happens among the items the user can actually see, so
  * a step never lands on an invisible neighbour and appears to do nothing.
  * What is written back is wider than that: an id in the saved order that no
- * provider currently claims keeps its exact slot, and the reordered visible
- * providers fill the slots around it. Writing back only the present ids --
- * which is what this did first -- meant that reordering anything while a
- * provider happened to be unregistered discarded that provider's remembered
- * position for good, and it returned at the end of the list.
+ * provider/pool currently claims keeps its exact slot, and the reordered visible
+ * items fill the slots around it.
  */
-export function moveProviderInOrder(
-  roster: readonly { providerId: string }[],
+export function moveProviderInOrder<T extends { providerId: string; id?: string }>(
+  roster: readonly T[],
   settings: UsageSidebarSettings | undefined,
-  providerId: string,
+  targetId: string,
   direction: 'up' | 'down',
 ): UsageSidebarSettings {
-  const present = resolveOrderedRoster(roster, settings).map((i) => i.entry.providerId)
-  const index = present.indexOf(providerId)
+  const getItemId = (item: T): string => (typeof item.id === 'string' && item.id.length > 0 ? item.id : item.providerId)
+  const present = resolveOrderedRoster(roster, settings).map((i) => getItemId(i.entry))
+  const index = present.indexOf(targetId)
   if (index === -1) return settings ?? {}
   const targetIndex = direction === 'up' ? index - 1 : index + 1
   if (targetIndex < 0 || targetIndex >= present.length) return settings ?? {}
@@ -216,7 +226,12 @@ export function moveProviderInOrder(
   // because a hand-edited or migrated setting may repeat an id, and a repeat
   // would consume two slots from a list that has one entry for it.
   const saved = [...new Set(settings?.order ?? [])]
-  const union = [...saved, ...present.filter((id) => !saved.includes(id))]
+  const expandedSaved = saved.flatMap((id) => {
+    if (present.includes(id)) return [id]
+    const matching = present.filter((p) => p.startsWith(`${id}:`))
+    return matching.length > 0 ? matching : [id]
+  })
+  const union = [...new Set([...expandedSaved, ...present.filter((id) => !expandedSaved.includes(id))])]
 
   const presentSet = new Set(present)
   let cursor = 0

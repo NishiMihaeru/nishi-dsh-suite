@@ -35,6 +35,8 @@ DSH mints its own tool-call ids rather than trusting the model's, which are free
 
 The forced structured-output schema is built per tool catalog: each call variant pins `name` to one tool and `arguments` to that tool's own declared schema. It previously declared `arguments: {"type": "object"}` for every call, which an empty object satisfies, so a call missing every required field was well-formed as far as the vendor was concerned.
 
+An auxiliary call (`purpose` set: compaction, session titles) gets a schema with no `tool_calls` property at all, because compaction replays the conversation's tool catalog for cache alignment and the model answered it by calling a tool instead of summarizing.
+
 DSH tool schemas are rewritten into the vendor's accepted subset first. Annotation-only keywords are dropped and `const` becomes a one-member `enum`; a schema using a composite keyword (`$ref`, `oneOf`, `allOf`, `if`) falls back to the untyped object for **that tool alone**, never for the catalog around it.
 
 ### Context capacity
@@ -65,7 +67,7 @@ Project Memory and DSH-native child-agent delegation are external to this provid
 
 The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 96 unit tests plus 11 live scenarios (8 primary, 1 session continuation, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline. Primary and session continuation were re-run on the current tree; the two search scenarios date from 2026-08-31 and are untouched by the changes since.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 99 unit tests plus 11 live scenarios (8 primary, 1 session continuation, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline. Primary and session continuation were re-run on the current tree; the two search scenarios date from 2026-08-31 and are untouched by the changes since.
 
 ## Validation status — PENDING PROVIDER STAGE
 

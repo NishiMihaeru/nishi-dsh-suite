@@ -467,3 +467,87 @@ test('ordering: a duplicated id in a saved order does not desynchronise the rewr
     ['claude', 'codex'],
   )
 })
+
+// -----------------------------------------------------------------------------
+// Pool-Level Visibility and Ordering Tests (e.g. Antigravity Gemini vs Claude/GPT)
+// -----------------------------------------------------------------------------
+
+test('pool-level settings: pools can be hidden and reordered independently', () => {
+  const pools = [
+    {
+      id: 'antigravity:pool:gemini',
+      providerId: 'antigravity',
+      displayName: 'Gemini',
+      kind: 'POOL' as const,
+    },
+    {
+      id: 'antigravity:pool:claude-gpt',
+      providerId: 'antigravity',
+      displayName: 'Claude / GPT',
+      kind: 'POOL' as const,
+    },
+    {
+      id: 'codex',
+      providerId: 'codex',
+      displayName: 'Codex',
+      kind: 'PROVIDER' as const,
+    },
+  ]
+
+  // Default ordering: natural roster order, all visible
+  const defaultOrdered = resolveOrderedRoster(pools, undefined)
+  assert.deepEqual(
+    defaultOrdered.map((item) => ({ id: item.entry.id, visible: item.visible })),
+    [
+      { id: 'antigravity:pool:gemini', visible: true },
+      { id: 'antigravity:pool:claude-gpt', visible: true },
+      { id: 'codex', visible: true },
+    ],
+  )
+  assert.deepEqual(
+    resolveSidebarProviders(pools, undefined).map((item) => item.id),
+    ['antigravity:pool:gemini', 'antigravity:pool:claude-gpt', 'codex'],
+  )
+
+  // 1. Hide only Gemini pool
+  const hideGeminiSettings = updateProviderVisibility(undefined, 'antigravity:pool:gemini', false)
+  assert.deepEqual(hideGeminiSettings, { hidden: ['antigravity:pool:gemini'] })
+  assert.deepEqual(
+    resolveSidebarProviders(pools, hideGeminiSettings).map((item) => item.id),
+    ['antigravity:pool:claude-gpt', 'codex'],
+    'only Claude / GPT pool and Codex are visible when Gemini pool is hidden',
+  )
+
+  // 2. Hide only Claude / GPT pool
+  const hideClaudeSettings = updateProviderVisibility(undefined, 'antigravity:pool:claude-gpt', false)
+  assert.deepEqual(
+    resolveSidebarProviders(pools, hideClaudeSettings).map((item) => item.id),
+    ['antigravity:pool:gemini', 'codex'],
+    'only Gemini pool and Codex are visible when Claude / GPT pool is hidden',
+  )
+
+  // 3. Reorder pools: swap Gemini and Claude / GPT pools
+  const reorderPools = moveProviderInOrder(pools, undefined, 'antigravity:pool:claude-gpt', 'up')
+  assert.deepEqual(reorderPools.order, [
+    'antigravity:pool:claude-gpt',
+    'antigravity:pool:gemini',
+    'codex',
+  ])
+  assert.deepEqual(
+    resolveSidebarProviders(pools, reorderPools).map((item) => item.id),
+    ['antigravity:pool:claude-gpt', 'antigravity:pool:gemini', 'codex'],
+    'Claude / GPT pool now appears before Gemini pool',
+  )
+
+  // 4. Reorder pools across providers: e.g. Claude / GPT -> Codex -> Gemini
+  const reorderAcross = moveProviderInOrder(pools, reorderPools, 'codex', 'up')
+  assert.deepEqual(reorderAcross.order, [
+    'antigravity:pool:claude-gpt',
+    'codex',
+    'antigravity:pool:gemini',
+  ])
+  assert.deepEqual(
+    resolveSidebarProviders(pools, reorderAcross).map((item) => item.id),
+    ['antigravity:pool:claude-gpt', 'codex', 'antigravity:pool:gemini'],
+  )
+})

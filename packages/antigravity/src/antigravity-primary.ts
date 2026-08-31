@@ -162,7 +162,35 @@ function toVendorSchema(value: unknown): unknown | undefined {
  * `anyOf` with an `enum`-of-one discriminator is used rather than `oneOf` with
  * `const`: both were what the vendor's subset actually accepted when probed.
  */
-function bridgeSchemaFor(tools: readonly ToolSchema[] | undefined): unknown {
+/**
+ * The schema for an auxiliary call, which may only answer in prose.
+ *
+ * Compaction replays the conversation's own system prompt AND its tool
+ * catalog on purpose, so the summarization request is a genuine prefix of the
+ * last routed request and stays cache-aligned. The cost of that, once the
+ * bridge started typing tool arguments, was that the summarizer looked
+ * exactly like an ordinary turn holding 29 tools and a half-finished task --
+ * and the model answered it by calling a tool. `kind` was then `tool_calls`,
+ * `text` was empty, and compaction died with "summarization produced no text
+ * summary content": 7 of 8 attempts in one real session.
+ *
+ * Removing `tool_calls` from the schema outright, rather than bounding it,
+ * makes the wrong answer unexpressible using only keywords the vendor is
+ * known to accept. The envelope still carries the tools, so the prefix
+ * alignment compaction wants is untouched.
+ */
+const BRIDGE_MESSAGE_ONLY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    kind: { type: 'string', enum: ['message'] },
+    text: { type: 'string' },
+  },
+  required: ['kind', 'text'],
+} as const
+
+function bridgeSchemaFor(tools: readonly ToolSchema[] | undefined, messageOnly: boolean): unknown {
+  if (messageOnly) return BRIDGE_MESSAGE_ONLY_SCHEMA
   if (tools === undefined || tools.length === 0) return BRIDGE_SCHEMA
   const variants = tools.map(tool => ({
     type: 'object',
@@ -556,10 +584,13 @@ function validateBridgeOutput(row: Record<string, unknown>): BridgeOutput {
       'ANTIGRAVITY_PROTOCOL',
     )
   }
-  if (typeof row.text !== 'string' || !Array.isArray(row.tool_calls)) {
+  // `tool_calls` is absent by construction under the message-only schema an
+  // auxiliary call is given, and an absent array is an empty one.
+  const rawCalls = row.tool_calls === undefined ? [] : row.tool_calls
+  if (typeof row.text !== 'string' || !Array.isArray(rawCalls)) {
     throw new LlmError('Antigravity returned malformed bridge output', 'ANTIGRAVITY_PROTOCOL')
   }
-  const calls: BridgeToolCall[] = row.tool_calls.map((item, index) => {
+  const calls: BridgeToolCall[] = rawCalls.map((item, index) => {
     const call = record(item)
     if (!call || typeof call.id !== 'string' || typeof call.name !== 'string') {
       throw new LlmError(
@@ -1151,8 +1182,9 @@ export class AntigravityCliAdapter extends LlmAdapter {
   private async ensureBridgeSchema(
     workspace: EphemeralAgentWorkspace,
     tools: readonly ToolSchema[] | undefined,
+    messageOnly: boolean,
   ): Promise<string> {
-    const schema = bridgeSchemaFor(tools)
+    const schema = bridgeSchemaFor(tools, messageOnly)
     if (schema === BRIDGE_SCHEMA) return workspace.files[BRIDGE_SCHEMA_FILE]
     const body = JSON.stringify(schema)
     const digest = createHash('sha256').update(body).digest('hex').slice(0, 32)
@@ -1328,7 +1360,11 @@ export class AntigravityCliAdapter extends LlmAdapter {
       options.reasoningEffort,
       resolveSignal,
     )
-    const schemaPath = await this.ensureBridgeSchema(workspace, options.tools)
+    const schemaPath = await this.ensureBridgeSchema(
+      workspace,
+      options.tools,
+      options.purpose !== undefined,
+    )
     const args = [
       '--add-dir', workspace.root,
       '--input-format', 'stream-json',

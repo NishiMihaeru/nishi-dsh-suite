@@ -58,15 +58,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(12px * var(--usage-scale, 1));
-  line-height: calc(16px * var(--usage-scale, 1));
+  font-size: calc(13.5px * var(--usage-scale, 1));
+  line-height: calc(18px * var(--usage-scale, 1));
   font-weight: 600;
 }
 
 .refreshing,
 .errorHint {
   flex: none;
-  font-size: calc(9px * var(--usage-scale, 1));
+  font-size: calc(10.5px * var(--usage-scale, 1));
 }
 
 .refreshing {
@@ -89,8 +89,8 @@
   min-width: 0;
   padding-left: calc(27px * var(--usage-scale, 1));
   box-sizing: border-box;
-  font-size: calc(10px * var(--usage-scale, 1));
-  line-height: calc(14px * var(--usage-scale, 1));
+  font-size: calc(11.5px * var(--usage-scale, 1));
+  line-height: calc(15px * var(--usage-scale, 1));
   color: var(--dsw-alias-label-tertiary, inherit);
 }
 
@@ -102,16 +102,16 @@
   width: 100%;
   min-width: 0;
   padding-left: calc(27px * var(--usage-scale, 1));
-  padding-top: calc(2px * var(--usage-scale, 1));
+  padding-top: calc(3px * var(--usage-scale, 1));
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: calc(7px * var(--usage-scale, 1));
+  gap: calc(8px * var(--usage-scale, 1));
   overflow: hidden;
   white-space: nowrap;
-  color: var(--dsw-alias-label-tertiary, inherit);
-  font-size: calc(9px * var(--usage-scale, 1));
-  line-height: calc(12px * var(--usage-scale, 1));
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: calc(12px * var(--usage-scale, 1));
+  line-height: calc(16px * var(--usage-scale, 1));
 }
 
 .resetTitle {
@@ -144,6 +144,11 @@
 
 .resetWindow {
   color: var(--dsw-alias-label-secondary, inherit);
+}
+
+.resetCountdown {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, inherit);
 }
 
 .compactBlock {

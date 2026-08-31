@@ -30,18 +30,20 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
     return () => window.clearInterval(timer)
   }, [])
 
-  const orderedRoster = useMemo(() => {
-    return resolveOrderedRoster(snapshot.roster, snapshot.sidebarSettings)
-  }, [snapshot.roster, snapshot.sidebarSettings])
-
-  const groups = useMemo(() => snapshot.roster.flatMap((item) => {
-    const entry = snapshot.providers[item.providerId]
-    return buildUsageGroupsForProvider({
-      presentation: item.presentation,
-      loadStatus: entry?.status ?? 'idle',
-      usage: entry?.usage,
+  const allGroups = useMemo(() => {
+    return snapshot.roster.flatMap((item) => {
+      const entry = snapshot.providers[item.providerId]
+      return buildUsageGroupsForProvider({
+        presentation: item.presentation,
+        loadStatus: entry?.status ?? 'idle',
+        usage: entry?.usage,
+      })
     })
-  }), [snapshot])
+  }, [snapshot.roster, snapshot.providers])
+
+  const orderedGroups = useMemo(() => {
+    return resolveOrderedRoster(allGroups, snapshot.sidebarSettings)
+  }, [allGroups, snapshot.sidebarSettings])
 
   const isAnyRefreshing = snapshot.roster.some(
     (item) => snapshot.providers[item.providerId]?.status === 'loading',
@@ -86,26 +88,31 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
           )}
         </div>
 
-        {orderedRoster.length === 0 ? (
+        {orderedGroups.length === 0 ? (
           <p className={styles.emptyNotice}>{t('noProvidersConfigured')}</p>
         ) : (
           <div className={styles.providerConfigList}>
-            {orderedRoster.map((item, index) => {
+            {orderedGroups.map((item, index) => {
               const isFirst = index === 0
-              const isLast = index === orderedRoster.length - 1
-              const providerId = item.entry.providerId
-              const displayName = item.entry.presentation.displayName
+              const isLast = index === orderedGroups.length - 1
+              const group = item.entry
+              const displayName = group.kind === 'POOL' && group.parentDisplayName
+                ? `${group.parentDisplayName} · ${group.displayName}`
+                : group.displayName
 
               return (
-                <div key={providerId} className={styles.providerConfigRow}>
+                <div key={group.id} className={styles.providerConfigRow}>
                   <label className={styles.providerCheckboxLabel}>
                     <input
                       type="checkbox"
                       className={styles.checkbox}
                       checked={item.visible}
-                      onChange={(e) => controller.setProviderVisible(providerId, e.target.checked)}
+                      onChange={(e) => controller.setProviderVisible(group.id, e.target.checked)}
                     />
                     <span className={styles.providerRowName}>{displayName}</span>
+                    {group.kind === 'POOL' && (
+                      <span className={styles.badgeOther}>{t('poolLabel')}</span>
+                    )}
                   </label>
 
                   <div className={styles.orderButtonRow}>
@@ -116,7 +123,7 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
                       aria-label={`${t('moveUp')}: ${displayName}`}
                       title={t('moveUp')}
                       icon={<IconChevronUpOutline14 size={14} />}
-                      onClick={() => controller.moveProviderOrder(providerId, 'up')}
+                      onClick={() => controller.moveProviderOrder(group.id, 'up')}
                     />
                     <Button
                       variant="ghost"
@@ -125,7 +132,7 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
                       aria-label={`${t('moveDown')}: ${displayName}`}
                       title={t('moveDown')}
                       icon={<IconChevronDownOutline14 size={14} />}
-                      onClick={() => controller.moveProviderOrder(providerId, 'down')}
+                      onClick={() => controller.moveProviderOrder(group.id, 'down')}
                     />
                   </div>
                 </div>
@@ -136,7 +143,8 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
       </div>
 
       <div className={styles.providerCardsList}>
-        {groups.map((group) => {
+        {orderedGroups.map((item) => {
+          const group = item.entry
           const entry = snapshot.providers[group.providerId]
           const isRefreshing = entry?.status === 'loading'
           const displayName = group.kind === 'POOL' && group.parentDisplayName

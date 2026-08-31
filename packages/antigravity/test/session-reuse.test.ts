@@ -644,3 +644,53 @@ test('maxTokens is refused on an ordinary turn but accepted as an auxiliary budg
     assert.ok(folded.some(chunk => chunk.type === 'finish'))
   } finally { await adapter.dispose() }
 })
+
+test('an auxiliary call gets a schema that cannot express a tool call at all', async () => {
+  const { ctx, spawns } = harness([messageReply('a summary')])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    // Compaction replays the conversation's own tools on purpose, to stay
+    // cache-aligned with the last routed request. Offered them alongside an
+    // unfinished task, the model answered by calling one -- leaving `text`
+    // empty and compaction dead with "no text summary content".
+    await collect(adapter.stream(request({
+      messages: [userText('summarize')],
+      purpose: 'compaction',
+      maxTokens: 8192,
+    })))
+
+    const schema = schemaArgv(spawns) as any
+    assert.deepEqual(schema.properties.kind.enum, ['message'])
+    assert.equal(schema.properties.tool_calls, undefined, 'a tool call must be unexpressible, not merely discouraged')
+  } finally { await adapter.dispose() }
+})
+
+test('an auxiliary reply omitting tool_calls entirely is read as a plain message', async () => {
+  const { ctx } = harness([{
+    conversation_id: 'c1',
+    status: 'SUCCESS',
+    // Exactly what the message-only schema produces: no `tool_calls` key.
+    structured_output: { kind: 'message', text: '## Primary Request and Intent\n- do the thing' },
+  }])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const chunks = await collect(adapter.stream(request({
+      messages: [userText('summarize')],
+      purpose: 'compaction',
+    })))
+    const text = chunks.filter(c => c.type === 'text-delta').map(c => c.text).join('')
+    assert.match(text, /Primary Request and Intent/)
+    assert.equal(chunks.find(c => c.type === 'finish')?.reason.kind, 'stop')
+  } finally { await adapter.dispose() }
+})
+
+test('an ordinary turn still gets the tool-typed schema', async () => {
+  const { ctx, spawns } = harness([messageReply('ok')])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    await collect(adapter.stream(request({ messages: [userText('hi')] })))
+    const schema = schemaArgv(spawns) as any
+    assert.deepEqual(schema.properties.kind.enum, ['message', 'tool_calls'])
+    assert.ok(schema.properties.tool_calls)
+  } finally { await adapter.dispose() }
+})

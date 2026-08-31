@@ -69,8 +69,8 @@
 }
 
 .headerTitle {
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 15px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -146,19 +146,19 @@
 
 .usageTooltip {
   position: fixed;
-  width: 224px;
+  width: 236px;
   max-width: calc(100vw - 20px);
   z-index: 1200;
   pointer-events: none;
   box-sizing: border-box;
-  padding: 9px 10px;
+  padding: 9px 11px;
   border: 1px solid var(--dsw-alias-border-l2, transparent);
   border-radius: 9px;
   background: var(--dsw-alias-bg-module-platform, var(--dsw-alias-bg-layer-1, transparent));
   box-shadow: var(--dsw-shadow-lv2, none);
   color: var(--dsw-alias-label-primary, inherit);
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 11.5px;
+  line-height: 16px;
 }
 
 .usageTooltipTitle {
@@ -166,7 +166,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--dsw-alias-label-primary, inherit);
 }
@@ -179,9 +179,10 @@
 
 .usageTooltipRow {
   display: grid;
-  grid-template-columns: 44px 1fr 1fr;
+  grid-template-columns: 48px 1fr 1fr;
   gap: 6px;
   align-items: center;
+  font-size: 11.5px;
   color: var(--dsw-alias-label-secondary, inherit);
   white-space: nowrap;
 }

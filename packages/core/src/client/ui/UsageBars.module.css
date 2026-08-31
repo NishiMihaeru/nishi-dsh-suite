@@ -10,7 +10,7 @@
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: calc(44px * var(--usage-scale, 1)) minmax(0, 1fr);
+  grid-template-columns: calc(48px * var(--usage-scale, 1)) minmax(0, 1fr);
   align-items: center;
   gap: calc(8px * var(--usage-scale, 1));
   box-sizing: border-box;
@@ -20,15 +20,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(11px * var(--usage-scale, 1));
-  line-height: calc(14px * var(--usage-scale, 1));
+  font-size: calc(12px * var(--usage-scale, 1));
+  line-height: calc(15px * var(--usage-scale, 1));
   color: var(--dsw-alias-label-secondary, inherit);
 }
 .track {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  height: max(3px, calc(5px * var(--usage-scale, 1)));
+  height: max(4px, calc(6px * var(--usage-scale, 1)));
   overflow: hidden;
   border-radius: 999px;
   box-sizing: border-box;

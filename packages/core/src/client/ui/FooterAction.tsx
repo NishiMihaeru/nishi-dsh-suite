@@ -71,8 +71,7 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
   const [hover, setHover] = useState<UsageHoverState | null>(null)
 
   const groups = useMemo(() => {
-    const visibleRoster = resolveSidebarProviders(snapshot.roster, snapshot.sidebarSettings)
-    return visibleRoster.flatMap((item) => {
+    const allGroups = snapshot.roster.flatMap((item) => {
       const entry = snapshot.providers[item.providerId]
       return buildUsageGroupsForProvider({
         presentation: item.presentation,
@@ -80,7 +79,8 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
         usage: entry?.usage,
       })
     })
-  }, [snapshot])
+    return resolveSidebarProviders(allGroups, snapshot.sidebarSettings)
+  }, [snapshot.roster, snapshot.providers, snapshot.sidebarSettings])
 
   const selectedGroup = selectedKey
     ? groups.find((group) => groupKey(group) === selectedKey)

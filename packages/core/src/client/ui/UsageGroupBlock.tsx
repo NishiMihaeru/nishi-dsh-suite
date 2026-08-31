@@ -105,7 +105,7 @@ export function UsageGroupBlock(props: UsageGroupBlockProps): React.ReactElement
             {resets.map(({ win, value }) => (
               <span key={win.id} className={styles.resetItem}>
                 <span className={styles.resetWindow}>{usageWindowDisplayLabel(win)}</span>
-                <span>{value}</span>
+                <span className={styles.resetCountdown}>{value}</span>
               </span>
             ))}
           </div>
