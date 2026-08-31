@@ -10,7 +10,7 @@ This is the only session handoff file. Update it in place when the active task c
 feat/core-provider-plugins-rc3
 ```
 
-Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin, the Antigravity session-lived vendor conversation and per-tool output schema included. Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
+Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin, through the Core sidebar selection/ordering feature (`52f03ab`). Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
 
 Only supported DSH generation:
 
@@ -41,7 +41,7 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 
 | Package | State |
 |---|---|
-| Core | remediated; Model Accounts surface removed outright; 182 tests |
+| Core | remediated; Model Accounts surface removed outright; sidebar provider selection and ordering added; 199 tests |
 | Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
 | Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; mid-turn route-switch defect fixed and covered live; 81 tests |
 | Antigravity | provider stage complete except the freeze; one live `agy` child per session replaces one process per step, and tool arguments are now typed by the forced schema; 96 tests |
@@ -75,6 +75,7 @@ Ordered by how much it changes the contract.
 - **Antigravity's forced output schema now types tool arguments.** It declared `arguments: {"type":"object"}` for every call, which an empty object satisfies — so a call with none of the tool's required fields was well-formed to the vendor, failed in DSH, and was retried by a model with no way to see why. Each variant now pins one tool name and that tool's own parameter schema. The shape (`anyOf` plus an `enum`-of-one discriminator) was probed against the real binary before it was written, and DSH schemas are rewritten into the vendor's subset first, with an unrepresentable schema abandoning that one tool rather than the whole catalog.
 - **Three defects found by reading real session logs.** Worth naming because none of them failed a test, and two were silent by construction. `maxTokens` was refused on every request, so the new context capacity made compaction run and fail 35 times in one session while `agent/pre-step` logged a warning and carried on; it is now accepted and ignored for auxiliary calls only. The divergence check compared message ids, but the tool-result pruner rewrites a message's content and keeps its id, so 80k tokens of pruning never reached the vendor; it now digests content. And a delta echoed the conversation's own replies back at it, which doubled the density of every action in the transcript and helped a real session end in 43 identical `todo_write` calls after the work was done.
 - **Antigravity advertises a context capacity.** Without one, `compaction-basic` refuses automatic pressure compaction and the refusal is swallowed as a single warning, so the route never compacted and had no bound on history growth at all. Codex still discloses none either; it is left alone deliberately because guessing a per-model window is not an adapter's decision (`ROADMAP.md` §3).
+- **The Usage sidebar can be told which providers to show, and in what order.** Authored by Gemini 3.7 Flash driving this workspace through DSH, then reviewed and verified before landing. Resolution stays dynamic — ordered ids that are still registered first, newly registered ones appended and visible, saved ids no provider claims ignored — and no provider id is hardcoded. With no saved setting the rendering is exactly what it was. The preference is per browser, through a storage seam with a `localStorage` default; that is a deliberate choice for a display preference and not a DSH setting, worth revisiting if it ever needs to follow a user across machines. One defect was found in review and fixed on top: reordering while a provider was unregistered used to discard that provider's remembered slot. Core 182 -> 199 tests.
 - **Web search left as it is, deliberately.** The investigation found the suite already routes search through the session's live primary model — the concern that prompted it was unfounded. What did change: search results now carry an untrusted-content notice (`81ca500`), which they previously did not.
 
 ## What remains
