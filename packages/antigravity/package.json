@@ -23,6 +23,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
+    "test:live:agent-allowlist": "tsx --test test-live/agent-allowlist.test.ts",
     "test:live:mcp-bridge": "tsx --test test-live/mcp-bridge.test.ts",
     "test:live:primary": "tsx --test test-live/primary.test.ts",
     "test:live:session-continuation": "tsx --test test-live/session-continuation.test.ts",
