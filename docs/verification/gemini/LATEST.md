@@ -1,6 +1,6 @@
 # Whole-tree adversarial review: two models, four areas
 
-- **Result**: `DEFECTS FOUND` — 16 distinct findings reported, 10 confirmed so far, 2 fixed, 6 confirmed and open, 6 not yet verified
+- **Result**: `DEFECTS FOUND` — 16 distinct findings reported, 10 confirmed so far, 4 fixed, 4 confirmed and open, 6 not yet verified
 - **Kind**: adversarial code review by two models that did not write the code. **Not** a freeze sign-off; see *Standing*.
 - **Reviewers**: `gemini-3.7-flash-high` and `gemini-3.1-pro-high`, via `agy 1.1.22`, each over all four areas
 - **Reviewed**: every `src` and `test` tree under `packages/`, at `77f6d80`
@@ -44,14 +44,14 @@ Confirmed = traced in the code by the maintainer's session, or demonstrated.
 | # | Where | Defect | Sev |
 |---|---|---|---|
 | A2 | `antigravity/src/mcp-bridge.ts` | The bridge socket directory sat at a predictable path in the temp dir, and `mkdir(dir, {recursive, mode: 0o700})` does **not** change the mode of a directory that already exists — demonstrated, not argued. Any local user could pre-create it world-writable, then enumerate adapter sockets, read the tool catalogs handed out, and forge the frames that answer a blocked vendor turn. Now the directory's owner and mode are verified; our own loose directory is tightened, another user's or a symlink is refused. | security |
+| M1 | `project-memory/src/filesystem.ts` | Releasing a writer lock unlinks the owner marker and only then removes the directory, so a concurrent reader landed on an empty lock directory, failed `entries.length !== 1`, and threw `Malformed project memory writer lock` -- killing an unrelated caller's memory operation. Same shape as `e38ce06`. An empty directory now reads as unowned, which cannot weaken exclusion because exclusion is the marker's atomic `link()`, never this read; a directory holding anything else is still malformed. Covered by a test for the window and a second one asserting three concurrent writers still serialise. | significant |
+| C2 | `core/src/registry/service.ts` | `invalidate()` called each listener in a bare loop while `#announce()` contained observer failures with its reasoning written down. One throwing invalidation listener aborted every later listener and surfaced into the caller -- a provider refreshing its own usage cache. Now contained the same way, async rejections included. | significant |
 | A6 | `antigravity/src/mcp-bridge-server.ts` | The server offered itself to adapter sockets **in sequence**, and an adapter that does not yet know a pid parks the offer for its full claim window by design. One unrelated adapter on the machine therefore cost a 10s stall per turn; two exceeded the server's 15s claim deadline outright, leaving the model with no tools — through a path that now fails the turn loudly. Offers go out concurrently and resolve on the first claim. The first attempt at this fix was **wrong** (`Promise.all` still awaited the parked offers) and the regression test caught it: 30s before, 86ms after. | blocking |
 
 ### Confirmed and open
 
 | # | Where | Defect | Sev |
 |---|---|---|---|
-| M1 | `project-memory/src/filesystem.ts:481` | Releasing a writer lock unlinks the owner marker and only then removes the directory. In that window the lock directory exists with zero entries, and a concurrent reader fails `entries.length !== 1` and throws `Malformed project memory writer lock` — an unrelated caller's memory operation dies. Same shape as the race fixed in `e38ce06`. Exclusion comes from the marker's atomic `link()`, not from this read, so an empty directory honestly means "no owner": returning `null` is both correct and safe. | significant |
-| C2 | `core/src/registry/service.ts:127` | `invalidate()` calls each listener in a bare loop while `#announce()` contains observer failures with a documented "non-vetoing" rationale. One throwing invalidation listener aborts the rest and surfaces into the provider's usage-invalidation path. | significant |
 | X2 | `codex/.../adapter.ts:589-621` | The continuation branch — resolve the parked tool call, `turn/steer` — sits **outside** the `try/finally` that calls `closeTurn`. A throw there (missing tool result, already-aborted signal, a rejected steer) leaks the App Server process and leaves the turn in `activeTurns` forever, so every later request on that session fails instantly. Both models found this independently. | significant |
 | X3 | `codex/.../adapter.ts:625` | A continuation step awaits `active.signal`, bound to the **first** step's signal. Cancelling during a continuation is never observed, `interrupt` is never sent, and the step hangs until the turn timeout. Both models found this independently. | significant |
 | X4 | `codex/.../adapter.ts` | `turnTimeoutMs` is bound once into `active.signal`, so it spans DSH's own tool execution. A tool that waits on a human approval can silently kill the App Server mid-turn. Note the tension with Antigravity's bridge, which scopes its timeout the same way for the opposite reason: neither suspends the clock while DSH executes, which is what both actually want. | significant |
@@ -70,9 +70,9 @@ Confirmed = traced in the code by the maintainer's session, or demonstrated.
 | A5 | `antigravity/src/mcp-bridge.ts` | `close()` waits out the claim window for a connection that never sent `hello`. |
 | A7 | `antigravity/src/usage-source.ts:516` | An IPv6 loopback endpoint is interpolated without brackets, so `new URL()` rejects every `::1` candidate. |
 
-## Verification after the two fixes
+## Verification after the fixes
 
-- `pnpm verify:local` exits `0`; Antigravity 123 -> 125 tests, `fail 0` in all six packages
+- `pnpm verify:local` exits `0`; Core 200 -> 202, Project Memory 77 -> 79, Antigravity 123 -> 125 tests, `fail 0` in all six packages
 - `test:live:mcp-bridge` PASS against real `agy 1.1.22`
 - both fixes carry a regression test that fails against the pre-fix code
 

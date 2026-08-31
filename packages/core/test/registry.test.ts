@@ -170,3 +170,38 @@ test('provider identity bounds are enforced at the registry boundary', async () 
     new RegExp(`no longer than ${MAX_PROVIDER_ROUTE_LENGTH}`),
   )
 })
+
+test('a throwing invalidation listener does not stop the others or reach the caller', async () => {
+  // `#announce()` has always contained observer failures, with the reasoning
+  // written down: a committed change is not a vote. `invalidate()` did not, and
+  // the asymmetry was a real defect -- its caller is a provider refreshing its
+  // own usage cache, which would inherit an unrelated plugin's exception.
+  const registry = await service()
+  const seen: string[] = []
+  registry.onInvalidate(() => { seen.push('first') })
+  registry.onInvalidate(() => { throw new Error('listener exploded') })
+  registry.onInvalidate(() => { seen.push('third') })
+
+  assert.doesNotThrow(() => registry.invalidate('fixture'))
+  assert.deepEqual(seen, ['first', 'third'], 'a listener after the throwing one must still run')
+})
+
+test('a rejecting async invalidation listener does not become an unhandled rejection', async () => {
+  const registry = await service()
+  const seen: string[] = []
+  registry.onInvalidate((() => Promise.reject(new Error('async listener exploded'))) as () => void)
+  registry.onInvalidate(() => { seen.push('after') })
+
+  const unhandled: unknown[] = []
+  const capture = (reason: unknown): void => { unhandled.push(reason) }
+  process.on('unhandledRejection', capture)
+  try {
+    registry.invalidate('fixture')
+    // Two macrotask turns: enough for a rejection to surface if it were loose.
+    await new Promise(resolve => setTimeout(resolve, 20))
+  } finally {
+    process.off('unhandledRejection', capture)
+  }
+  assert.deepEqual(seen, ['after'])
+  assert.deepEqual(unhandled, [])
+})

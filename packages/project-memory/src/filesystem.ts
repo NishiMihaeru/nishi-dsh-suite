@@ -477,6 +477,18 @@ function createDirectoryScope(
     if (child === undefined) return null
     try {
       const entries = await readdir(child.anchor.path)
+      // An EMPTY lock directory is a normal transient state, not a malformed
+      // lock. Release unlinks the owner marker and only then removes the
+      // directory, so a concurrent reader lands between the two; treating that
+      // as malformed failed an unrelated caller's memory operation, which is the
+      // same shape as the recovery race fixed in `e38ce06`.
+      //
+      // Reporting "no owner" here cannot weaken exclusion, because exclusion is
+      // not this read: a writer takes the lock by creating its marker through an
+      // atomic `link()`, which fails for everyone but the winner whatever this
+      // function says. Both callers are safe with `null` -- dead-lock reclaim
+      // does nothing, and owned-removal declines.
+      if (entries.length === 0) return null
       if (entries.length !== 1 || !/^owner-[A-Za-z0-9._-]+\.json$/.test(entries[0] ?? '')) {
         throw new Error(`Malformed project memory writer lock at "${logicalLockPath}"`)
       }

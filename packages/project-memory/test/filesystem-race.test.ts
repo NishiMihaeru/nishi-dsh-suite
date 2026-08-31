@@ -231,3 +231,61 @@ test('readRegularFile still fails closed with the original message when the targ
     await rm(projectRoot, { recursive: true, force: true })
   }
 })
+
+test('a lock directory caught mid-release reads as unowned, not as malformed', async () => {
+  // Release unlinks the owner marker and only then removes the directory, so a
+  // concurrent reader lands on an empty lock directory. Reporting that as
+  // malformed killed an unrelated caller's memory operation -- the same shape as
+  // the recovery race this suite already covers.
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-lock-window-'))
+  try {
+    const targetPath = join(projectRoot, 'MEMORY.md')
+    await writeFile(targetPath, '# memory\n', 'utf8')
+    const lockPath = `${targetPath}.lock`
+    await mkdir(lockPath)
+
+    await withSafeDirectoryScope(projectRoot, async (scope) => {
+      // Exactly the state release leaves behind between unlink and rmdir.
+      assert.equal(await scope.readWriterLockOwner(targetPath), null)
+    })
+
+    // A directory holding something other than one well-formed owner marker is
+    // still malformed: this fix must not turn a corrupt lock into a silent one.
+    await writeFile(join(lockPath, 'not-an-owner.txt'), 'x', 'utf8')
+    await withSafeDirectoryScope(projectRoot, async (scope) => {
+      await assert.rejects(
+        () => scope.readWriterLockOwner(targetPath),
+        /Malformed project memory writer lock/,
+      )
+    })
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+test('a writer lock is still exclusive while another process is mid-release', async () => {
+  // The reason reporting "no owner" is safe: exclusion is the marker's atomic
+  // link(), not this read. Two writers racing an empty lock directory must still
+  // serialise.
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-lock-excl-'))
+  try {
+    const targetPath = join(projectRoot, 'MEMORY.md')
+    await writeFile(targetPath, '# memory\n', 'utf8')
+    await mkdir(`${targetPath}.lock`)
+
+    let concurrent = 0
+    let peak = 0
+    const body = async (): Promise<void> => {
+      await withSafeFileWriterLock(projectRoot, targetPath, async () => {
+        concurrent += 1
+        peak = Math.max(peak, concurrent)
+        await new Promise(resolve => setTimeout(resolve, 25))
+        concurrent -= 1
+      })
+    }
+    await Promise.all([body(), body(), body()])
+    assert.equal(peak, 1, 'the writer lock admitted more than one holder at a time')
+  } finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})

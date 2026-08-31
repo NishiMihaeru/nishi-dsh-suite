@@ -124,13 +124,39 @@ export class NishiProvidersService extends Service {
    * what keeps the usage domain out of the registration path.
    */
   invalidate(providerId: string): void {
-    for (const listener of [...this.#invalidationListeners]) listener(providerId)
+    // Contained for the same reason `#announce()` contains its observers, and
+    // the asymmetry between them was a real defect rather than a nuance: one
+    // throwing invalidation listener used to abort every later listener and
+    // surface into the caller, which is a provider refreshing its own usage
+    // cache. An invalidation is a notification, not a vote.
+    for (const listener of [...this.#invalidationListeners]) {
+      try {
+        const returned = listener(providerId) as unknown
+        if (returned != null && typeof (returned as PromiseLike<unknown>).then === 'function') {
+          void Promise.resolve(returned).then(undefined, (error: unknown) => {
+            this.#warnInvalidationFailure(error)
+          })
+        }
+      } catch (error) {
+        this.#warnInvalidationFailure(error)
+      }
+    }
   }
 
   onInvalidate(listener: (providerId: string) => void): () => void {
     this.#invalidationListeners.add(listener)
     return () => {
       this.#invalidationListeners.delete(listener)
+    }
+  }
+
+  #warnInvalidationFailure(error: unknown): void {
+    try {
+      this.ctx.logger.warn('nishiProviders: an onInvalidate listener failed')
+      this.ctx.logger.warn(error)
+    } catch {
+      // Diagnostics are best-effort: a failing logger must not turn a
+      // notification back into a veto.
     }
   }
 
