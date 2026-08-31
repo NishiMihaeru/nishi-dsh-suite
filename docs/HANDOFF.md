@@ -92,6 +92,9 @@ Decided and closed, so nobody reopens them: old vendor threads already in the us
 
 ## Working notes that cost real time to learn
 
+- `DSH.md` reaches every request on every route: `nishi-dsh-project-memory` reads it and renders it as `## Project Contract (DSH.md)`, and the runtime keeps that block visible across compaction. It is therefore the cheapest place to put behaviour that must always be in front of the model, and it needs no preset change. Its *Working Discipline* section was added after two real sessions failed in ways nothing in the tree corrected: one repeated `todo_write` 43 times after the work was finished, another wrote a task list once and never touched it again across 157 steps.
+- `@deepseek-ai/dsh-agent-instructions` is mounted in the Orchestrator preset with `instructionFileCandidates: []` and `localInstructionFileCandidates: []`, so `AGENTS.md` / `CLAUDE.md` discovery is switched off. Upstream defaults are `['AGENTS.md', 'CLAUDE.md']`. Deliberate or not, it means the mechanism every vendor guide recommends for steering an agent is unavailable here, and `DSH.md` is the only always-on instruction surface. Note also that `~/.dsh/AGENTS.md` would be read by BOTH plugins if it existed, and project-memory reads it into its byte budget without ever rendering it.
+
 - Node 24 is not on `PATH`; it lives in fnm. Prefix commands with `export PATH="$HOME/.local/share/fnm/node-versions/v24.19.0/installation/bin:$PATH"`.
 - Read exit codes from `$?` directly. A background wrapper's exit code is not the command's, and a pipeline hides the failure — this cost a false "green" once already this cycle.
 - Live suites spend the maintainer's real vendor quota. Ask before running them in bulk.
