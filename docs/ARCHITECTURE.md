@@ -227,6 +227,26 @@ A request with no tools keeps the generic schema, so nothing pushes it toward em
 
 An auxiliary call gets a third schema, which permits `kind: "message"` and has no `tool_calls` property at all. Compaction replays the conversation's own system prompt AND its tool catalog deliberately, so its request stays a genuine prefix of the last routed one and remains cache-aligned; once the bridge began typing tool arguments, that made the summarizer look exactly like an ordinary turn holding the full catalog and an unfinished task, and the model answered it by calling a tool. `kind` came back `tool_calls`, `text` was empty, and compaction died with `summarization produced no text summary content` -- 7 of 8 attempts in one measured session, with the single success arriving at step 158 of 175. Removing the property rather than bounding it makes the wrong answer unexpressible using only keywords the vendor was probed to accept, and the envelope still carries the tools, so the prefix alignment compaction wants is untouched. An auxiliary reply with no `tool_calls` key is read as an empty list.
 
+## Antigravity MCP tool bridge
+
+Two transports now exist for this route, selected by `transport`. `schema`, the default, is described above: `agy` is stripped to a model endpoint and its reply forced through `--json-schema`. `mcp-bridge` hands the DSH catalog to the vendor's own harness as MCP tools so the model calls them natively.
+
+The bridge is not a new architecture. It is the one Codex has used since its thread redesign, reached through the only host-facing door `agy` provides. `codexDynamicTools()` declares DSH's catalog to the App Server, an `item/tool/call` request is parked as `active.awaiting` while the adapter returns that call to DSH as an ordinary `tool_calls` reply, DSH's agent loop executes it with its permissions, hooks and durable history, and the next request for that session resolves the parked call and keeps reading the same vendor turn. `agy` has no App Server equivalent; MCP is its only equivalent extension point. What the bridge changes is which side owns tool *calling*, never which side owns tool *execution*: DSH executes in both transports.
+
+Three probed facts about the vendor make it work, and one makes it safe.
+
+**A blocked tool call keeps the turn open.** Held 9.2s against real `agy 1.1.22`, the call completed normally and its result reached the model inside the same turn (`num_turns: 1`, with the model echoing a nonce it could only have read from the server's reply). Without this the design is impossible, and it cannot be concluded from code.
+
+**A line written to stdin during a blocked turn is buffered, not interleaved.** It runs as the next turn once the blocked one finishes. So the bridge coexists with the session-lived child described above rather than racing it: `delta`-by-stdin and resolve-the-blocked-call are alternative continuations of one child, never simultaneous ones.
+
+**The vendor prefix still caches.** On a 62k prefix, every step after the first read ~57.2k from cache and paid ~5.4–5.9k new, including steps immediately following a tool call. The vendor harness's own system prompt and its 57 native tools are therefore a one-off per conversation, not a per-step tax. An earlier measurement showing no cache credit at all was taken on a ~15k prefix, below the ~20k threshold at which the vendor's cache engages.
+
+**Correlation is by parent pid, and it is also the isolation boundary.** The vendor launches MCP servers from the user's global configuration, so a bridge server is a child of `agy`, not of the adapter — exactly one server per `agy` process, with `ppid` equal to the `agy` pid the adapter spawned. A server announces that pid on every adapter socket it can find; the adapter that spawned it claims it and answers with that child's catalog, and every other adapter declines. A server no live adapter claims is served an **empty** catalog. That is what bounds the design's one irreducible cost: global registration makes the server reachable by every `agy` session on the machine, but only a session DSH itself started is given tools. Registration is left to the user's own `agy` configuration and never written by this package, the same boundary that keeps vendor auth outside the suite.
+
+`tools/list` arrives within 4ms of vendor start, before the adapter has said anything, so the server blocks on it until its claim lands. The catalog is consequently fixed for one child's lifetime, which is already the rule `requestSignature` enforces: a changed catalog rebuilds the child rather than revising a live conversation.
+
+Coverage: `test/mcp-bridge.test.ts`, including one test that drives the real server process over real MCP stdio and asserts the call stays blocked until DSH answers. The adapter wiring and the transport's live acceptance are open; see `ROADMAP.md` §3.
+
 ## Antigravity context capacity
 
 `compaction-basic` resolves the routed model's `context.contextWindow` before automatic pressure compaction and throws `TargetPressureConfigError` when there is none. The `agent/pre-step` hook catches that, logs one warning per target, and continues the turn. So a route that discloses no capacity does not fail — it silently never compacts, and its history grows without bound.
