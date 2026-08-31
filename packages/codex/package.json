@@ -23,6 +23,7 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
+    "test:live:inject-items": "tsx --test test-live/inject-items.test.ts",
     "test:live:primary": "tsx --test test-live/primary-live.test.ts",
     "test:live:web-search": "tsx --test test-live/web-search.test.ts",
     "test:live:web-search-routed": "tsx --test test-live/web-search-routed.test.ts",
