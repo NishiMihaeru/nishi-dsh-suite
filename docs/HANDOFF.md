@@ -10,7 +10,7 @@ This is the only session handoff file. Update it in place when the active task c
 feat/core-provider-plugins-rc3
 ```
 
-Six packages at `0.1.0-rc.3`, unpublished. Working tree clean. Branch pushed through `f2b273b`; the documentation reconciliation and the MCP bridge foundation on top of it are committed locally and NOT yet pushed. Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
+Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin at `fc90dc0`. Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
 
 Only supported DSH generation:
 
