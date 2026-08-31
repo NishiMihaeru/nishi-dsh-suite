@@ -666,3 +666,56 @@ test('a throw in the continuation handshake closes the turn instead of wedging t
   assert.equal(closeCalls, 1, 'the App Server connection was leaked')
   await adapter.dispose()
 })
+
+test('a second concurrent request for one session is refused rather than opening a second App Server', async () => {
+  // `activeTurns` is written only once a turn is OPEN, so two concurrent
+  // requests both saw no turn and both opened one: two App Server processes,
+  // with the loser dropped on the floor when the second overwrote the map. The
+  // antigravity-cli route has refused this explicitly for the same reason.
+  let spawns = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      if (method === 'thread/start') {
+        spawns += 1
+        await new Promise(resolve => setTimeout(resolve, 150))
+        return { thread: { id: `thread-${spawns}`, turns: [] } }
+      }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-c' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() {},
+  }
+  const sessionId = 'session-concurrent'
+  const ctx = {
+    attachments: {},
+    sessions: { get: () => ({ header: { id: sessionId, cwd: '/workspace' } }) },
+  }
+  const adapter = new CodexAppServerAdapter(ctx as any, config)
+  ;(adapter as any).openConnection = async () => connection
+  ;(adapter as any).isolationConfig = async () => ({ isolated: true })
+
+  const request = {
+    provider: 'codex-app-server',
+    model: 'gpt-5.6-sol',
+    sessionId,
+    messages: messages(),
+    signal: AbortSignal.timeout(5_000),
+  }
+  const drain = async (): Promise<void> => {
+    for await (const _chunk of adapter.stream(request as any)) { /* never reaches a chunk here */ }
+  }
+  const [first, second] = await Promise.allSettled([drain(), drain()])
+
+  assert.equal(spawns, 1, `a second App Server was opened for one session (${spawns} thread/start calls)`)
+  const reasons = [first, second]
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .map(r => String(r.reason?.message ?? r.reason))
+  assert.ok(
+    reasons.some(message => /second concurrent request/.test(message)),
+    `expected one request to be refused, got: ${reasons.join(' | ')}`,
+  )
+  await adapter.dispose()
+})

@@ -1006,9 +1006,19 @@ export class AntigravityCliAdapter extends LlmAdapter {
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
   private pendingModels: Promise<readonly CatalogModel[]> | undefined
   private readonly activeChildren = new Set<SubprocessHandle>()
+  /**
+   * Every live turn child, including the throwaway ones an auxiliary call uses.
+   *
+   * `activeChildren` holds only the collected `agy models`/`mcp list` runs, and
+   * `sessions` holds only children that belong to a DSH session -- so an
+   * auxiliary turn's child was reachable from neither, and `dispose()` returned
+   * while it was still running, leaving the host waiting on a process nobody
+   * owned any more.
+   */
+  private readonly turnChildren = new Set<AgyTurnProcess>()
   private readonly sessions = new Map<string, AgySessionState>()
   /** Materialized structured-output schema files, keyed by tool-catalog digest. */
-  private readonly schemaFiles = new Map<string, string>()
+  private readonly schemaFiles = new Map<string, Promise<string>>()
   /**
    * Monotonic across the adapter, not per session: a DSH tool-call id reaches
    * durable history and outlives the conversation that minted it, so
@@ -1284,6 +1294,10 @@ export class AntigravityCliAdapter extends LlmAdapter {
     await Promise.allSettled([...this.sessions.keys()].map(key => this.closeSession(key)))
     for (const child of this.activeChildren) child.terminate()
     await Promise.allSettled([...this.activeChildren].map(child => child.waitForExit()))
+    // Turn children last: an auxiliary turn's child belongs to no session and no
+    // collected run, so without this it outlived the adapter that spawned it.
+    await Promise.allSettled([...this.turnChildren].map(child => child.close()))
+    this.turnChildren.clear()
     const workspace = await this.bridgeWorkspacePromise?.catch(() => undefined)
     if (workspace) await workspace.dispose()
     const mcpWorkspace = await this.mcpWorkspacePromise?.catch(() => undefined)
@@ -1421,11 +1435,17 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const body = JSON.stringify(schema)
     const digest = createHash('sha256').update(body).digest('hex').slice(0, 32)
     const cached = this.schemaFiles.get(digest)
-    if (cached !== undefined) return cached
+    if (cached !== undefined) return await cached
+    // The PROMISE is cached, not its result. Caching after the write let two
+    // concurrent requests with the same catalog both miss and both write the
+    // same path, so a vendor child spawned by the first could read the file
+    // while the second was still writing it.
     const path = join(workspace.root, `bridge-output-${digest}.schema.json`)
-    await writeFile(path, body, 'utf8')
-    this.schemaFiles.set(digest, path)
-    return path
+    const writing = writeFile(path, body, 'utf8').then(() => path)
+    this.schemaFiles.set(digest, writing)
+    // A failed write must not be remembered as a usable schema file.
+    writing.catch(() => { if (this.schemaFiles.get(digest) === writing) this.schemaFiles.delete(digest) })
+    return await writing
   }
 
   private combinedSignal(parent: AbortSignal | undefined, timeoutMs: number): AbortSignal {
@@ -1625,6 +1645,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       graceMs: this.config.disposeGraceMs,
       stderrMaxBytes: this.config.stderrMaxBytes,
     }, lifetime)
+    this.turnChildren.add(child)
 
     // Opportunistic, best-effort: while this child is alive, try to read its
     // quota from the loopback ports it happens to expose (see
@@ -1691,6 +1712,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
         return { outcome: await this.awaitTurn(child, payload, signal, options), session: undefined }
       } finally {
         lifetime.abort()
+        this.turnChildren.delete(child)
         await child.close()
       }
     }
@@ -1891,6 +1913,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       const pid = child.pid
       if (typeof pid !== 'number') {
         lifetime.abort()
+        this.turnChildren.delete(child)
         await child.close()
         throw new LlmError('Antigravity child exposed no pid, so its bridge server cannot be claimed', 'ANTIGRAVITY_CLI')
       }
@@ -2009,6 +2032,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
     state.bridgePending = undefined
     state.inFlight = undefined
     state.lifetime.abort()
+    this.turnChildren.delete(state.process)
     await state.process.close()
   }
 }

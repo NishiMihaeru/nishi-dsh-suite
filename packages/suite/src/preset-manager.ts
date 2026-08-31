@@ -252,7 +252,15 @@ async function installStagedPreset(options: ResolvedOptions, replaceExisting: bo
   }
 
   const backup = join(options.userRoot, `.${PRESET_ID}.nishi-backup-${randomUUID()}`)
-  await rename(options.target, backup)
+  try {
+    await rename(options.target, backup)
+  } catch (error) {
+    // Every other exit from this function cleans the stage up; this one did not,
+    // so a backup rename that failed on permissions or a lock left a
+    // `.nishi-stage-<uuid>` directory behind in the user's preset root forever.
+    await rm(staged, { recursive: true, force: true })
+    throw error
+  }
   try {
     await rename(staged, options.target)
   } catch (error) {

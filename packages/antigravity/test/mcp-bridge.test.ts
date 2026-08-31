@@ -350,3 +350,27 @@ test('an unrelated adapter on the machine does not delay a server finding its ow
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('closing the host does not wait out the claim window for a silent connection', async () => {
+  // `server.close()` resolves only once every connection has ended, so a peer
+  // that connects and then says nothing held disposal open for the whole claim
+  // window -- tracked by neither the channel map nor the parked-hello map.
+  const dir = await mkdtemp(join(tmpdir(), 'bridge-close-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+  const host = await AgyMcpBridgeHost.listen(30_000)
+  try {
+    const silent = connect(host.socketPath)
+    silent.on('error', () => {})
+    await new Promise(resolve => silent.once('connect', resolve))
+    const started = Date.now()
+    await host.close()
+    const elapsed = Date.now() - started
+    assert.ok(elapsed < 3_000, `close() waited ${elapsed}ms on a connection that never spoke`)
+    silent.destroy()
+  } finally {
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+})

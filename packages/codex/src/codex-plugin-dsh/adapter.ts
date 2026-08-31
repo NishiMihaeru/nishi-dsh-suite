@@ -518,6 +518,17 @@ export class CodexAppServerAdapter extends LlmAdapter {
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
   private pendingModels: Promise<readonly CatalogModel[]> | undefined
   private readonly activeTurns = new Map<string, ActiveCodexTurn>()
+  /**
+   * Sessions with a step in flight.
+   *
+   * `activeTurns` is only written once a turn is open, so two concurrent
+   * requests for one session both saw no turn and both opened one -- two App
+   * Server processes, one of which was then dropped on the floor when the second
+   * overwrote the map. A DSH session runs one step at a time, so a second
+   * concurrent request means the caller lost track of its own turn boundaries;
+   * the `antigravity-cli` route has refused it explicitly for the same reason.
+   */
+  private readonly inFlight = new Set<string>()
 
   constructor(
     private readonly ctx: Context,
@@ -595,189 +606,197 @@ export class CodexAppServerAdapter extends LlmAdapter {
     }
     const sessionId = String(options.sessionId)
     const requestedToolSignature = codexToolSignature(options.tools)
-    let active = this.activeTurns.get(sessionId)
-    const continuing = active !== undefined
-    if (active === undefined) active = await this.startTurn(options, sessionId, cwd)
-    const turn = active
-    let keepAlive = false
-    // Armed here and disarmed in the `finally`, so the whole step -- the
-    // continuation handshake included -- is cancellable and bounded, and a
-    // throw in that handshake can no longer leave the turn wedged in
-    // `activeTurns` with its App Server process still running.
-    const disarmStep = this.#armStep(turn, options)
+    if (this.inFlight.has(sessionId)) {
+      throw new Error('codex-plugin-dsh: Codex received a second concurrent request for one DSH session')
+    }
+    this.inFlight.add(sessionId)
     try {
-      if (continuing) {
-        if (turn.model !== options.model) {
-          throw new Error('codex-plugin-dsh: the model changed while an App Server dynamic tool call was pending')
-        }
-        if (turn.toolSignature !== requestedToolSignature) {
-          throw new Error('codex-plugin-dsh: the DSH tool catalog changed while an App Server dynamic tool call was pending')
-        }
-        options.signal?.throwIfAborted()
-        const pending = turn.awaiting
-        if (pending === undefined) {
-          throw new Error('codex-plugin-dsh: an App Server turn is already active for this DSH session')
-        }
-        const continuation = await codexDynamicToolResult(
-          options.messages,
-          pending.call.callId,
-          turn.resolveImageUrl,
-        )
-        if (continuation.steerInput.length > 0) {
-          await turn.connection.request('turn/steer', {
-            threadId: turn.threadId,
-            expectedTurnId: turn.turnId,
-            input: continuation.steerInput,
-          }, turn.signal)
-        }
-        pending.response.resolve(continuation.response)
-        delete turn.awaiting
-        turn.blocks.clear()
-        turn.nextBlockIndex = 0
-        turn.finalOutput = false
-      }
-      for (;;) {
-        const event = await turn.events.next(turn.signal)
-        if (event.kind === 'dynamic-tool') {
-          const { call } = event
-          if (call.threadId !== turn.threadId || call.turnId !== turn.turnId) continue
-          if (turn.awaiting !== undefined) {
-            throw new Error('codex-plugin-dsh: App Server issued another dynamic tool call before DSH returned the first result')
+      let active = this.activeTurns.get(sessionId)
+      const continuing = active !== undefined
+      if (active === undefined) active = await this.startTurn(options, sessionId, cwd)
+      const turn = active
+      let keepAlive = false
+      // Armed here and disarmed in the `finally`, so the whole step -- the
+      // continuation handshake included -- is cancellable and bounded, and a
+      // throw in that handshake can no longer leave the turn wedged in
+      // `activeTurns` with its App Server process still running.
+      const disarmStep = this.#armStep(turn, options)
+      try {
+        if (continuing) {
+          if (turn.model !== options.model) {
+            throw new Error('codex-plugin-dsh: the model changed while an App Server dynamic tool call was pending')
           }
-          if ([...turn.blocks.values()].some(block => !block.ended)) {
-            throw new Error('codex-plugin-dsh: App Server requested a dynamic tool with an open agent message')
+          if (turn.toolSignature !== requestedToolSignature) {
+            throw new Error('codex-plugin-dsh: the DSH tool catalog changed while an App Server dynamic tool call was pending')
           }
-          const argumentsText = JSON.stringify(call.arguments)
-          if (argumentsText === undefined) {
-            throw new Error(`codex-plugin-dsh: App Server returned invalid arguments for DSH tool ${JSON.stringify(call.tool)}`)
+          options.signal?.throwIfAborted()
+          const pending = turn.awaiting
+          if (pending === undefined) {
+            throw new Error('codex-plugin-dsh: an App Server turn is already active for this DSH session')
           }
-          const index = turn.nextBlockIndex++
-          const id = ToolCallId(call.callId)
-          yield { type: 'block-start', index, blockType: 'tool-call' }
-          yield { type: 'tool-call-delta', index, id, name: call.tool, argumentsDelta: argumentsText }
-          yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.tool, arguments: argumentsText } }
-          turn.awaiting = event
+          const continuation = await codexDynamicToolResult(
+            options.messages,
+            pending.call.callId,
+            turn.resolveImageUrl,
+          )
+          if (continuation.steerInput.length > 0) {
+            await turn.connection.request('turn/steer', {
+              threadId: turn.threadId,
+              expectedTurnId: turn.turnId,
+              input: continuation.steerInput,
+            }, turn.signal)
+          }
+          pending.response.resolve(continuation.response)
+          delete turn.awaiting
           turn.blocks.clear()
           turn.nextBlockIndex = 0
           turn.finalOutput = false
-          keepAlive = true
-          yield { type: 'finish', reason: { kind: 'tool-calls' } }
-          return
         }
-        const { method, params } = event.notification
-        if (method === 'error') {
-          // A fatal App Server error may arrive without a threadId (or with
-          // one that does not identify any thread), and the generic filter
-          // below would otherwise drop it and leave this turn waiting until
-          // turnTimeoutMs. Treat only a DIFFERENT, non-empty threadId as
-          // belonging to someone else's thread; anything else is ours.
-          const errorThreadId = typeof params.threadId === 'string' ? params.threadId : undefined
-          if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== turn.threadId) continue
-          if (params.willRetry !== true) throw notificationFailure(params.error)
-          continue
-        }
-        if (params.threadId !== turn.threadId) continue
-        const notificationTurnId = method === 'turn/completed'
-          ? object(params.turn, 'turn/completed turn').id
-          : params.turnId
-        if (notificationTurnId !== turn.turnId) continue
-        if (method === 'item/started') {
-          const item = object(params.item, 'started item')
-          if (item.type !== 'agentMessage') continue
-          const itemId = string(item.id, 'agent message item id')
-          if (turn.blocks.has(itemId)) continue
-          const phase = phaseOf(item.phase)
-          const block: ActiveBlock = {
-            index: turn.nextBlockIndex++,
-            type: blockType(phase),
-            phase,
-            text: '',
-            ended: false,
-          }
-          turn.blocks.set(itemId, block)
-          yield { type: 'block-start', index: block.index, blockType: block.type }
-          continue
-        }
-        if (method === 'item/agentMessage/delta') {
-          const itemId = string(params.itemId, 'agent message delta item id')
-          let block = turn.blocks.get(itemId)
-          if (block === undefined) {
-            block = { index: turn.nextBlockIndex++, type: 'text', phase: null, text: '', ended: false }
-            turn.blocks.set(itemId, block)
-            yield { type: 'block-start', index: block.index, blockType: block.type }
-          }
-          if (block.ended) throw new Error('codex-plugin-dsh: App Server emitted a delta after item/completed')
-          const delta = typeof params.delta === 'string' ? params.delta : ''
-          block.text += delta
-          if (block.type === 'reasoning') yield { type: 'reasoning-delta', index: block.index, text: delta }
-          else yield { type: 'text-delta', index: block.index, text: delta }
-          continue
-        }
-        if (method === 'item/completed') {
-          const item = object(params.item, 'completed item')
-          if (item.type === 'imageGeneration') {
-            const itemId = string(item.id, 'image generation item id')
-            if (turn.completedImages.has(itemId)) continue
-            turn.completedImages.add(itemId)
-            const image = await generatedImageBlock(this.ctx.attachments, item)
-            if (image === undefined) continue
+        for (;;) {
+          const event = await turn.events.next(turn.signal)
+          if (event.kind === 'dynamic-tool') {
+            const { call } = event
+            if (call.threadId !== turn.threadId || call.turnId !== turn.turnId) continue
+            if (turn.awaiting !== undefined) {
+              throw new Error('codex-plugin-dsh: App Server issued another dynamic tool call before DSH returned the first result')
+            }
+            if ([...turn.blocks.values()].some(block => !block.ended)) {
+              throw new Error('codex-plugin-dsh: App Server requested a dynamic tool with an open agent message')
+            }
+            const argumentsText = JSON.stringify(call.arguments)
+            if (argumentsText === undefined) {
+              throw new Error(`codex-plugin-dsh: App Server returned invalid arguments for DSH tool ${JSON.stringify(call.tool)}`)
+            }
             const index = turn.nextBlockIndex++
-            yield { type: 'block-start', index, blockType: 'image' }
-            yield { type: 'block-end', index, block: image }
-            turn.finalOutput = true
+            const id = ToolCallId(call.callId)
+            yield { type: 'block-start', index, blockType: 'tool-call' }
+            yield { type: 'tool-call-delta', index, id, name: call.tool, argumentsDelta: argumentsText }
+            yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.tool, arguments: argumentsText } }
+            turn.awaiting = event
+            turn.blocks.clear()
+            turn.nextBlockIndex = 0
+            turn.finalOutput = false
+            keepAlive = true
+            yield { type: 'finish', reason: { kind: 'tool-calls' } }
+            return
+          }
+          const { method, params } = event.notification
+          if (method === 'error') {
+            // A fatal App Server error may arrive without a threadId (or with
+            // one that does not identify any thread), and the generic filter
+            // below would otherwise drop it and leave this turn waiting until
+            // turnTimeoutMs. Treat only a DIFFERENT, non-empty threadId as
+            // belonging to someone else's thread; anything else is ours.
+            const errorThreadId = typeof params.threadId === 'string' ? params.threadId : undefined
+            if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== turn.threadId) continue
+            if (params.willRetry !== true) throw notificationFailure(params.error)
             continue
           }
-          if (item.type !== 'agentMessage') continue
-          const itemId = string(item.id, 'completed agent message item id')
-          const phase = phaseOf(item.phase)
-          let block = turn.blocks.get(itemId)
-          if (block === undefined) {
-            block = { index: turn.nextBlockIndex++, type: blockType(phase), phase, text: '', ended: false }
+          if (params.threadId !== turn.threadId) continue
+          const notificationTurnId = method === 'turn/completed'
+            ? object(params.turn, 'turn/completed turn').id
+            : params.turnId
+          if (notificationTurnId !== turn.turnId) continue
+          if (method === 'item/started') {
+            const item = object(params.item, 'started item')
+            if (item.type !== 'agentMessage') continue
+            const itemId = string(item.id, 'agent message item id')
+            if (turn.blocks.has(itemId)) continue
+            const phase = phaseOf(item.phase)
+            const block: ActiveBlock = {
+              index: turn.nextBlockIndex++,
+              type: blockType(phase),
+              phase,
+              text: '',
+              ended: false,
+            }
             turn.blocks.set(itemId, block)
             yield { type: 'block-start', index: block.index, blockType: block.type }
+            continue
           }
-          const completedText = typeof item.text === 'string' ? item.text : ''
-          if (!completedText.startsWith(block.text)) {
-            throw new Error('codex-plugin-dsh: completed agent message did not match its streamed deltas')
+          if (method === 'item/agentMessage/delta') {
+            const itemId = string(params.itemId, 'agent message delta item id')
+            let block = turn.blocks.get(itemId)
+            if (block === undefined) {
+              block = { index: turn.nextBlockIndex++, type: 'text', phase: null, text: '', ended: false }
+              turn.blocks.set(itemId, block)
+              yield { type: 'block-start', index: block.index, blockType: block.type }
+            }
+            if (block.ended) throw new Error('codex-plugin-dsh: App Server emitted a delta after item/completed')
+            const delta = typeof params.delta === 'string' ? params.delta : ''
+            block.text += delta
+            if (block.type === 'reasoning') yield { type: 'reasoning-delta', index: block.index, text: delta }
+            else yield { type: 'text-delta', index: block.index, text: delta }
+            continue
           }
-          const tail = completedText.slice(block.text.length)
-          if (tail.length > 0) {
-            if (block.type === 'reasoning') yield { type: 'reasoning-delta', index: block.index, text: tail }
-            else yield { type: 'text-delta', index: block.index, text: tail }
-            block.text = completedText
+          if (method === 'item/completed') {
+            const item = object(params.item, 'completed item')
+            if (item.type === 'imageGeneration') {
+              const itemId = string(item.id, 'image generation item id')
+              if (turn.completedImages.has(itemId)) continue
+              turn.completedImages.add(itemId)
+              const image = await generatedImageBlock(this.ctx.attachments, item)
+              if (image === undefined) continue
+              const index = turn.nextBlockIndex++
+              yield { type: 'block-start', index, blockType: 'image' }
+              yield { type: 'block-end', index, block: image }
+              turn.finalOutput = true
+              continue
+            }
+            if (item.type !== 'agentMessage') continue
+            const itemId = string(item.id, 'completed agent message item id')
+            const phase = phaseOf(item.phase)
+            let block = turn.blocks.get(itemId)
+            if (block === undefined) {
+              block = { index: turn.nextBlockIndex++, type: blockType(phase), phase, text: '', ended: false }
+              turn.blocks.set(itemId, block)
+              yield { type: 'block-start', index: block.index, blockType: block.type }
+            }
+            const completedText = typeof item.text === 'string' ? item.text : ''
+            if (!completedText.startsWith(block.text)) {
+              throw new Error('codex-plugin-dsh: completed agent message did not match its streamed deltas')
+            }
+            const tail = completedText.slice(block.text.length)
+            if (tail.length > 0) {
+              if (block.type === 'reasoning') yield { type: 'reasoning-delta', index: block.index, text: tail }
+              else yield { type: 'text-delta', index: block.index, text: tail }
+              block.text = completedText
+            }
+            block.ended = true
+            if (block.type === 'reasoning') {
+              yield { type: 'block-end', index: block.index, block: { type: 'reasoning', text: block.text } }
+            } else {
+              yield { type: 'block-end', index: block.index, block: { type: 'text', text: block.text } }
+              if (block.phase !== 'commentary' && block.text.trim().length > 0) turn.finalOutput = true
+            }
+            continue
           }
-          block.ended = true
-          if (block.type === 'reasoning') {
-            yield { type: 'block-end', index: block.index, block: { type: 'reasoning', text: block.text } }
-          } else {
-            yield { type: 'block-end', index: block.index, block: { type: 'text', text: block.text } }
-            if (block.phase !== 'commentary' && block.text.trim().length > 0) turn.finalOutput = true
+          if (method === 'thread/tokenUsage/updated') {
+            turn.usage = usageFrom(params.tokenUsage)
+            continue
           }
-          continue
-        }
-        if (method === 'thread/tokenUsage/updated') {
-          turn.usage = usageFrom(params.tokenUsage)
-          continue
-        }
-        if (method !== 'turn/completed') continue
-        const completedTurn = object(params.turn, 'turn/completed turn')
-        if (contextWindowExceeded(completedTurn)) {
+          if (method !== 'turn/completed') continue
+          const completedTurn = object(params.turn, 'turn/completed turn')
+          if (contextWindowExceeded(completedTurn)) {
+            if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+            yield { type: 'finish', reason: { kind: 'max-tokens' }, replayState: { response: turn.replayState } }
+            return
+          }
+          if (completedTurn.status !== 'completed') throw turnFailure(completedTurn)
+          if ([...turn.blocks.values()].some(block => !block.ended)) {
+            throw new Error('codex-plugin-dsh: App Server completed with an open agent message')
+          }
+          if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
           if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
-          yield { type: 'finish', reason: { kind: 'max-tokens' }, replayState: { response: turn.replayState } }
+          yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: turn.replayState } }
           return
         }
-        if (completedTurn.status !== 'completed') throw turnFailure(completedTurn)
-        if ([...turn.blocks.values()].some(block => !block.ended)) {
-          throw new Error('codex-plugin-dsh: App Server completed with an open agent message')
-        }
-        if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
-        if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
-        yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: turn.replayState } }
-        return
+      } finally {
+        disarmStep()
+        if (!keepAlive) await this.closeTurn(turn)
       }
     } finally {
-      disarmStep()
-      if (!keepAlive) await this.closeTurn(turn)
+      this.inFlight.delete(sessionId)
     }
   }
 

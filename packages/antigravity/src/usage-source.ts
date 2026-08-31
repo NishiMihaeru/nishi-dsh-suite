@@ -513,7 +513,12 @@ export class HostAntigravityLocalUsageSource implements AntigravityUsageCapabili
   }
 
   private async probeAndFetchQuota(endpoint: AntigravityLocalEndpoint): Promise<AntigravityNumericUsageObservation | null> {
-    const baseUrl = `${endpoint.transport}://${endpoint.host}:${endpoint.port}/exa.language_server_pb.LanguageServerService`;
+    // An IPv6 literal needs brackets in an authority. Without them `new URL()`
+    // throws `Invalid URL` for every `::1` candidate -- verified -- so IPv6
+    // loopback endpoints were discovered correctly and then silently discarded,
+    // and usage reported unavailable while a live endpoint was listening.
+    const authority = endpoint.host.includes(':') ? `[${endpoint.host}]` : endpoint.host;
+    const baseUrl = `${endpoint.transport}://${authority}:${endpoint.port}/exa.language_server_pb.LanguageServerService`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1' };
     if (endpoint.csrfToken) headers['x-codeium-csrf-token'] = endpoint.csrfToken;
     try {

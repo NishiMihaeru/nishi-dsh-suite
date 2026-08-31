@@ -173,6 +173,15 @@ export class AgyMcpBridgeHost {
   private readonly channels = new Map<number, ChannelState>()
   /** Hellos that arrived before the adapter registered the pid they name. */
   private readonly earlyHellos = new Map<number, Socket>()
+  /**
+   * Every connection currently open, whether or not it has said anything.
+   *
+   * `server.close()` resolves only once every connection has ended, so a peer
+   * that connects and then says nothing used to hold `close()` open for the
+   * whole claim window. Tracking connections rather than only claims is what
+   * makes disposal prompt.
+   */
+  private readonly connections = new Set<Socket>()
 
   /** Set when the listening socket failed after startup; see `listen()`. */
   listenFailed = false
@@ -284,6 +293,8 @@ export class AgyMcpBridgeHost {
 
   private onConnection(socket: Socket): void {
     socket.setEncoding('utf8')
+    this.connections.add(socket)
+    socket.once('close', () => { this.connections.delete(socket) })
     let buffer = ''
     let claimedPid: number | undefined
     let holdTimer: NodeJS.Timeout | undefined
@@ -369,6 +380,10 @@ export class AgyMcpBridgeHost {
       try { socket.destroy() } catch { /* already gone */ }
     }
     this.earlyHellos.clear()
+    for (const socket of this.connections) {
+      try { socket.destroy() } catch { /* already gone */ }
+    }
+    this.connections.clear()
     await new Promise<void>(resolve => this.server.close(() => resolve()))
     await rm(this.socketPath, { force: true }).catch(() => {})
   }

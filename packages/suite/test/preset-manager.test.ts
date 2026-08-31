@@ -145,3 +145,31 @@ test('remove deletes only the managed orchestrator and preserves sibling user pr
   assert.equal(await readFile(join(sibling, 'agent.cordis.yml'), 'utf8'), 'personal\n')
   assert.deepEqual(await transientPresetEntries(dshHome), [])
 })
+
+test('a failed backup rename during update leaves no staged directory behind', async (t) => {
+  // Every other exit from the update path cleaned the stage up; the backup
+  // rename did not, so a rename that failed on permissions or a lock left a
+  // `.orchestrator.nishi-stage-<uuid>` directory in the user's preset root
+  // forever, and every later update added another.
+  const { root, dshHome, sourceRoot } = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await installOrchestratorPreset(options(dshHome, sourceRoot))
+  assert.deepEqual(await transientPresetEntries(dshHome), [])
+
+  // Make the backup rename fail by taking away write permission on the root the
+  // rename happens in, which is what a locked or read-only preset root does.
+  const userRoot = join(dshHome, '.agent-presets')
+  const { chmod } = await import('node:fs/promises')
+  await writeFile(join(sourceRoot, 'preset.yml'), 'name: Orchestrator v2\n', 'utf8')
+  await chmod(userRoot, 0o500)
+  try {
+    await assert.rejects(() => updateOrchestratorPreset(options(dshHome, sourceRoot, 'test-v2')))
+  } finally {
+    await chmod(userRoot, 0o700)
+  }
+
+  assert.deepEqual(
+    await transientPresetEntries(dshHome), [],
+    'a staged or backup directory was left behind by the failed update',
+  )
+})
