@@ -1,5 +1,10 @@
 import type { PublicProviderUsage } from '../usage/index.js'
 import type { ProviderRosterEntry, UsageLimitsBrowserRpc } from './rpc-client.js'
+import {
+  type UsageSidebarSettings,
+  updateProviderVisibility,
+  moveProviderInOrder,
+} from './view-model.js'
 
 export type ProviderLoadStatus = 'idle' | 'loading' | 'ready' | 'error'
 export interface ProviderEntryState {
@@ -17,6 +22,54 @@ export interface UsageLimitsControllerSnapshot {
   roster: readonly ProviderRosterEntry[]
   providers: Record<string, ProviderEntryState>
   lastRefreshedAtMs?: number
+  sidebarSettings?: UsageSidebarSettings
+}
+
+export interface UsageSidebarSettingsStorage {
+  load(): UsageSidebarSettings | undefined
+  save(settings: UsageSidebarSettings | undefined): void
+}
+
+export const USAGE_SIDEBAR_SETTINGS_STORAGE_KEY = 'dsh:usage-limits:sidebar-settings'
+
+export class LocalStorageUsageSidebarSettingsStorage implements UsageSidebarSettingsStorage {
+  constructor(private readonly key = USAGE_SIDEBAR_SETTINGS_STORAGE_KEY) {}
+
+  load(): UsageSidebarSettings | undefined {
+    if (typeof localStorage === 'undefined') return undefined
+    try {
+      const raw = localStorage.getItem(this.key)
+      if (!raw) return undefined
+      const parsed = JSON.parse(raw) as unknown
+      if (typeof parsed !== 'object' || parsed === null) return undefined
+      const order = Array.isArray((parsed as Record<string, unknown>).order)
+        ? (parsed as { order: unknown[] }).order.filter((x): x is string => typeof x === 'string')
+        : undefined
+      const hidden = Array.isArray((parsed as Record<string, unknown>).hidden)
+        ? (parsed as { hidden: unknown[] }).hidden.filter((x): x is string => typeof x === 'string')
+        : undefined
+      if (!order && !hidden) return undefined
+      return {
+        ...(order ? { order } : {}),
+        ...(hidden ? { hidden } : {}),
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  save(settings: UsageSidebarSettings | undefined): void {
+    if (typeof localStorage === 'undefined') return
+    try {
+      if (!settings || (!settings.order?.length && !settings.hidden?.length)) {
+        localStorage.removeItem(this.key)
+      } else {
+        localStorage.setItem(this.key, JSON.stringify(settings))
+      }
+    } catch {
+      // Ignore write errors (quota exceeded / security restrictions)
+    }
+  }
 }
 
 interface InFlightRefresh {
@@ -46,7 +99,7 @@ function settler(): Settler {
 }
 
 export class UsageLimitsClientController {
-  private snapshot: UsageLimitsControllerSnapshot = { phase: 'idle', roster: [], providers: {} }
+  private snapshot: UsageLimitsControllerSnapshot
   private readonly listeners = new Set<() => void>()
   private readonly inFlightRefreshes = new Map<string, InFlightRefresh>()
   private initializePromise?: Promise<void>
@@ -55,7 +108,18 @@ export class UsageLimitsClientController {
   /** Prevent an older concurrent getRoster response from replacing a newer one. */
   private rosterRequestSerial = 0
 
-  constructor(private readonly rpc: UsageLimitsBrowserRpc) {}
+  constructor(
+    private readonly rpc: UsageLimitsBrowserRpc,
+    private readonly storage: UsageSidebarSettingsStorage = new LocalStorageUsageSidebarSettingsStorage(),
+  ) {
+    const sidebarSettings = this.storage.load()
+    this.snapshot = {
+      phase: 'idle',
+      roster: [],
+      providers: {},
+      ...(sidebarSettings ? { sidebarSettings } : {}),
+    }
+  }
 
   getSnapshot(): UsageLimitsControllerSnapshot { return this.snapshot }
   subscribe(listener: () => void): () => void {
@@ -63,6 +127,33 @@ export class UsageLimitsClientController {
     return () => this.listeners.delete(listener)
   }
   private notify(): void { for (const listener of this.listeners) listener() }
+
+  getSidebarSettings(): UsageSidebarSettings | undefined {
+    return this.snapshot.sidebarSettings
+  }
+
+  setSidebarSettings(settings: UsageSidebarSettings | undefined): void {
+    this.snapshot = {
+      ...this.snapshot,
+      sidebarSettings: settings,
+    }
+    this.storage.save(settings)
+    this.notify()
+  }
+
+  setProviderVisible(providerId: string, visible: boolean): void {
+    const nextSettings = updateProviderVisibility(this.snapshot.sidebarSettings, providerId, visible)
+    this.setSidebarSettings(nextSettings)
+  }
+
+  moveProviderOrder(providerId: string, direction: 'up' | 'down'): void {
+    const nextSettings = moveProviderInOrder(this.snapshot.roster, this.snapshot.sidebarSettings, providerId, direction)
+    this.setSidebarSettings(nextSettings)
+  }
+
+  resetSidebarSettings(): void {
+    this.setSidebarSettings(undefined)
+  }
 
   /**
    * Tear down this controller when the browser plugin unloads. Subscribers

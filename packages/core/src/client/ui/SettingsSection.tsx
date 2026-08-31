@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Button,
+  IconChevronDownOutline14,
+  IconChevronUpOutline14,
   IconRefreshOutline14,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UsageLimitsClientInjected } from '../index.js'
 import { buildUsageGroupsForProvider } from '../usage-group-model.js'
+import { resolveOrderedRoster } from '../view-model.js'
 import { UsageGroupDetails } from './UsageGroupDetails.js'
 import styles from './SettingsSection.module.css'
 
@@ -26,6 +29,10 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
     const timer = window.setInterval(() => setNowMs(Date.now()), 60_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  const orderedRoster = useMemo(() => {
+    return resolveOrderedRoster(snapshot.roster, snapshot.sidebarSettings)
+  }, [snapshot.roster, snapshot.sidebarSettings])
 
   const groups = useMemo(() => snapshot.roster.flatMap((item) => {
     const entry = snapshot.providers[item.providerId]
@@ -60,6 +67,72 @@ export function UsageLimitsSection(props: SettingsSectionProps): React.ReactElem
         >
           {isAnyRefreshing ? t('refreshing') : t('refreshAll')}
         </Button>
+      </div>
+
+      <div className={styles.settingsCard}>
+        <div className={styles.settingsCardHeader}>
+          <div>
+            <h3 className={styles.sectionTitle}>{t('sidebarSettingsTitle')}</h3>
+            <p className={styles.sectionSubtitle}>{t('sidebarSettingsSubtitle')}</p>
+          </div>
+          {snapshot.sidebarSettings !== undefined && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => controller.resetSidebarSettings()}
+            >
+              {t('resetOrder')}
+            </Button>
+          )}
+        </div>
+
+        {orderedRoster.length === 0 ? (
+          <p className={styles.emptyNotice}>{t('noProvidersConfigured')}</p>
+        ) : (
+          <div className={styles.providerConfigList}>
+            {orderedRoster.map((item, index) => {
+              const isFirst = index === 0
+              const isLast = index === orderedRoster.length - 1
+              const providerId = item.entry.providerId
+              const displayName = item.entry.presentation.displayName
+
+              return (
+                <div key={providerId} className={styles.providerConfigRow}>
+                  <label className={styles.providerCheckboxLabel}>
+                    <input
+                      type="checkbox"
+                      className={styles.checkbox}
+                      checked={item.visible}
+                      onChange={(e) => controller.setProviderVisible(providerId, e.target.checked)}
+                    />
+                    <span className={styles.providerRowName}>{displayName}</span>
+                  </label>
+
+                  <div className={styles.orderButtonRow}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={isFirst}
+                      aria-label={`${t('moveUp')}: ${displayName}`}
+                      title={t('moveUp')}
+                      icon={<IconChevronUpOutline14 size={14} />}
+                      onClick={() => controller.moveProviderOrder(providerId, 'up')}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={isLast}
+                      aria-label={`${t('moveDown')}: ${displayName}`}
+                      title={t('moveDown')}
+                      icon={<IconChevronDownOutline14 size={14} />}
+                      onClick={() => controller.moveProviderOrder(providerId, 'down')}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <div className={styles.providerCardsList}>

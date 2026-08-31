@@ -9,6 +9,13 @@ export const en = {
   limitLabel: 'Limit', resetTimePassed: 'Reset time passed', resetsAt: 'Resets', resetLabel: 'Reset', poolLabel: 'Pool',
   loadingUsage: 'Loading usage...', noLimits: 'No limit windows available.', lowestRemainingTooltip: 'Lowest remaining provider limit',
   extraUsage: 'Extra Usage', enabled: 'Enabled', disabled: 'Disabled', errorUnavailable: 'Usage data is unavailable.',
+  sidebarSettingsTitle: 'Sidebar display',
+  sidebarSettingsSubtitle: 'Choose which providers appear in the sidebar footer and customize their display order.',
+  showInSidebar: 'Show in sidebar',
+  moveUp: 'Move up',
+  moveDown: 'Move down',
+  resetOrder: 'Reset to default',
+  noProvidersConfigured: 'No providers registered.',
 }
 
 export const zh: typeof en = {
@@ -19,4 +26,11 @@ export const zh: typeof en = {
   badgeLoginRequired: '需要登录', badgeUnavailable: '不可用', badgeError: '错误', lastChecked: '上次检查', limitLabel: '限额',
   resetTimePassed: '重置时间已过', resetsAt: '重置时间', resetLabel: '重置', poolLabel: '额度池', loadingUsage: '正在加载用量...',
   noLimits: '没有可显示的限额窗口。', lowestRemainingTooltip: '最低剩余提供商额度', extraUsage: '额外用量', enabled: '已启用', disabled: '已停用', errorUnavailable: '用量数据不可用。',
+  sidebarSettingsTitle: '侧边栏显示',
+  sidebarSettingsSubtitle: '选择在侧边栏底部显示的提供商并自定义其显示顺序。',
+  showInSidebar: '在侧边栏显示',
+  moveUp: '上移',
+  moveDown: '下移',
+  resetOrder: '恢复默认',
+  noProvidersConfigured: '未注册提供商。',
 }

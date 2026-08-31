@@ -110,3 +110,95 @@ export function formatWindowTooltip(win: PublicLimitWindow, nowMs?: number, loca
   if (resetText) result += ` (${resetText})`
   return result
 }
+
+export interface UsageSidebarSettings {
+  readonly order?: readonly string[]
+  readonly hidden?: readonly string[]
+}
+
+export interface OrderedRosterItem<T> {
+  readonly entry: T
+  readonly visible: boolean
+}
+
+export function resolveOrderedRoster<T extends { providerId: string }>(
+  roster: readonly T[],
+  settings?: UsageSidebarSettings | null,
+): OrderedRosterItem<T>[] {
+  const hiddenSet = new Set(settings?.hidden ?? [])
+  const availableMap = new Map(roster.map((item) => [item.providerId, item] as const))
+  const result: OrderedRosterItem<T>[] = []
+  const seen = new Set<string>()
+
+  if (settings?.order) {
+    for (const id of settings.order) {
+      const entry = availableMap.get(id)
+      if (entry !== undefined && !seen.has(id)) {
+        seen.add(id)
+        result.push({
+          entry,
+          visible: !hiddenSet.has(id),
+        })
+      }
+    }
+  }
+
+  for (const item of roster) {
+    if (!seen.has(item.providerId)) {
+      seen.add(item.providerId)
+      result.push({
+        entry: item,
+        visible: !hiddenSet.has(item.providerId),
+      })
+    }
+  }
+
+  return result
+}
+
+export function resolveSidebarProviders<T extends { providerId: string }>(
+  roster: readonly T[],
+  settings?: UsageSidebarSettings | null,
+): T[] {
+  return resolveOrderedRoster(roster, settings)
+    .filter((item) => item.visible)
+    .map((item) => item.entry)
+}
+
+export function updateProviderVisibility(
+  settings: UsageSidebarSettings | undefined,
+  providerId: string,
+  visible: boolean,
+): UsageSidebarSettings {
+  const currentHidden = new Set(settings?.hidden ?? [])
+  if (visible) {
+    currentHidden.delete(providerId)
+  } else {
+    currentHidden.add(providerId)
+  }
+  const hidden = [...currentHidden]
+  return {
+    ...settings,
+    hidden: hidden.length > 0 ? hidden : undefined,
+  }
+}
+
+export function moveProviderInOrder(
+  roster: readonly { providerId: string }[],
+  settings: UsageSidebarSettings | undefined,
+  providerId: string,
+  direction: 'up' | 'down',
+): UsageSidebarSettings {
+  const ordered = resolveOrderedRoster(roster, settings).map((i) => i.entry.providerId)
+  const index = ordered.indexOf(providerId)
+  if (index === -1) return settings ?? {}
+  const targetIndex = direction === 'up' ? index - 1 : index + 1
+  if (targetIndex < 0 || targetIndex >= ordered.length) return settings ?? {}
+  const nextOrder = [...ordered]
+  const [removed] = nextOrder.splice(index, 1)
+  nextOrder.splice(targetIndex, 0, removed!)
+  return {
+    ...settings,
+    order: nextOrder,
+  }
+}

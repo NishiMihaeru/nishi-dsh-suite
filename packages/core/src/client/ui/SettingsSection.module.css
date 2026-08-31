@@ -206,3 +206,90 @@
   font-size: 13px;
   color: var(--dsw-alias-state-error-primary, inherit);
 }
+
+.settingsCard {
+  border: 1px solid var(--dsw-alias-border-l2, transparent);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--dsw-alias-bg-layer-1, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settingsCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionTitle {
+  margin: 0 0 2px 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.sectionSubtitle {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.emptyNotice {
+  margin: 0;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary, inherit);
+}
+
+.providerConfigList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.providerConfigRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, transparent);
+}
+
+.providerConfigRow:hover {
+  background: var(--dsw-alias-interactive-bg-hover, transparent);
+}
+
+.providerCheckboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.checkbox {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  accent-color: var(--dsw-alias-button-primary-fill, currentColor);
+}
+
+.providerRowName {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.orderButtonRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

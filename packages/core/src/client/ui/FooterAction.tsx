@@ -8,7 +8,7 @@ import {
   usageWindowDisplayLabel,
   type UsageGroup,
 } from '../usage-group-model.js'
-import { formatPercent } from '../view-model.js'
+import { formatPercent, resolveSidebarProviders } from '../view-model.js'
 import { UsageGroupBlock } from './UsageGroupBlock.js'
 import { UsageGroupDetails } from './UsageGroupDetails.js'
 import styles from './FooterAction.module.css'
@@ -70,14 +70,17 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
   const [contentScale, setContentScale] = useState(1)
   const [hover, setHover] = useState<UsageHoverState | null>(null)
 
-  const groups = useMemo(() => snapshot.roster.flatMap((item) => {
-    const entry = snapshot.providers[item.providerId]
-    return buildUsageGroupsForProvider({
-      presentation: item.presentation,
-      loadStatus: entry?.status ?? 'idle',
-      usage: entry?.usage,
+  const groups = useMemo(() => {
+    const visibleRoster = resolveSidebarProviders(snapshot.roster, snapshot.sidebarSettings)
+    return visibleRoster.flatMap((item) => {
+      const entry = snapshot.providers[item.providerId]
+      return buildUsageGroupsForProvider({
+        presentation: item.presentation,
+        loadStatus: entry?.status ?? 'idle',
+        usage: entry?.usage,
+      })
     })
-  }), [snapshot])
+  }, [snapshot])
 
   const selectedGroup = selectedKey
     ? groups.find((group) => groupKey(group) === selectedKey)
