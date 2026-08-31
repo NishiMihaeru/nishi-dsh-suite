@@ -33,7 +33,14 @@ const searchConfig = {
   stderrMaxBytes: 64_000,
 }
 
-/** A stream-json managed child: writes `lines` to stdout, then exits with `exitCode`/`stderr`. */
+const DEFAULT_MOCK_CATALOG = [
+  'gemini-1.5-pro\tGemini 1.5 Pro',
+  'gemini-3.7-flash-low\tGemini 3.7 Flash (Low)',
+  'gemini-3.7-flash-high\tGemini 3.7 Flash (High)',
+  'custom-model-high\tCustom Model (High)',
+].join('\n')
+
+/** A stream-json / collected managed child: writes `lines` to stdout, then exits with `exitCode`/`stderr`. */
 function streamingChild(opts: { lines?: readonly string[]; stderr?: string; exitCode?: number | null }) {
   const { lines = [], stderr = '', exitCode = 0 } = opts
   const stdin = new PassThrough()
@@ -45,12 +52,14 @@ function streamingChild(opts: { lines?: readonly string[]; stderr?: string; exit
     stdout.end()
     done.resolve({ exitCode, signal: null })
   })
+  const stdoutText = lines.map(l => `${l}\n`).join('')
   return {
     pid: 2000,
     stdin,
     stdout,
     stderr: undefined,
     collected: {
+      stdout: { readFrom() { return { text: stdoutText, nextOffset: stdoutText.length, lossy: false } } },
       stderr: { readFrom() { return { text: stderr, nextOffset: stderr.length, lossy: false } } },
     },
     done: done.promise,
@@ -64,16 +73,31 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   for await (const _chunk of iterable) { /* consume to completion */ }
 }
 
+function createPrimarySubprocessMock(onTurnSpawn: (argv: readonly string[]) => void, catalogResponse = DEFAULT_MOCK_CATALOG) {
+  return {
+    async resolveExecutable() { return '/resolved/agy' },
+    spawn(spec: { argv: readonly string[] }) {
+      if (spec.argv.includes('models')) {
+        return streamingChild({
+          lines: [
+            'Fetching available models...',
+            JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: catalogResponse }),
+          ],
+          exitCode: 0,
+        })
+      }
+      onTurnSpawn(spec.argv)
+      return streamingChild({ lines: [], stderr: '', exitCode: 1 })
+    },
+  }
+}
+
 test('the primary turn invocation passes --sandbox to the vendor CLI', async () => {
   let capturedArgv: readonly string[] | undefined
   const ctx = {
-    subprocess: {
-      async resolveExecutable() { return '/resolved/agy' },
-      spawn(spec: { argv: readonly string[] }) {
-        capturedArgv = spec.argv
-        return streamingChild({ lines: [], stderr: '', exitCode: 1 })
-      },
-    },
+    subprocess: createPrimarySubprocessMock(argv => {
+      capturedArgv = argv
+    }),
   } as any
   const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
@@ -103,4 +127,93 @@ test('the web-search backend invocation passes --sandbox to the vendor CLI', asy
 
   assert.ok(capturedArgv, 'spawn was called')
   assert.ok(capturedArgv!.includes('--sandbox'), `expected --sandbox in argv: ${JSON.stringify(capturedArgv)}`)
+})
+
+test('argv mapping: base model gemini-3.7-flash + reasoningEffort high passes --model gemini-3.7-flash and --effort high', async () => {
+  let capturedArgv: readonly string[] | undefined
+  const ctx = {
+    subprocess: createPrimarySubprocessMock(argv => {
+      capturedArgv = argv
+    }),
+  } as any
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const options = { provider: 'antigravity-cli', model: 'gemini-3.7-flash', reasoningEffort: 'high', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)))
+
+  assert.ok(capturedArgv, 'spawn was called for turn')
+  const modelIdx = capturedArgv!.indexOf('--model')
+  assert.notEqual(modelIdx, -1, 'expected --model in argv')
+  assert.equal(capturedArgv![modelIdx + 1], 'gemini-3.7-flash')
+
+  const effortIdx = capturedArgv!.indexOf('--effort')
+  assert.notEqual(effortIdx, -1, 'expected --effort in argv')
+  assert.equal(capturedArgv![effortIdx + 1], 'high')
+})
+
+test('argv mapping: legacy gemini-3.7-flash-low without explicit effort passes base model and effort low', async () => {
+  let capturedArgv: readonly string[] | undefined
+  const ctx = {
+    subprocess: createPrimarySubprocessMock(argv => {
+      capturedArgv = argv
+    }),
+  } as any
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash-low')
+  const options = { provider: 'antigravity-cli', model: 'gemini-3.7-flash-low', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)))
+
+  assert.ok(capturedArgv, 'spawn was called for turn')
+  const modelIdx = capturedArgv!.indexOf('--model')
+  assert.notEqual(modelIdx, -1, 'expected --model in argv')
+  assert.equal(capturedArgv![modelIdx + 1], 'gemini-3.7-flash')
+
+  const effortIdx = capturedArgv!.indexOf('--effort')
+  assert.notEqual(effortIdx, -1, 'expected --effort in argv')
+  assert.equal(capturedArgv![effortIdx + 1], 'low')
+})
+
+test('argv mapping: legacy low + explicit high passes base model and effort high', async () => {
+  let capturedArgv: readonly string[] | undefined
+  const ctx = {
+    subprocess: createPrimarySubprocessMock(argv => {
+      capturedArgv = argv
+    }),
+  } as any
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash-low')
+  const options = { provider: 'antigravity-cli', model: 'gemini-3.7-flash-low', reasoningEffort: 'high', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)))
+
+  assert.ok(capturedArgv, 'spawn was called for turn')
+  const modelIdx = capturedArgv!.indexOf('--model')
+  assert.notEqual(modelIdx, -1, 'expected --model in argv')
+  assert.equal(capturedArgv![modelIdx + 1], 'gemini-3.7-flash')
+
+  const effortIdx = capturedArgv!.indexOf('--effort')
+  assert.notEqual(effortIdx, -1, 'expected --effort in argv')
+  assert.equal(capturedArgv![effortIdx + 1], 'high')
+})
+
+test('argv mapping: single custom-model-high without sibling variants leaves custom-model-high and does not add inferred effort', async () => {
+  let capturedArgv: readonly string[] | undefined
+  const ctx = {
+    subprocess: createPrimarySubprocessMock(argv => {
+      capturedArgv = argv
+    }),
+  } as any
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  await adapter.resolveModel('antigravity-cli', 'custom-model-high')
+  const options = { provider: 'antigravity-cli', model: 'custom-model-high', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)))
+
+  assert.ok(capturedArgv, 'spawn was called for turn')
+  const modelIdx = capturedArgv!.indexOf('--model')
+  assert.notEqual(modelIdx, -1, 'expected --model in argv')
+  assert.equal(capturedArgv![modelIdx + 1], 'custom-model-high')
+
+  assert.equal(capturedArgv!.includes('--effort'), false, `expected no --effort in argv: ${JSON.stringify(capturedArgv)}`)
 })

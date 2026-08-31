@@ -85,16 +85,16 @@ function agyJsonModelsStdout(envelope: Record<string, unknown>): string {
 // --- JSON envelope path (parseAgyEnvelope + parseCatalogEntries) -------
 
 test('the real captured envelope shape is parsed: progress line skipped, tab-separated response parsed', async () => {
-  // This is the literal payload captured from `agy 1.1.22 --output-format json models`.
+  // Envelope parsing extracts tab-separated response lines after progress line.
   const stdout = 'Fetching available models...\n'
-    + '{"conversation_id":"","status":"SUCCESS","response":"gemini-3.7-flash-high\\tGemini 3.7 Flash (High)\\ngemini-3.7-flash-medium\\tGemini 3.7 Flash (Medium)"}\n'
+    + '{"conversation_id":"","status":"SUCCESS","response":"claude-3-5-sonnet\\tClaude 3.5 Sonnet\\ngpt-4o\\tGPT-4o"}\n'
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
   const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
-  assert.deepEqual(models.map(m => m.id).sort(), ['gemini-3.7-flash-high', 'gemini-3.7-flash-medium'])
-  assert.equal(models.find(m => m.id === 'gemini-3.7-flash-high')?.name, 'Gemini 3.7 Flash (High)')
+  assert.deepEqual(models.map(m => m.id).sort(), ['claude-3-5-sonnet', 'gpt-4o'])
+  assert.equal(models.find(m => m.id === 'claude-3-5-sonnet')?.name, 'Claude 3.5 Sonnet')
 })
 
 test('the envelope path accepts ids from any vendor family, with no hardcoded prefix list', async () => {
@@ -349,4 +349,113 @@ test('resolveModel resolves through the same catalog and falls back to the raw i
 
   const unknown = await adapter.resolveModel('antigravity-cli', 'not-in-catalog')
   assert.equal(unknown.name, 'not-in-catalog')
+})
+
+// --- Reasoning variants grouping and resolution tests -------------------
+
+test('vendor envelope with gemini-3.7-flash-low/medium/high lists single gemini-3.7-flash with name "Gemini 3.7 Flash" and no suffixed IDs', async () => {
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: [
+      'gemini-3.7-flash-low\tGemini 3.7 Flash (Low)',
+      'gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)',
+      'gemini-3.7-flash-high\tGemini 3.7 Flash (High)',
+    ].join('\n'),
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+  const modelIds = models.map(m => String(m.id))
+
+  assert.deepEqual(modelIds, ['gemini-3.7-flash'])
+  const model = models.find(m => String(m.id) === 'gemini-3.7-flash')
+  assert.equal(model?.name, 'Gemini 3.7 Flash')
+  assert.ok(!modelIds.includes('gemini-3.7-flash-low'))
+  assert.ok(!modelIds.includes('gemini-3.7-flash-medium'))
+  assert.ok(!modelIds.includes('gemini-3.7-flash-high'))
+})
+
+test('resolveModel(base) returns reasoning efforts ids [low, medium, high] and defaultEffort high', async () => {
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: [
+      'gemini-3.7-flash-low\tGemini 3.7 Flash (Low)',
+      'gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)',
+      'gemini-3.7-flash-high\tGemini 3.7 Flash (High)',
+    ].join('\n'),
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const resolved = await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash')
+  assert.equal(String(resolved.id), 'gemini-3.7-flash')
+  assert.ok(resolved.reasoning, 'reasoning should be present')
+  const effortIds = (resolved.reasoning?.efforts ?? []).map((e: any) => String(e.id ?? e))
+  assert.deepEqual(effortIds, ['low', 'medium', 'high'])
+  assert.equal(String(resolved.reasoning?.defaultEffort), 'high')
+})
+
+test('resolveModel(legacy medium id) succeeds, preserves requested id, and sets defaultEffort to medium', async () => {
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: [
+      'gemini-3.7-flash-low\tGemini 3.7 Flash (Low)',
+      'gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)',
+      'gemini-3.7-flash-high\tGemini 3.7 Flash (High)',
+    ].join('\n'),
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const resolved = await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash-medium')
+  assert.equal(String(resolved.id), 'gemini-3.7-flash-medium')
+  assert.ok(resolved.reasoning, 'reasoning should be present')
+  assert.equal(String(resolved.reasoning?.defaultEffort), 'medium')
+})
+
+test('single model id ending in -high without sibling variants remains unchanged and without reasoning', async () => {
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: 'custom-model-high\tCustom Model High',
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+  assert.deepEqual(models.map(m => String(m.id)), ['custom-model-high'])
+  assert.equal(models[0]?.name, 'Custom Model High')
+  assert.equal(models[0]?.reasoning, undefined)
+
+  const resolved = await adapter.resolveModel('antigravity-cli', 'custom-model-high')
+  assert.equal(String(resolved.id), 'custom-model-high')
+  assert.equal(resolved.reasoning, undefined)
+})
+
+test('unrelated normal model remains alongside grouped reasoning models', async () => {
+  const stdout = agyJsonModelsStdout({
+    conversation_id: '',
+    status: 'SUCCESS',
+    response: [
+      'gemini-3.7-flash-low\tGemini 3.7 Flash (Low)',
+      'gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)',
+      'gemini-3.7-flash-high\tGemini 3.7 Flash (High)',
+      'claude-3-5-sonnet\tClaude 3.5 Sonnet',
+    ].join('\n'),
+  })
+  const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
+  const adapter = new AntigravityCliAdapter(ctx, config)
+
+  const models = await adapter.listModels('antigravity-cli')
+  const modelIds = models.map(m => String(m.id)).sort()
+  assert.deepEqual(modelIds, ['claude-3-5-sonnet', 'gemini-3.7-flash'])
+
+  const claude = await adapter.resolveModel('antigravity-cli', 'claude-3-5-sonnet')
+  assert.equal(String(claude.id), 'claude-3-5-sonnet')
+  assert.equal(claude.name, 'Claude 3.5 Sonnet')
+  assert.equal(claude.reasoning, undefined)
 })

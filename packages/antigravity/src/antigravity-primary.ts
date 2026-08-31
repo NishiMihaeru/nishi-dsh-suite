@@ -4,6 +4,7 @@ import {
   ToolCallId,
   LlmAdapter,
   LlmError,
+  ReasoningEffortId,
   type ContentBlock,
   type GenerateOptions,
   type LlmModelInfo,
@@ -80,9 +81,27 @@ export interface AntigravityPrimaryConfig {
   readonly stderrMaxBytes: number
 }
 
+const SUFFIX_RE = /^(.+)-(low|medium|high)$/
+const EFFORT_ORDER = ['low', 'medium', 'high'] as const
+type EffortLevel = (typeof EFFORT_ORDER)[number]
+
+const EFFORT_NAMES: Record<EffortLevel, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+}
+
+interface CatalogModelEffort {
+  readonly id: EffortLevel
+  readonly name: string
+  readonly aliasId: string
+}
+
 interface CatalogModel {
   readonly id: string
   readonly name: string
+  readonly efforts?: readonly CatalogModelEffort[]
+  readonly aliases?: readonly string[]
 }
 
 interface BridgeToolCall {
@@ -151,6 +170,74 @@ function parseCatalogEntries(text: string): CatalogModel[] {
     rows.set(id, { id, name: display.length > 0 ? display : id })
   }
   return [...rows.values()]
+}
+
+function cleanDisplayName(name: string): string {
+  return name.replace(/ \((Low|Medium|High)\)$/, '')
+}
+
+function aggregateCatalogModels(rawModels: readonly CatalogModel[]): CatalogModel[] {
+  const groups = new Map<string, { model: CatalogModel; effort: EffortLevel }[]>()
+  for (const model of rawModels) {
+    const match = model.id.match(SUFFIX_RE)
+    if (match) {
+      const baseId = match[1]
+      const effort = match[2] as EffortLevel
+      const list = groups.get(baseId) ?? []
+      list.push({ model, effort })
+      groups.set(baseId, list)
+    }
+  }
+
+  const collapsedGroups = new Map<string, CatalogModel>()
+  const collapsedRawIds = new Set<string>()
+
+  for (const [baseId, items] of groups.entries()) {
+    const distinctEfforts = new Set(items.map(item => item.effort))
+    if (distinctEfforts.size >= 2) {
+      for (const item of items) {
+        collapsedRawIds.add(item.model.id)
+      }
+      const efforts: CatalogModelEffort[] = []
+      for (const level of EFFORT_ORDER) {
+        const found = items.find(item => item.effort === level)
+        if (found) {
+          efforts.push({
+            id: level,
+            name: EFFORT_NAMES[level],
+            aliasId: found.model.id,
+          })
+        }
+      }
+      const preferred = items.find(item => item.effort === 'high') ?? items[0]
+      const name = cleanDisplayName(preferred.model.name)
+      collapsedGroups.set(baseId, {
+        id: baseId,
+        name: name.length > 0 ? name : baseId,
+        efforts,
+        aliases: efforts.map(e => e.aliasId),
+      })
+    }
+  }
+
+  const result: CatalogModel[] = []
+  const emittedBaseIds = new Set<string>()
+
+  for (const model of rawModels) {
+    if (collapsedRawIds.has(model.id) || collapsedGroups.has(model.id)) {
+      const match = model.id.match(SUFFIX_RE)
+      const baseId = match ? match[1] : model.id
+      if (!emittedBaseIds.has(baseId)) {
+        emittedBaseIds.add(baseId)
+        const collapsed = collapsedGroups.get(baseId)
+        if (collapsed) result.push(collapsed)
+      }
+    } else {
+      result.push(model)
+    }
+  }
+
+  return result
 }
 
 /**
@@ -470,12 +557,33 @@ export class AntigravityCliAdapter extends LlmAdapter {
     modelId: string,
     signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    const model = (await this.models(signal)).find(candidate => candidate.id === modelId)
+    const models = await this.models(signal)
+    const model = models.find(candidate => candidate.id === modelId || candidate.aliases?.includes(modelId))
+    const aliasEffort = model?.efforts?.find(e => e.aliasId === modelId)
+    const defaultEffortLevel = aliasEffort
+      ? aliasEffort.id
+      : model?.efforts?.some(e => e.id === 'high')
+        ? 'high'
+        : model?.efforts && model.efforts.length > 0
+          ? model.efforts[model.efforts.length - 1].id
+          : undefined
+
+    const reasoning = model?.efforts && model.efforts.length > 0 && defaultEffortLevel !== undefined
+      ? {
+          efforts: model.efforts.map(e => ({
+            id: ReasoningEffortId(e.id),
+            name: e.name,
+          })),
+          defaultEffort: ReasoningEffortId(defaultEffortLevel),
+        }
+      : undefined
+
     return {
       provider,
       id: modelId,
       name: model?.name ?? modelId,
       inputModalities: ['text'],
+      ...(reasoning ? { reasoning } : {}),
     }
   }
 
@@ -601,7 +709,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
           )
         }
         if (typeof envelope.response === 'string') {
-          const models = parseCatalogEntries(envelope.response)
+          const models = aggregateCatalogModels(parseCatalogEntries(envelope.response))
           if (models.length > 0) return models
         }
       }
@@ -620,14 +728,14 @@ export class AntigravityCliAdapter extends LlmAdapter {
         { cause: failure },
       )
     }
-    const models = parseCatalogEntries(text.stdout)
-    if (models.length === 0) {
+    const rawModels = parseCatalogEntries(text.stdout)
+    if (rawModels.length === 0) {
       throw new LlmError(
         'Antigravity model discovery returned no parseable models',
         'ANTIGRAVITY_PROTOCOL',
       )
     }
-    return models
+    return aggregateCatalogModels(rawModels)
   }
 
   private async ensureBridgeWorkspace(): Promise<EphemeralAgentWorkspace> {
@@ -700,10 +808,37 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
   }
 
+  private resolveInvocationModel(
+    modelId: string,
+    explicitEffort?: ReasoningEffortId | string,
+  ): { model: string; effort: string | undefined } {
+    const now = Date.now()
+    const cached = this.cachedModels && this.cachedModels.expiresAt >= now ? this.cachedModels.models : undefined
+    if (cached) {
+      const match = cached.find(candidate => candidate.id === modelId || candidate.aliases?.includes(modelId))
+      if (match) {
+        const aliasEffort = match.efforts?.find(e => e.aliasId === modelId)
+        const model = match.id
+        const effort = explicitEffort !== undefined
+          ? String(explicitEffort)
+          : aliasEffort?.id
+        return { model, effort }
+      }
+    }
+    return {
+      model: modelId,
+      effort: explicitEffort !== undefined ? String(explicitEffort) : undefined,
+    }
+  }
+
   private async runTurn(options: GenerateOptions): Promise<StreamTurnResult> {
     const payload = `${JSON.stringify({ event: 'user', message: { content: bridgeEnvelope(options) } })}\n`
     const workspace = await this.ensureBridgeWorkspace()
     const signal = this.combinedSignal(options.signal, this.config.turnTimeoutMs)
+    const { model, effort } = this.resolveInvocationModel(
+      options.model,
+      options.reasoningEffort,
+    )
     const args = [
       '--add-dir', workspace.root,
       '--input-format', 'stream-json',
@@ -711,10 +846,10 @@ export class AntigravityCliAdapter extends LlmAdapter {
       '--json-schema', workspace.files[BRIDGE_SCHEMA_FILE],
       '--agent', AGENT_NAME,
       '--sandbox',
-      '--model', options.model,
-      ...(options.reasoningEffort === undefined
+      '--model', model,
+      ...(effort === undefined
         ? []
-        : ['--effort', String(options.reasoningEffort)]),
+        : ['--effort', effort]),
       '--print-timeout', `${Math.max(1, Math.ceil(this.config.turnTimeoutMs / 1000))}s`,
     ]
     const invocation = await this.invocation(args, signal)
