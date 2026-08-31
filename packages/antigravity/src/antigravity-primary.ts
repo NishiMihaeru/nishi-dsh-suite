@@ -928,6 +928,18 @@ function resultFailure(result: AgyTurnResult): LlmError {
 }
 
 /**
+ * The one vendor turn a `mcp-bridge` session has open, if any.
+ *
+ * A turn on this transport spans several DSH steps, so its promise and its
+ * cancellation have exactly the same lifetime: separating them let a step end
+ * holding one without the other.
+ */
+interface OpenMcpTurn {
+  readonly outcome: Promise<AgyTurnOutcome>
+  readonly abort: AbortController
+}
+
+/**
  * One DSH session's live vendor conversation.
  *
  * `sentDigests` is the whole reuse test: a request may continue this
@@ -982,17 +994,11 @@ interface AgySessionState {
    *
    * On this transport a turn does NOT end when the model wants a tool: it
    * blocks inside the MCP call while DSH executes. So one vendor turn spans
-   * several DSH steps, and the promise for it is held here rather than awaited
-   * to completion by the step that started it.
+   * several DSH steps, and the promise for it and the abort controller for
+   * the whole open vendor turn (not one DSH step) are held here rather than
+   * awaited to completion by the step that started it.
    */
-  inFlight?: Promise<AgyTurnOutcome>
-  /**
-   * `mcp-bridge` only: the call the vendor is currently blocked on, with the
-   * DSH id its result will be cited by.
-   */
-  bridgePending?: { readonly bridgeId: string; readonly dshId: string }
-  /** `mcp-bridge` only: aborts the whole open vendor turn, not one DSH step. */
-  turnAbort?: AbortController
+  openMcpTurn?: OpenMcpTurn
 }
 
 export class AntigravityCliAdapter extends LlmAdapter {
@@ -1214,13 +1220,13 @@ export class AntigravityCliAdapter extends LlmAdapter {
         // The vendor's allowlist is `call_mcp_tool` plus `finish`, and the
         // bridge only ever advertised this request's catalog, so an unknown
         // name means the two disagree -- which must not become a DSH tool call.
+        await this.closeSession(String(options.sessionId))
         throw new LlmError(
           `Antigravity requested unknown DSH tool ${JSON.stringify(call.name)} over the MCP bridge`,
           'ANTIGRAVITY_PROTOCOL',
         )
       }
-      const id = this.mintCallId(call.id)
-      session.bridgePending = { bridgeId: call.id, dshId: String(id) }
+      const id = ToolCallId(call.id)
       const argumentsText = JSON.stringify(call.arguments ?? {})
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index: 0, id, name: call.name, argumentsDelta: argumentsText }
@@ -1564,7 +1570,6 @@ export class AntigravityCliAdapter extends LlmAdapter {
     return String(options.sessionId)
   }
 
-  /** Whether `messages` continues exactly what this conversation has already been told. */
   /**
    * Whether DSH's history still AGREES with the prefix this conversation was
    * told, saying nothing about whether it has grown since.
@@ -1589,6 +1594,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
     return true
   }
 
+  /** Whether `messages` continues exactly what this conversation has already been told. */
   private extendsConversation(state: AgySessionState, messages: readonly Message[]): boolean {
     if (messages.length <= state.sentDigests.length) return false
     return this.agreesWithConversation(state, messages)
@@ -1903,8 +1909,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
     // new stdin line here would be a second turn queued behind the blocked
     // one -- which the vendor does buffer, but which would leave the model
     // waiting for a result nobody is going to send.
-    if (state?.bridgePending !== undefined) {
-      const pending = state.bridgePending
+    const outstanding = state?.bridge?.pending()
+    if (state !== undefined && outstanding !== undefined) {
       // A suspended turn is resumed only if DSH's history still agrees with
       // what this conversation was told.
       //
@@ -1923,17 +1929,16 @@ export class AntigravityCliAdapter extends LlmAdapter {
         await this.closeSession(key)
         return await this.runMcpTurn(options)
       }
-      const result = bridgeToolResult(options.messages, pending.dshId)
+      const result = bridgeToolResult(options.messages, outstanding.id)
       if (result === undefined) {
         await this.closeSession(key)
         throw new LlmError(
-          `Antigravity mcp-bridge: no DSH result for tool call ${JSON.stringify(pending.dshId)}, `
+          `Antigravity mcp-bridge: no DSH result for tool call ${JSON.stringify(outstanding.id)}, `
           + 'which a live vendor turn is blocked on',
           'ANTIGRAVITY_PROTOCOL',
         )
       }
-      state.bridgePending = undefined
-      state.bridge?.resolve(pending.bridgeId, result.text, result.isError)
+      state.bridge?.resolve(outstanding.id, result.text, result.isError)
       return await this.settleMcpStep(key, state, options)
     }
 
@@ -1967,19 +1972,20 @@ export class AntigravityCliAdapter extends LlmAdapter {
         bridge: host.expect(pid, bridgeToolDeclarations(options.tools)),
       }
       this.sessions.set(key, state)
-      state.turnAbort = new AbortController()
+      const abort = new AbortController()
       // The turn's own signal outlives this step on purpose: the vendor turn
       // spans steps, so a per-step timeout must not kill it mid-tool.
       const turnSignal = AbortSignal.any([
-        state.turnAbort.signal,
+        abort.signal,
         AbortSignal.timeout(this.config.turnTimeoutMs),
       ])
-      state.inFlight = state.process.turn(fullEnvelope(options, this.callIdView(state), false), turnSignal)
-      state.inFlight.catch(() => {})
+      const outcome = state.process.turn(fullEnvelope(options, this.callIdView(state), false), turnSignal)
+      outcome.catch(() => {})
+      state.openMcpTurn = { outcome, abort }
     } else {
-      state.turnAbort = new AbortController()
+      const abort = new AbortController()
       const turnSignal = AbortSignal.any([
-        state.turnAbort.signal,
+        abort.signal,
         AbortSignal.timeout(this.config.turnTimeoutMs),
       ])
       const appended = options.messages.slice(state.sentDigests.length)
@@ -1988,8 +1994,9 @@ export class AntigravityCliAdapter extends LlmAdapter {
         await this.closeSession(key)
         return await this.runMcpTurn(options)
       }
-      state.inFlight = state.process.turn(deltaEnvelope(unheard, this.callIdView(state)), turnSignal)
-      state.inFlight.catch(() => {})
+      const outcome = state.process.turn(deltaEnvelope(unheard, this.callIdView(state)), turnSignal)
+      outcome.catch(() => {})
+      state.openMcpTurn = { outcome, abort }
     }
     return await this.settleMcpStep(key, state, options)
   }
@@ -2007,9 +2014,9 @@ export class AntigravityCliAdapter extends LlmAdapter {
     state: AgySessionState,
     options: GenerateOptions,
   ): Promise<McpStep> {
-    const inFlight = state.inFlight
+    const openMcpTurn = state.openMcpTurn
     const bridge = state.bridge
-    if (inFlight === undefined || bridge === undefined) {
+    if (openMcpTurn === undefined || bridge === undefined) {
       await this.closeSession(key)
       throw new LlmError('Antigravity mcp-bridge lost its vendor turn', 'ANTIGRAVITY_PROTOCOL')
     }
@@ -2021,11 +2028,11 @@ export class AntigravityCliAdapter extends LlmAdapter {
     call.catch(() => {})
     try {
       const winner = await Promise.race([
-        inFlight.then(outcome => ({ kind: 'final' as const, outcome })),
+        openMcpTurn.outcome.then(outcome => ({ kind: 'final' as const, outcome })),
         call.then(value => ({ kind: 'call' as const, value })),
       ])
       if (winner.kind === 'final') {
-        state.inFlight = undefined
+        state.openMcpTurn = undefined
         state.sentDigests = options.messages.map(messageDigest)
         this.armIdleReaper(key, state)
         return { kind: 'final', outcome: winner.outcome, session: state }
@@ -2033,8 +2040,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
       if (winner.value === undefined) {
         // The bridge went away without a call: the child is gone, so the turn
         // promise is the authority on why.
-        const outcome = await inFlight
-        state.inFlight = undefined
+        const outcome = await openMcpTurn.outcome
+        state.openMcpTurn = undefined
         state.sentDigests = options.messages.map(messageDigest)
         return { kind: 'final', outcome, session: state }
       }
@@ -2070,11 +2077,10 @@ export class AntigravityCliAdapter extends LlmAdapter {
     // Abort the vendor turn before the bridge goes away: a server still
     // blocked in a call must be released, or its `agy` parent waits out its
     // own print timeout for an answer that is never coming.
-    state.turnAbort?.abort()
+    state.openMcpTurn?.abort.abort()
     state.bridge?.dispose()
     state.bridge = undefined
-    state.bridgePending = undefined
-    state.inFlight = undefined
+    state.openMcpTurn = undefined
     state.lifetime.abort()
     this.turnChildren.delete(state.process)
     await state.process.close()

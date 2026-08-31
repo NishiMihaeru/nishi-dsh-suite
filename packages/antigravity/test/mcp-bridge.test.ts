@@ -243,6 +243,12 @@ test('the real server process serves the catalog and blocks a call until DSH ans
     const call = await channel.next(AbortSignal.timeout(5_000))
     assert.equal(call?.name, 'memory_write')
     assert.deepEqual(call?.arguments, { topic: 'bridge' })
+    // A UUID, not a counter, and asserted here because this is the only test
+    // that drives the real server. The id crosses into DSH as the tool-call id
+    // verbatim, and a per-process counter restarts at one whenever a changed
+    // request signature rebuilds the vendor child inside a live DSH session --
+    // colliding with ids already written into that session's durable history.
+    assert.match(call!.id, /^agy-mcp-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
 
     // The vendor turn must still be blocked here: this is the property the
     // whole design rests on, so assert it rather than assume it.

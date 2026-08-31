@@ -21,6 +21,7 @@
  *
  * @module nishi-dsh-antigravity/mcp-bridge-server
  */
+import { randomUUID } from 'node:crypto'
 import { connect, type Socket } from 'node:net'
 import { pathToFileURL } from 'node:url'
 import {
@@ -158,7 +159,6 @@ function firstClaim(offers: readonly Promise<Claim | undefined>[]): Promise<Clai
 export async function main(): Promise<void> {
   const outstanding = new Map<string, Outstanding>()
   const claimed = findAdapter(outstanding)
-  let nextCallId = 0
 
   const toolsFor = async (): Promise<readonly BridgeToolDeclaration[]> => (await claimed)?.tools ?? []
 
@@ -167,7 +167,7 @@ export async function main(): Promise<void> {
     if (claim === undefined) {
       return { text: 'This DSH tool bridge is not attached to a DeepSeek Harness session, so it has no tools.', isError: true }
     }
-    const id = `bridge-${++nextCallId}`
+    const id = `agy-mcp-${randomUUID()}`
     return await new Promise<{ text: string; isError: boolean }>(resolve => {
       outstanding.set(id, { resolve })
       claim.socket.write(encodeFrame({ t: 'call', id, name, arguments: args }))
