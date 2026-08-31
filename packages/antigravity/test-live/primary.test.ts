@@ -187,10 +187,17 @@ test('ANTIGRAVITY PRODUCTION: 3. DSH Tool Loop', async () => {
       description: 'Look up the status of a user',
       parameters: { type: 'object', additionalProperties: false, properties: { username: { type: 'string' } }, required: ['username'] },
     }]
+    // A tool loop needs a session id on the default transport, and a real DSH
+    // request always carries one: a `mcp-bridge` vendor turn spans several DSH
+    // steps, so the adapter has to know which conversation the second step
+    // continues. Without it this scenario asserted a tool loop the shipped
+    // default cannot run at all.
+    const sessionId = 'live-primary-tool-loop' as any
     const turn1Options: GenerateOptions = {
       provider: ANTIGRAVITY_PRIMARY_PROVIDER,
       model: 'gemini-3.7-flash-medium',
       reasoningEffort: 'medium',
+      sessionId,
       tools,
       messages: [userText('Use the lookup_user_status tool to check the status of user "alice".')],
     }
@@ -205,6 +212,7 @@ test('ANTIGRAVITY PRODUCTION: 3. DSH Tool Loop', async () => {
       provider: ANTIGRAVITY_PRIMARY_PROVIDER,
       model: 'gemini-3.7-flash-medium',
       reasoningEffort: 'medium',
+      sessionId,
       tools,
       messages: [
         userText('Use the lookup_user_status tool to check the status of user "alice".'),

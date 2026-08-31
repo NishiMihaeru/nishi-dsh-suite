@@ -60,7 +60,12 @@ function createTestContext(turnSpawns: { count: number }) {
       return findOnPath(name) ?? name
     },
     spawn(spec: any) {
-      if (!spec.argv.includes('models')) turnSpawns.count += 1
+      // `list` alongside `models`: since `mcp-bridge` became the default this
+      // adapter also runs `agy mcp list` as a registration precondition, and
+      // counting that housekeeping call as a turn child is what made this
+      // assertion read 2. Kept in step with `test-live/mcp-bridge.test.ts`.
+      const housekeeping = spec.argv.includes('models') || spec.argv.includes('list')
+      if (!housekeeping) turnSpawns.count += 1
       const [cmd, ...args] = spec.argv
       const child = spawn(cmd, args, {
         cwd: spec.cwd,
