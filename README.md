@@ -16,7 +16,7 @@ The product goal is simple: switching subscription providers should be a route c
 
 - `nishi-dsh-core` — provider registry/registration, shared vendor CLI runtime, routed `web_search`, normalized usage/limits, host RPC and browser surfaces;
 - `nishi-dsh-codex` — provider id `codex`, route `codex-app-server`, Codex App Server adapter, primary-history bridge, native search backend and rate-limits source;
-- `nishi-dsh-antigravity` — provider id `antigravity`, route `antigravity-cli`, official `agy` primary adapter, native `search_web` backend and local usage visibility;
+- `nishi-dsh-antigravity` — provider id `antigravity`, route `antigravity-cli`, official `agy` primary adapter with two tool transports (an MCP bridge by default, a forced output schema on request), native `search_web` backend and local usage visibility;
 - `nishi-dsh-claude` — provider id `claude`, usage-only through the installed official Claude CLI; no model route and no search backend;
 - `nishi-dsh-project-memory` — provider-agnostic project memory, context injection, `memory_read` / `memory_write` / `memory_edit`, plus `/memory` and `/consolidate`;
 - `nishi-dsh-suite` — Market-facing composition bundle and managed Orchestrator preset bridge.
@@ -107,7 +107,11 @@ d1cbac7094488ded52d9ab83891531bc01197090
 
 It recorded Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, and disposable official DSH `0.1.2-alpha.1` runtime probes at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`. That evidence describes a tree this one no longer matches; see `docs/HANDOFF.md`.
 
-On the current tree, `pnpm verify:local` exits `0` on three consecutive runs. Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass, re-run in full on 2026-08-31, together with a first end-to-end cross-route delegation run. That run also found a Codex defect on a mid-turn route switch, since fixed and covered by a live probe as well as focused tests (`docs/ROADMAP.md` §2). None of this is independent validation by a party that did not write the code, which is still missing and is what a restored freeze claim requires.
+On the current tree, `pnpm verify:local` exits `0` on three consecutive runs. Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass, re-run in full on 2026-08-31, together with a first end-to-end cross-route delegation run. Four further live suites were added the same day and pass: the Antigravity MCP tool bridge, the vendor's enforcement of an agent tool allowlist, and — for Codex — that `thread/inject_items` actually reaches the model, alongside the existing tool-result continuation probe.
+
+An adversarial review of the whole tree by two models that did not write it then reported 16 defects on a tree whose own gate was green. All 16 are closed: 15 confirmed and fixed, one rejected on the vendor's own contract, one referred to the maintainer and decided. Two were in code written that same day, one of them a local-socket exposure. `docs/verification/gemini/LATEST.md` has the method and the findings.
+
+None of that is independent validation by a party that did not write the code: those reviewers' charters, and the reading of their findings, came from the author. It is still missing, and it is what a restored freeze claim requires.
 
 Provider-specific acceptance is still open, but not equally unstarted: Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity's provider-specific audit, catalog rewrite, vendor-diagnostic routing and live acceptance are likewise complete, with only its freeze declaration outstanding (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Historical provider tests/live probes are checkpoint-specific evidence only and do not by themselves freeze a provider stage.
 

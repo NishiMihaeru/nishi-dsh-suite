@@ -1,6 +1,6 @@
 # Handoff
 
-Rewritten for a fresh session at HEAD `28883af`, kept current through the working-discipline and MCP-route documentation pass (`f2b273b`). It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
+Rewritten for a fresh session at HEAD `28883af`, kept current through the MCP tool bridge, its live acceptance, and the whole-tree adversarial review that followed. It describes the tree as it is now, not the audit narrative it grew out of — that history lives in git and in `docs/verification/README.md`.
 
 This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
@@ -10,7 +10,7 @@ This is the only session handoff file. Update it in place when the active task c
 feat/core-provider-plugins-rc3
 ```
 
-Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin at `fc90dc0`. Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
+Six packages at `0.1.0-rc.3`, unpublished. Working tree clean, branch pushed and in sync with origin. Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
 
 Only supported DSH generation:
 
@@ -41,12 +41,12 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 
 | Package | State |
 |---|---|
-| Core | remediated; Model Accounts surface removed outright; sidebar provider selection and ordering added; 200 tests |
-| Project Memory | recovery read race fixed with deterministic coverage; 77 tests |
-| Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; mid-turn route-switch defect fixed and covered live; 81 tests |
-| Antigravity | provider stage reopened deliberately: the MCP tool bridge is adopted and its transport-independent half has landed behind `transport`, which still defaults to the shipped `schema` path; one live `agy` child per session replaces one process per step; the MCP tool bridge is the default transport after passing live acceptance; 118 tests |
+| Core | remediated; Model Accounts surface removed outright; sidebar provider selection and ordering added; invalidation listeners contained the way change observers already were; 202 tests |
+| Project Memory | recovery read race fixed, and a second one in the writer-lock release window; 79 tests |
+| Codex | provider audit done, thread handling redesigned, live acceptance re-run at 78 tests; `thread/inject_items` verified to reach the model; the continuation path's leak, cancellation and timeout seams closed; a lost checkpoint rebuilds instead of ending the session; 90 tests |
+| Antigravity | provider stage reopened deliberately: the MCP tool bridge is adopted and its transport-independent half has landed behind `transport`, which still defaults to the shipped `schema` path; one live `agy` child per session replaces one process per step; the MCP tool bridge is the **default** transport after passing live acceptance, with `transport: "schema"` selecting the shipped forced-schema path; 128 tests |
 | Claude | usage-only stub, unchanged; 6 tests |
-| Suite | Orchestrator preset now allows cross-route subagents; 16 tests |
+| Suite | Orchestrator preset now allows cross-route subagents; a failed preset update no longer strands its staging directory; 17 tests |
 
 ## Evidence on this tree
 
@@ -54,7 +54,9 @@ All four thawed packages are **THAWED, PENDING INDEPENDENT VALIDATION**. Nothing
 - Codex live, re-run in full on 2026-08-31 against this tree: primary, the full 15-scenario acceptance suite, `test:live:web-search` and `test:live:web-search-routed` all pass. This run covers the issue #4 projection fix, which the previous one (taken at Codex 72 tests) did not. The two web-search suites need `DSH_LIVE_CODEX_SEARCH_MODEL` set — `gpt-5.6-sol` was used — and fail a **precondition assertion** without it: a harness prerequisite, not a product defect. Do not read that exit code as a regression;
 - Antigravity live, re-run **after** the session-lived conversation and the per-tool output schema landed: primary 8/8 and `test:live:session-continuation` 1/1 against real `agy 1.1.22`. The continuation suite asserts what a surviving turn cannot — that one child served both DSH steps, and that the model's answer carries a value it could only have read from the tool result. Native and routed search were last run on 2026-08-31 and were deliberately not repeated: neither change touches the search backend;
 - cross-route delegation, exercised end to end in the real `web` profile for the first time: parent Codex -> child Antigravity, parent Antigravity -> child Codex, and one parent turn with two concurrent background Codex children. All pass, evidenced by each child session's own `request/header` route in the durable log rather than by the model's report. Up to six concurrent `codex app-server` processes were observed, with no residue afterwards. The same run found the mid-turn route-switch defect, which is now fixed (`ROADMAP.md` §2) and covered by `test:live:tool-result-continuation` — a live probe that asserts the model actually saw the tool result, not merely that the turn survived;
+- four live suites added on 2026-08-31 and passing: `test:live:mcp-bridge` (the model calls a DSH tool natively, DSH executes it, and the result reaches the model inside the same vendor turn, in one child and one turn), `test:live:agent-allowlist` (a `finish`-only agent reaches none of the vendor's own file tools, and its turn still succeeds), `test:live:inject-items` (a value reachable only by injection comes back in the answer, with the JSON-RPC sniffed to prove the split) and the existing `test:live:tool-result-continuation`, re-run after the duplication was removed;
 - an adversarial code review and a documentation audit were run over the whole change set. Both found real defects; all are fixed.
+- a whole-tree adversarial review by two models followed (`docs/verification/gemini/LATEST.md`): 16 findings on a green tree, all closed — 15 fixed, one rejected on the upstream subprocess contract, one referred to the maintainer and decided. The two models disagreed usefully; one called project memory and core clean while the other found a real race in each.
 
 A green gate plus live suites is **not** an acceptance. See *What remains*.
 
