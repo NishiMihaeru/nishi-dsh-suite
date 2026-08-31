@@ -36,6 +36,18 @@ export interface PreparedCodexHistory {
   readonly checkpoint?: CodexReplayState
   readonly injectItems: readonly Record<string, unknown>[]
   readonly turnInput: readonly (CodexTextInput | CodexImageInput)[]
+  /**
+   * How many prior Codex responses were passed over for want of a usable
+   * checkpoint.
+   *
+   * Non-zero means the vendor thread this request continues is older than DSH's
+   * own history, or that there is none and the conversation was rebuilt from
+   * scratch. Neither is an error -- the rebuild is the documented path -- but it
+   * costs the vendor's prompt cache, so it is not something to lose silently.
+   * Reported rather than logged because this package mounts no logger; the
+   * caller decides what to do with it.
+   */
+  readonly skippedCheckpoints: number
 }
 
 function replayState(value: unknown): CodexReplayState | undefined {
@@ -60,23 +72,54 @@ function replayState(value: unknown): CodexReplayState | undefined {
   }
 }
 
+/** Outcome of scanning DSH history backwards for a resumable checkpoint. */
+interface CheckpointScan {
+  /** Prior Codex responses passed over for want of a usable checkpoint. */
+  readonly skipped: number
+  /** The newest usable checkpoint, absent when the history holds none. */
+  readonly found?: { readonly index: number; readonly state: CodexReplayState }
+}
+
+/**
+ * The newest prior Codex response that carries a usable checkpoint.
+ *
+ * A response without one is passed over rather than fatal. It used to throw
+ * `a prior Codex response has no compatible App Server checkpoint; start a new
+ * session`, which made a session unusable for the rest of its life over
+ * something this module can already recover from: everything after the chosen
+ * checkpoint is imported with `thread/inject_items`, and with no checkpoint at
+ * all the whole conversation is rebuilt into a fresh thread. Failing closed was
+ * a deliberate choice with no recorded reason; the maintainer chose the rebuild
+ * on 2026-08-31.
+ *
+ * Scanning continues backwards instead of giving up at the first gap, which
+ * matters: resuming an OLDER checkpoint and injecting the messages after it
+ * keeps the vendor's prompt cache, where a full rebuild would not. The
+ * tool-call-only case was already treated this way -- such a response
+ * legitimately has no checkpoint -- and this is the same rule without the
+ * exception.
+ *
+ * @returns the checkpoint and its index, plus how many responses were passed
+ *   over on the way to it.
+ */
 function latestCheckpoint(
   messages: readonly Message[],
   provider: string,
-): { readonly index: number; readonly state: CodexReplayState } | undefined {
+): CheckpointScan {
+  let skipped = 0
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
     if (message?.role !== 'assistant' || message.source.kind !== 'model' || message.source.provider !== provider) continue
     const state = replayState(message.source.replayState)
     if (state === undefined) {
-      if (message.content.some(block => block.type === 'tool-call')) continue
-      throw new Error(
-        'codex-plugin-dsh: a prior Codex response has no compatible App Server checkpoint; start a new session',
-      )
+      // A response holding only tool calls never had a checkpoint of its own,
+      // so it is not evidence of a lost one and is not counted as skipped.
+      if (!message.content.some(block => block.type === 'tool-call')) skipped += 1
+      continue
     }
-    return { index, state }
+    return { skipped, found: { index, state } }
   }
-  return undefined
+  return { skipped }
 }
 
 function textBlocks(blocks: readonly ContentBlock[], label: string): string[] {
@@ -242,11 +285,16 @@ export async function prepareCodexHistory(
   expectedSessionId?: string,
   ignoreCheckpoint = false,
 ): Promise<PreparedCodexHistory> {
-  const checkpointCandidate = ignoreCheckpoint ? undefined : latestCheckpoint(messages, provider)
-  const checkpoint = checkpointCandidate !== undefined
-    && (expectedSessionId === undefined || checkpointCandidate.state.sessionId === expectedSessionId)
-    ? checkpointCandidate
+  const scan: CheckpointScan = ignoreCheckpoint ? { skipped: 0 } : latestCheckpoint(messages, provider)
+  const candidate = scan.found
+  const checkpoint = candidate !== undefined
+    && (expectedSessionId === undefined || candidate.state.sessionId === expectedSessionId)
+    ? candidate
     : undefined
+  // A checkpoint belonging to another DSH session is passed over for the same
+  // reason a missing one is: this request cannot resume it, and rebuilding is
+  // what the caller does instead. Counting it keeps that visible.
+  const skippedCheckpoints = scan.skipped + (candidate !== undefined && checkpoint === undefined ? 1 : 0)
   const pending = checkpoint === undefined ? messages : messages.slice(checkpoint.index + 1)
   let inputStart = pending.length
   while (inputStart > 0 && isCurrentTurnInput(pending[inputStart - 1] as Message)) inputStart -= 1
@@ -290,5 +338,6 @@ export async function prepareCodexHistory(
     ...checkpoint === undefined ? {} : { checkpoint: checkpoint.state },
     injectItems: await responseItems(historical, resolveImageUrl),
     turnInput,
+    skippedCheckpoints,
   }
 }

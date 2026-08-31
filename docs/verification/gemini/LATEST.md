@@ -1,6 +1,6 @@
 # Whole-tree adversarial review: two models, four areas
 
-- **Result**: `DEFECTS FOUND` — 16 findings reported, all verified: **15 confirmed and fixed**, 1 rejected, 1 referred to the maintainer as a contract decision
+- **Result**: `DEFECTS FOUND` — 16 findings reported, all verified and closed: **15 confirmed and fixed**, 1 rejected on the vendor contract, 1 referred to the maintainer and then decided in the reviewer's favour
 - **Kind**: adversarial code review by two models that did not write the code. **Not** a freeze sign-off; see *Standing*.
 - **Reviewers**: `gemini-3.7-flash-high` and `gemini-3.1-pro-high`, via `agy 1.1.22`, each over all four areas
 - **Reviewed**: every `src` and `test` tree under `packages/`, at `77f6d80`
@@ -69,15 +69,15 @@ Confirmed = traced in the code by the maintainer's session, or demonstrated.
 |---|---|---|
 | A4 | `antigravity/src/agy-session.ts` | The claim was `terminate()` without escalation to SIGKILL. The upstream subprocess contract says the grace period exists "for the `SubprocessHandle.terminate` escalation", so `terminate()` escalates on its own using the `graceMs` this adapter passes. `close()` does bound its wait and swallow the timeout, unlike core's `disposeVendorChild`, but the escalation is already in flight by then -- returning early is deliberate, not a leak. |
 
-### Referred to the maintainer rather than fixed
+### Referred to the maintainer, and decided
 
-| # | Where | Question |
-|---|---|---|
-| X5 | `codex/.../history.ts` | `latestCheckpoint` throws for a prior Codex response with no usable checkpoint, telling the user to start a new session, while `prepareCodexHistory` has a working rebuild path for exactly that case. The reviewer called the throw a defect; it reads as a deliberate fail-closed choice, and the `continue` for tool-call-only messages shows the author thought about which messages legitimately lack a checkpoint. Nothing records WHY failing closed beats rebuilding, so this is a contract decision and not a bug to be quietly flipped. |
+| # | Where | Decision | Sev |
+|---|---|---|---|
+| X5 | `codex/.../history.ts` | `latestCheckpoint` threw for a prior Codex response with no usable checkpoint, telling the user to start a new session, while `prepareCodexHistory` already had a working rebuild path. It read as a deliberate fail-closed choice, and nothing recorded why -- so it went to the maintainer rather than being quietly flipped. **Decided 2026-08-31: rebuild.** A response without a usable checkpoint is now passed over, and the scan continues backwards, so an OLDER checkpoint is resumed with everything after it injected -- which keeps the vendor's prompt cache where a full rebuild would not. With no usable checkpoint anywhere, the conversation is rebuilt into a fresh thread. A checkpoint belonging to another DSH session is passed over the same way, which it always was, but is now counted. `PreparedCodexHistory.skippedCheckpoints` reports how many were passed over, because a rebuild costs real money and this package mounts no logger to say so. | significant |
 
 ## Verification after the fixes
 
-- `pnpm verify:local` exits `0`; Core 200 -> 202, Project Memory 77 -> 79, Codex 81 -> 86, Antigravity 123 -> 128, Suite 16 -> 17 tests, `fail 0` in all six packages
+- `pnpm verify:local` exits `0`; Core 200 -> 202, Project Memory 77 -> 79, Codex 81 -> 90, Antigravity 123 -> 128, Suite 16 -> 17 tests, `fail 0` in all six packages
 - the Codex changes restructure a hot path, so three live suites were re-run against real `codex-cli 0.150.0` afterwards: `test:live:primary`, `test:live:tool-result-continuation` and `test:live:inject-items`, all PASS
 - one gap in the coverage, stated rather than papered over: X3's own scenario -- cancelling *during* a continuation step -- has no direct test, because reaching it needs a fake that drives the vendor's notification stream. Its two halves are covered (the timeout no longer spans a tool call; a caller aborting during setup still stops the turn), and the per-step arming they share is the same code
 - `test:live:mcp-bridge` PASS against real `agy 1.1.22`

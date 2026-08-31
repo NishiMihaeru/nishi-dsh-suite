@@ -300,3 +300,100 @@ test('a request with neither input nor tool results still fails loud', async () 
     /the current Codex turn has no user input/,
   )
 })
+
+/** A prior Codex response, with or without a usable checkpoint. */
+function codexReply(text: string, checkpoint?: { threadId: string; turnId: string; sessionId: string }) {
+  return {
+    role: 'assistant',
+    source: {
+      kind: 'model',
+      provider,
+      ...checkpoint === undefined
+        ? {}
+        : { replayState: { response: { kind: 'codex-app-server', version: 1, ...checkpoint } } },
+    },
+    content: [{ type: 'text', text }],
+  }
+}
+
+const userSays = (text: string) => ({ role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] })
+
+test('a Codex response with no usable checkpoint is passed over, not fatal', async () => {
+  // It used to throw `a prior Codex response has no compatible App Server
+  // checkpoint; start a new session`, which killed the session for good over
+  // something this module can already recover from. The maintainer chose the
+  // rebuild on 2026-08-31.
+  const history = await prepareCodexHistory(
+    [
+      userSays('first question'),
+      codexReply('first answer', { threadId: 'thread-1', turnId: 'turn-1', sessionId: 'session-a' }),
+      userSays('second question'),
+      codexReply('second answer'),
+      userSays('third question'),
+    ] as any,
+    provider,
+    noImages,
+    'session-a',
+  )
+
+  // The older usable checkpoint is resumed rather than the whole conversation
+  // rebuilt: that is what keeps the vendor's prompt cache.
+  assert.equal(history.checkpoint?.turnId, 'turn-1')
+  assert.equal(history.skippedCheckpoints, 1)
+  // Everything after that checkpoint is imported, the checkpoint-less reply
+  // included, so the model still sees it.
+  const injected = JSON.stringify(history.injectItems)
+  assert.ok(injected.includes('second question'))
+  assert.ok(injected.includes('second answer'))
+  assert.deepEqual(history.turnInput, [{ type: 'text', text: 'third question', text_elements: [] }])
+})
+
+test('a history with no usable checkpoint at all rebuilds the whole conversation', async () => {
+  const history = await prepareCodexHistory(
+    [userSays('question'), codexReply('answer'), userSays('follow-up')] as any,
+    provider,
+    noImages,
+    'session-a',
+  )
+  assert.equal(history.checkpoint, undefined)
+  assert.equal(history.skippedCheckpoints, 1)
+  const injected = JSON.stringify(history.injectItems)
+  assert.ok(injected.includes('question') && injected.includes('answer'))
+  assert.deepEqual(history.turnInput, [{ type: 'text', text: 'follow-up', text_elements: [] }])
+})
+
+test('a checkpoint from another DSH session is passed over and counted', async () => {
+  const history = await prepareCodexHistory(
+    [
+      userSays('question'),
+      codexReply('answer', { threadId: 'thread-x', turnId: 'turn-x', sessionId: 'session-OTHER' }),
+      userSays('follow-up'),
+    ] as any,
+    provider,
+    noImages,
+    'session-a',
+  )
+  assert.equal(history.checkpoint, undefined, 'another session\'s checkpoint must never be resumed')
+  assert.equal(history.skippedCheckpoints, 1)
+})
+
+test('a response holding only tool calls is not counted as a lost checkpoint', async () => {
+  // Such a response never had a checkpoint of its own, so it is not evidence
+  // that one was lost, and must not make a healthy history look degraded.
+  const history = await prepareCodexHistory(
+    [
+      userSays('do the thing'),
+      {
+        role: 'assistant',
+        source: { kind: 'model', provider },
+        content: [{ type: 'tool-call', id: 'call_z', name: 'subagent', arguments: '{}' }],
+      },
+      { role: 'user', source: { kind: 'tool', callId: 'call_z' }, content: [{ type: 'tool-result', toolCallId: 'call_z', content: [{ type: 'text', text: 'done' }] }] },
+      userSays('and now?'),
+    ] as any,
+    provider,
+    noImages,
+    'session-a',
+  )
+  assert.equal(history.skippedCheckpoints, 0)
+})
