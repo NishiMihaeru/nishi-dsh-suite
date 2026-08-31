@@ -203,3 +203,30 @@ test('usage source classifies executable resolution failure as UNAVAILABLE witho
     return true
   })
 })
+
+test('the usage probe captures vendor stderr instead of inheriting the host stream', async () => {
+  // `stderr: 'inherit'` wrote raw vendor stderr straight to the host process's
+  // own stderr -- credential paths and network diagnostics included -- which was
+  // the one place in this package where vendor-authored text reached a human
+  // unscrubbed. The bytes need somewhere to go that is not the operator's
+  // console; nothing reads them on the success path.
+  const spawned: any[] = []
+  const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    async resolveExecutable() { return '/provider/runtime/codex' },
+    spawn(spec: any) {
+      spawned.push(spec)
+      return fakeAppServerChild({})
+    },
+  } as any)
+
+  await source.read().catch(() => { /* the probe's own outcome is not the subject */ })
+
+  assert.equal(spawned.length, 1)
+  assert.notEqual(spawned[0].stdio.stderr, 'inherit')
+  assert.equal(typeof spawned[0].stdio.stderr, 'object')
+  assert.ok(
+    typeof spawned[0].stdio.stderr.maxBytes === 'number' && spawned[0].stdio.stderr.maxBytes > 0,
+    'captured stderr must be bounded',
+  )
+})

@@ -542,3 +542,127 @@ test('a changed system prompt on a later turn reaches the thread/resume call, no
   assert.equal(await resumeBaseInstructions('snapshot one'), 'snapshot one')
   assert.equal(await resumeBaseInstructions('snapshot two, which supersedes snapshot one'), 'snapshot two, which supersedes snapshot one')
 })
+
+test('the turn timeout does not run while DSH is executing a tool', async () => {
+  // The turn timeout used to be baked into the turn's signal once, in startTurn,
+  // so it measured wall-clock across every DSH step the turn spanned. A tool
+  // waiting on a human approval therefore spent the vendor's budget and killed
+  // the App Server mid-turn. It is now armed per step and disarmed when the step
+  // returns, so the clock measures only time spent waiting on the vendor.
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      if (method === 'thread/start') return { thread: { id: 'thread-t', turns: [] } }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-t' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() {},
+  }
+  const adapter = new CodexAppServerAdapter({ attachments: {} } as any, { ...config, turnTimeoutMs: 120 })
+  ;(adapter as any).openConnection = async () => connection
+  ;(adapter as any).isolationConfig = async () => ({ isolated: true })
+  const active = await (adapter as any).startTurn({
+    provider: 'codex-app-server',
+    model: 'gpt-5.6-sol',
+    messages: messages(),
+  }, 'session-timeout', '/workspace')
+
+  await new Promise(resolve => setTimeout(resolve, 400))
+  assert.equal(
+    active.signal.aborted, false,
+    'the open turn was aborted by its own timeout while no step was waiting on the vendor',
+  )
+  await adapter.dispose()
+})
+
+test('a caller that aborts while the turn is being opened still stops it', async () => {
+  // The other half of the same change: the setup requests must remain
+  // cancellable, so the caller's signal is linked into the turn for the duration
+  // of the opening and unlinked once it is open.
+  const controller = new AbortController()
+  const connection = {
+    async initialize() {},
+    async request(method: string, _params: unknown, signal: AbortSignal) {
+      if (method === 'thread/start') {
+        controller.abort(new Error('caller went away'))
+        await new Promise((resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          setTimeout(resolve, 2_000)
+        })
+        return { thread: { id: 'thread-x', turns: [] } }
+      }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() {},
+  }
+  const adapter = new CodexAppServerAdapter({ attachments: {} } as any, config)
+  ;(adapter as any).openConnection = async () => connection
+  ;(adapter as any).isolationConfig = async () => ({ isolated: true })
+  await assert.rejects(() => (adapter as any).startTurn({
+    provider: 'codex-app-server',
+    model: 'gpt-5.6-sol',
+    messages: messages(),
+    signal: controller.signal,
+  }, 'session-abort', '/workspace'))
+  await adapter.dispose()
+})
+
+test('a throw in the continuation handshake closes the turn instead of wedging the session', async () => {
+  // The continuation handshake -- resolve the parked tool call, steer -- used to
+  // sit OUTSIDE the try/finally that closes the turn. A throw there leaked the
+  // App Server process and left the turn in `activeTurns` forever, so every
+  // later request on that session failed instantly on a turn nobody could clear.
+  let closeCalls = 0
+  const connection = {
+    async initialize() {},
+    async request(method: string) {
+      if (method === 'thread/start') return { thread: { id: 'thread-w', turns: [] } }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-w' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() { closeCalls += 1 },
+  }
+  const sessionId = 'session-wedge'
+  const ctx = {
+    attachments: {},
+    sessions: { get: () => ({ header: { id: sessionId, cwd: '/workspace' } }) },
+  }
+  const adapter = new CodexAppServerAdapter(ctx as any, config)
+  ;(adapter as any).openConnection = async () => connection
+  ;(adapter as any).isolationConfig = async () => ({ isolated: true })
+
+  const active = await (adapter as any).startTurn({
+    provider: 'codex-app-server',
+    model: 'gpt-5.6-sol',
+    messages: messages(),
+  }, sessionId, '/workspace')
+  ;(adapter as any).activeTurns.set(sessionId, active)
+  // Park a tool call the way the event loop would, then ask for the next step
+  // with a history that carries no result for it.
+  active.awaiting = {
+    call: { threadId: 'thread-w', turnId: 'turn-w', callId: 'call-missing', namespace: 'dsh', tool: 'x', arguments: {} },
+    response: { resolve() {}, reject() {} },
+  }
+
+  await assert.rejects(async () => {
+    for await (const _chunk of adapter.stream({
+      provider: 'codex-app-server',
+      model: 'gpt-5.6-sol',
+      sessionId,
+      messages: messages(),
+      signal: AbortSignal.timeout(5_000),
+    } as any)) { /* the handshake throws before any chunk */ }
+  })
+
+  assert.equal(
+    (adapter as any).activeTurns.get(sessionId), undefined,
+    'the failed turn is still registered, so the session is wedged',
+  )
+  assert.equal(closeCalls, 1, 'the App Server connection was leaked')
+  await adapter.dispose()
+})

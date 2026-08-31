@@ -21,6 +21,8 @@ import { CodexRateLimitsSourceError } from './usage.js'
 
 const DEFAULT_DISPOSE_GRACE_MS = 3_000
 const MAX_PROTOCOL_LINE_BYTES = 1024 * 1024
+/** Bound on captured vendor stderr for one usage probe. */
+const USAGE_STDERR_MAX_BYTES = 64_000
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
@@ -145,7 +147,13 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
       child = this.spec.spawn({
         argv,
         cwd: this.spec.cwd,
-        stdio: { stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' },
+        // Captured, not inherited. `inherit` wrote raw vendor stderr straight to
+        // the host process's own stderr, which was the one place in this package
+        // where vendor-authored text reached a human unscrubbed -- credential
+        // paths and network diagnostics included. Nothing reads this buffer on
+        // the success path; it exists so those bytes have somewhere to go that
+        // is not the operator's console.
+        stdio: { stdin: 'pipe', stdout: 'pipe', stderr: { maxBytes: USAGE_STDERR_MAX_BYTES } },
         graceMs,
         env,
       })

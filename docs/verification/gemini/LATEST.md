@@ -1,6 +1,6 @@
 # Whole-tree adversarial review: two models, four areas
 
-- **Result**: `DEFECTS FOUND` — 16 distinct findings reported, 10 confirmed so far, 4 fixed, 4 confirmed and open, 6 not yet verified
+- **Result**: `DEFECTS FOUND` — 16 distinct findings reported, 10 confirmed, **all 10 fixed**, 6 not yet verified
 - **Kind**: adversarial code review by two models that did not write the code. **Not** a freeze sign-off; see *Standing*.
 - **Reviewers**: `gemini-3.7-flash-high` and `gemini-3.1-pro-high`, via `agy 1.1.22`, each over all four areas
 - **Reviewed**: every `src` and `test` tree under `packages/`, at `77f6d80`
@@ -46,16 +46,11 @@ Confirmed = traced in the code by the maintainer's session, or demonstrated.
 | A2 | `antigravity/src/mcp-bridge.ts` | The bridge socket directory sat at a predictable path in the temp dir, and `mkdir(dir, {recursive, mode: 0o700})` does **not** change the mode of a directory that already exists — demonstrated, not argued. Any local user could pre-create it world-writable, then enumerate adapter sockets, read the tool catalogs handed out, and forge the frames that answer a blocked vendor turn. Now the directory's owner and mode are verified; our own loose directory is tightened, another user's or a symlink is refused. | security |
 | M1 | `project-memory/src/filesystem.ts` | Releasing a writer lock unlinks the owner marker and only then removes the directory, so a concurrent reader landed on an empty lock directory, failed `entries.length !== 1`, and threw `Malformed project memory writer lock` -- killing an unrelated caller's memory operation. Same shape as `e38ce06`. An empty directory now reads as unowned, which cannot weaken exclusion because exclusion is the marker's atomic `link()`, never this read; a directory holding anything else is still malformed. Covered by a test for the window and a second one asserting three concurrent writers still serialise. | significant |
 | C2 | `core/src/registry/service.ts` | `invalidate()` called each listener in a bare loop while `#announce()` contained observer failures with its reasoning written down. One throwing invalidation listener aborted every later listener and surfaced into the caller -- a provider refreshing its own usage cache. Now contained the same way, async rejections included. | significant |
+| X2 | `codex/.../adapter.ts` | The continuation handshake -- resolve the parked tool call, `turn/steer` -- sat outside the `try/finally` that closes the turn, so a throw there leaked the App Server and left the turn in `activeTurns` forever, failing every later request on that session. The handshake now runs inside the try. Both models found this independently. | significant |
+| X3 | `codex/.../adapter.ts` | A continuation step awaited the FIRST step's signal, so cancelling during a continuation was never observed. The turn now owns an `AbortController` and each step arms its own caller signal onto it, disarming when the step returns. Both models found this independently. | significant |
+| X4 | `codex/.../adapter.ts` | The turn timeout was baked into that same signal once, so it measured wall-clock across DSH's own tool execution and could kill the App Server while a tool waited on a human approval. Armed per step now: the clock measures only time spent waiting on the vendor. The setup requests keep a caller-plus-timeout signal, linked into the turn and unlinked once it is open. | significant |
+| X6 | `codex/src/usage-source.ts` | The rate-limits probe spawned with `stderr: 'inherit'`, writing raw vendor stderr to the host process's own stderr -- the one place in the suite where vendor-authored text reached a human unscrubbed. Captured with a bound instead. | minor |
 | A6 | `antigravity/src/mcp-bridge-server.ts` | The server offered itself to adapter sockets **in sequence**, and an adapter that does not yet know a pid parks the offer for its full claim window by design. One unrelated adapter on the machine therefore cost a 10s stall per turn; two exceeded the server's 15s claim deadline outright, leaving the model with no tools — through a path that now fails the turn loudly. Offers go out concurrently and resolve on the first claim. The first attempt at this fix was **wrong** (`Promise.all` still awaited the parked offers) and the regression test caught it: 30s before, 86ms after. | blocking |
-
-### Confirmed and open
-
-| # | Where | Defect | Sev |
-|---|---|---|---|
-| X2 | `codex/.../adapter.ts:589-621` | The continuation branch — resolve the parked tool call, `turn/steer` — sits **outside** the `try/finally` that calls `closeTurn`. A throw there (missing tool result, already-aborted signal, a rejected steer) leaks the App Server process and leaves the turn in `activeTurns` forever, so every later request on that session fails instantly. Both models found this independently. | significant |
-| X3 | `codex/.../adapter.ts:625` | A continuation step awaits `active.signal`, bound to the **first** step's signal. Cancelling during a continuation is never observed, `interrupt` is never sent, and the step hangs until the turn timeout. Both models found this independently. | significant |
-| X4 | `codex/.../adapter.ts` | `turnTimeoutMs` is bound once into `active.signal`, so it spans DSH's own tool execution. A tool that waits on a human approval can silently kill the App Server mid-turn. Note the tension with Antigravity's bridge, which scopes its timeout the same way for the opposite reason: neither suspends the clock while DSH executes, which is what both actually want. | significant |
-| X6 | `codex/src/usage-source.ts:148` | The rate-limits probe spawns with `stderr: 'inherit'`, so raw vendor stderr reaches the host process's stderr unscrubbed. Against a suite whose stated posture is that vendor-authored text never reaches the user verbatim, this is a posture violation, not a cosmetic one. | minor |
 
 ### Reported, not yet verified
 
@@ -72,7 +67,9 @@ Confirmed = traced in the code by the maintainer's session, or demonstrated.
 
 ## Verification after the fixes
 
-- `pnpm verify:local` exits `0`; Core 200 -> 202, Project Memory 77 -> 79, Antigravity 123 -> 125 tests, `fail 0` in all six packages
+- `pnpm verify:local` exits `0`; Core 200 -> 202, Project Memory 77 -> 79, Codex 81 -> 85, Antigravity 123 -> 125 tests, `fail 0` in all six packages
+- the Codex changes restructure a hot path, so three live suites were re-run against real `codex-cli 0.150.0` afterwards: `test:live:primary`, `test:live:tool-result-continuation` and `test:live:inject-items`, all PASS
+- one gap in the coverage, stated rather than papered over: X3's own scenario -- cancelling *during* a continuation step -- has no direct test, because reaching it needs a fake that drives the vendor's notification stream. Its two halves are covered (the timeout no longer spans a tool call; a caller aborting during setup still stops the turn), and the per-step arming they share is the same code
 - `test:live:mcp-bridge` PASS against real `agy 1.1.22`
 - both fixes carry a regression test that fails against the pre-fix code
 

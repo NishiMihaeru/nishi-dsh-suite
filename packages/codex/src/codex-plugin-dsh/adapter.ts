@@ -157,6 +157,15 @@ interface ActiveCodexTurn {
   readonly replayState: CodexReplayState
   readonly resolveImageUrl: CodexToolImageUrlResolver
   readonly onAbort: () => void
+  /**
+   * Aborts this vendor turn, which outlives the DSH step that opened it.
+   *
+   * Neither the caller's signal nor the turn timeout is baked in here. Both are
+   * armed onto this controller for one step and disarmed when that step returns
+   * (`#armStep`). Baking them in made cancelling during a continuation
+   * impossible, and made the timeout count DSH's own tool execution.
+   */
+  readonly abort: AbortController
   readonly blocks: Map<string, ActiveBlock>
   readonly completedImages: Set<string>
   nextBlockIndex: number
@@ -587,64 +596,70 @@ export class CodexAppServerAdapter extends LlmAdapter {
     const sessionId = String(options.sessionId)
     const requestedToolSignature = codexToolSignature(options.tools)
     let active = this.activeTurns.get(sessionId)
-    if (active === undefined) {
-      active = await this.startTurn(options, sessionId, cwd)
-    } else {
-      if (active.model !== options.model) {
-        throw new Error('codex-plugin-dsh: the model changed while an App Server dynamic tool call was pending')
-      }
-      if (active.toolSignature !== requestedToolSignature) {
-        throw new Error('codex-plugin-dsh: the DSH tool catalog changed while an App Server dynamic tool call was pending')
-      }
-      options.signal?.throwIfAborted()
-      const pending = active.awaiting
-      if (pending === undefined) {
-        throw new Error('codex-plugin-dsh: an App Server turn is already active for this DSH session')
-      }
-      const continuation = await codexDynamicToolResult(
-        options.messages,
-        pending.call.callId,
-        active.resolveImageUrl,
-      )
-      if (continuation.steerInput.length > 0) {
-        await active.connection.request('turn/steer', {
-          threadId: active.threadId,
-          expectedTurnId: active.turnId,
-          input: continuation.steerInput,
-        }, active.signal)
-      }
-      pending.response.resolve(continuation.response)
-      delete active.awaiting
-      active.blocks.clear()
-      active.nextBlockIndex = 0
-      active.finalOutput = false
-    }
+    const continuing = active !== undefined
+    if (active === undefined) active = await this.startTurn(options, sessionId, cwd)
+    const turn = active
     let keepAlive = false
+    // Armed here and disarmed in the `finally`, so the whole step -- the
+    // continuation handshake included -- is cancellable and bounded, and a
+    // throw in that handshake can no longer leave the turn wedged in
+    // `activeTurns` with its App Server process still running.
+    const disarmStep = this.#armStep(turn, options)
     try {
+      if (continuing) {
+        if (turn.model !== options.model) {
+          throw new Error('codex-plugin-dsh: the model changed while an App Server dynamic tool call was pending')
+        }
+        if (turn.toolSignature !== requestedToolSignature) {
+          throw new Error('codex-plugin-dsh: the DSH tool catalog changed while an App Server dynamic tool call was pending')
+        }
+        options.signal?.throwIfAborted()
+        const pending = turn.awaiting
+        if (pending === undefined) {
+          throw new Error('codex-plugin-dsh: an App Server turn is already active for this DSH session')
+        }
+        const continuation = await codexDynamicToolResult(
+          options.messages,
+          pending.call.callId,
+          turn.resolveImageUrl,
+        )
+        if (continuation.steerInput.length > 0) {
+          await turn.connection.request('turn/steer', {
+            threadId: turn.threadId,
+            expectedTurnId: turn.turnId,
+            input: continuation.steerInput,
+          }, turn.signal)
+        }
+        pending.response.resolve(continuation.response)
+        delete turn.awaiting
+        turn.blocks.clear()
+        turn.nextBlockIndex = 0
+        turn.finalOutput = false
+      }
       for (;;) {
-        const event = await active.events.next(active.signal)
+        const event = await turn.events.next(turn.signal)
         if (event.kind === 'dynamic-tool') {
           const { call } = event
-          if (call.threadId !== active.threadId || call.turnId !== active.turnId) continue
-          if (active.awaiting !== undefined) {
+          if (call.threadId !== turn.threadId || call.turnId !== turn.turnId) continue
+          if (turn.awaiting !== undefined) {
             throw new Error('codex-plugin-dsh: App Server issued another dynamic tool call before DSH returned the first result')
           }
-          if ([...active.blocks.values()].some(block => !block.ended)) {
+          if ([...turn.blocks.values()].some(block => !block.ended)) {
             throw new Error('codex-plugin-dsh: App Server requested a dynamic tool with an open agent message')
           }
           const argumentsText = JSON.stringify(call.arguments)
           if (argumentsText === undefined) {
             throw new Error(`codex-plugin-dsh: App Server returned invalid arguments for DSH tool ${JSON.stringify(call.tool)}`)
           }
-          const index = active.nextBlockIndex++
+          const index = turn.nextBlockIndex++
           const id = ToolCallId(call.callId)
           yield { type: 'block-start', index, blockType: 'tool-call' }
           yield { type: 'tool-call-delta', index, id, name: call.tool, argumentsDelta: argumentsText }
           yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.tool, arguments: argumentsText } }
-          active.awaiting = event
-          active.blocks.clear()
-          active.nextBlockIndex = 0
-          active.finalOutput = false
+          turn.awaiting = event
+          turn.blocks.clear()
+          turn.nextBlockIndex = 0
+          turn.finalOutput = false
           keepAlive = true
           yield { type: 'finish', reason: { kind: 'tool-calls' } }
           return
@@ -657,38 +672,38 @@ export class CodexAppServerAdapter extends LlmAdapter {
           // turnTimeoutMs. Treat only a DIFFERENT, non-empty threadId as
           // belonging to someone else's thread; anything else is ours.
           const errorThreadId = typeof params.threadId === 'string' ? params.threadId : undefined
-          if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== active.threadId) continue
+          if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== turn.threadId) continue
           if (params.willRetry !== true) throw notificationFailure(params.error)
           continue
         }
-        if (params.threadId !== active.threadId) continue
+        if (params.threadId !== turn.threadId) continue
         const notificationTurnId = method === 'turn/completed'
           ? object(params.turn, 'turn/completed turn').id
           : params.turnId
-        if (notificationTurnId !== active.turnId) continue
+        if (notificationTurnId !== turn.turnId) continue
         if (method === 'item/started') {
           const item = object(params.item, 'started item')
           if (item.type !== 'agentMessage') continue
           const itemId = string(item.id, 'agent message item id')
-          if (active.blocks.has(itemId)) continue
+          if (turn.blocks.has(itemId)) continue
           const phase = phaseOf(item.phase)
           const block: ActiveBlock = {
-            index: active.nextBlockIndex++,
+            index: turn.nextBlockIndex++,
             type: blockType(phase),
             phase,
             text: '',
             ended: false,
           }
-          active.blocks.set(itemId, block)
+          turn.blocks.set(itemId, block)
           yield { type: 'block-start', index: block.index, blockType: block.type }
           continue
         }
         if (method === 'item/agentMessage/delta') {
           const itemId = string(params.itemId, 'agent message delta item id')
-          let block = active.blocks.get(itemId)
+          let block = turn.blocks.get(itemId)
           if (block === undefined) {
-            block = { index: active.nextBlockIndex++, type: 'text', phase: null, text: '', ended: false }
-            active.blocks.set(itemId, block)
+            block = { index: turn.nextBlockIndex++, type: 'text', phase: null, text: '', ended: false }
+            turn.blocks.set(itemId, block)
             yield { type: 'block-start', index: block.index, blockType: block.type }
           }
           if (block.ended) throw new Error('codex-plugin-dsh: App Server emitted a delta after item/completed')
@@ -702,23 +717,23 @@ export class CodexAppServerAdapter extends LlmAdapter {
           const item = object(params.item, 'completed item')
           if (item.type === 'imageGeneration') {
             const itemId = string(item.id, 'image generation item id')
-            if (active.completedImages.has(itemId)) continue
-            active.completedImages.add(itemId)
+            if (turn.completedImages.has(itemId)) continue
+            turn.completedImages.add(itemId)
             const image = await generatedImageBlock(this.ctx.attachments, item)
             if (image === undefined) continue
-            const index = active.nextBlockIndex++
+            const index = turn.nextBlockIndex++
             yield { type: 'block-start', index, blockType: 'image' }
             yield { type: 'block-end', index, block: image }
-            active.finalOutput = true
+            turn.finalOutput = true
             continue
           }
           if (item.type !== 'agentMessage') continue
           const itemId = string(item.id, 'completed agent message item id')
           const phase = phaseOf(item.phase)
-          let block = active.blocks.get(itemId)
+          let block = turn.blocks.get(itemId)
           if (block === undefined) {
-            block = { index: active.nextBlockIndex++, type: blockType(phase), phase, text: '', ended: false }
-            active.blocks.set(itemId, block)
+            block = { index: turn.nextBlockIndex++, type: blockType(phase), phase, text: '', ended: false }
+            turn.blocks.set(itemId, block)
             yield { type: 'block-start', index: block.index, blockType: block.type }
           }
           const completedText = typeof item.text === 'string' ? item.text : ''
@@ -736,32 +751,33 @@ export class CodexAppServerAdapter extends LlmAdapter {
             yield { type: 'block-end', index: block.index, block: { type: 'reasoning', text: block.text } }
           } else {
             yield { type: 'block-end', index: block.index, block: { type: 'text', text: block.text } }
-            if (block.phase !== 'commentary' && block.text.trim().length > 0) active.finalOutput = true
+            if (block.phase !== 'commentary' && block.text.trim().length > 0) turn.finalOutput = true
           }
           continue
         }
         if (method === 'thread/tokenUsage/updated') {
-          active.usage = usageFrom(params.tokenUsage)
+          turn.usage = usageFrom(params.tokenUsage)
           continue
         }
         if (method !== 'turn/completed') continue
         const completedTurn = object(params.turn, 'turn/completed turn')
         if (contextWindowExceeded(completedTurn)) {
-          if (active.usage !== undefined) yield { type: 'usage', usage: active.usage }
-          yield { type: 'finish', reason: { kind: 'max-tokens' }, replayState: { response: active.replayState } }
+          if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+          yield { type: 'finish', reason: { kind: 'max-tokens' }, replayState: { response: turn.replayState } }
           return
         }
         if (completedTurn.status !== 'completed') throw turnFailure(completedTurn)
-        if ([...active.blocks.values()].some(block => !block.ended)) {
+        if ([...turn.blocks.values()].some(block => !block.ended)) {
           throw new Error('codex-plugin-dsh: App Server completed with an open agent message')
         }
-        if (!active.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
-        if (active.usage !== undefined) yield { type: 'usage', usage: active.usage }
-        yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: active.replayState } }
+        if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
+        if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+        yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: turn.replayState } }
         return
       }
     } finally {
-      if (!keepAlive) await this.closeTurn(active)
+      disarmStep()
+      if (!keepAlive) await this.closeTurn(turn)
     }
   }
 
@@ -770,7 +786,18 @@ export class CodexAppServerAdapter extends LlmAdapter {
     sessionId: string,
     cwd: string,
   ): Promise<ActiveCodexTurn> {
-    const signal = combinedSignal(options.signal, this.config.turnTimeoutMs)
+    // Opening a turn is one step's work, so the caller and a timeout bound it.
+    const setupSignal = combinedSignal(options.signal, this.config.turnTimeoutMs)
+    // The turn's own lifetime, which spans however many DSH steps it takes.
+    const turnAbort = new AbortController()
+    const signal = turnAbort.signal
+    // Every `signal` use below is a setup request and must stay stoppable by the
+    // caller or the setup timeout; the link is dropped once the turn is open, or
+    // that timeout would later fire inside a DSH tool call.
+    const linkSetup = (): void => {
+      turnAbort.abort(setupSignal.reason ?? new Error('codex-plugin-dsh: opening the App Server turn was aborted'))
+    }
+    setupSignal.addEventListener('abort', linkSetup, { once: true })
     const imageUrls = new Map<string, Promise<string>>()
     const resolveImageUrl = (attachment: ImageAttachmentRef): Promise<string> => {
       const key = String(attachment.attachmentId)
@@ -961,6 +988,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
           toolSignature,
         },
         resolveImageUrl,
+        abort: turnAbort,
         onAbort: () => {
           connection?.interrupt(threadId as string, turnId as string)
           void this.closeTurn(active)
@@ -970,13 +998,44 @@ export class CodexAppServerAdapter extends LlmAdapter {
         nextBlockIndex: 0,
         finalOutput: false,
       }
-      signal.addEventListener('abort', active.onAbort, { once: true })
+      active.signal.addEventListener('abort', active.onAbort, { once: true })
+      setupSignal.removeEventListener('abort', linkSetup)
       this.activeTurns.set(active.sessionId, active)
       return active
     } catch (error) {
       events.fail(thrown(error))
       await connection?.close()
       throw error
+    }
+  }
+
+  /**
+   * Arm one DSH step's cancellation and its vendor timeout onto a turn that
+   * outlives the step, and disarm both when the step ends.
+   *
+   * Two defects lived here while the signal was built once in `startTurn`. A
+   * continuation step awaited the FIRST step's signal, so cancelling during a
+   * continuation was never observed and the step hung until the turn timeout.
+   * And that timeout ran on wall-clock across the whole turn, so DSH executing a
+   * tool -- which may be waiting on a human approval -- spent the vendor's
+   * budget and killed the App Server mid-turn.
+   *
+   * Arming per step fixes both: every step's caller can cancel it, and the clock
+   * measures only time spent waiting on the vendor.
+   */
+  #armStep(active: ActiveCodexTurn, options: GenerateOptions): () => void {
+    const abortTurn = (reason: unknown): void => {
+      if (!active.signal.aborted) active.abort.abort(reason)
+    }
+    const timeout = AbortSignal.timeout(this.config.turnTimeoutMs)
+    const onTimeout = (): void => { abortTurn(timeout.reason) }
+    timeout.addEventListener('abort', onTimeout, { once: true })
+    const caller = options.signal
+    const onCaller = (): void => { abortTurn(caller?.reason) }
+    caller?.addEventListener('abort', onCaller, { once: true })
+    return () => {
+      timeout.removeEventListener('abort', onTimeout)
+      caller?.removeEventListener('abort', onCaller)
     }
   }
 
