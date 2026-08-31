@@ -187,9 +187,9 @@ What that run exposed is not in delegation but in Codex, and is fixed: a turn wh
 
 The active-turn path answers a Codex dynamic tool call with its own result, so an ordinary tool loop never reaches history preparation at all. A request arrives holding nothing but tool results only when no Codex turn is open to answer them: the step that made the calls ran on another primary route, or the vendor turn was lost. That state used to fail the turn, because current-turn input is decided by position and a tool result is never that input.
 
-It now continues instead. The trailing run of tool-result messages becomes the turn input, projected to text like any other block the Responses input format has no slot for, behind one harness-authored line that says why the input looks like that. The same results also stay in the imported history, where they pair with the `function_call` items of the step that made them.
+It now continues instead. The results go into the imported history, where they pair with the `function_call` items of the step that made them, and the turn input is one harness-authored line saying why it looks the way it does.
 
-Sending them on both paths is deliberate, and it is a hedge rather than a preference: unpaired `function_call` items are a vendor-side error risk, while `thread/inject_items` is still unverified (*What remains* in `HANDOFF.md`). One repetition buys a turn that works under either. If injection is ever confirmed to reach the model, the projection can go.
+They used to go on both paths, as a hedge: unpaired `function_call` items are a vendor-side error risk, and `thread/inject_items` was unverified, so one repetition bought a turn that worked whichever way injection behaved. Injection is now verified to reach the model (`test:live:inject-items`), so the repetition is gone and the imported history is the single carrier. `test:live:tool-result-continuation` was re-run against real `codex-cli 0.150.0` afterwards and the model still reported the marker, which is the assertion that matters: the turn not merely surviving but the result actually arriving.
 
 The position rule itself is unchanged — content still never decides what the current input is. What changed is that an otherwise inputless turn has a defined continuation instead of an exception.
 

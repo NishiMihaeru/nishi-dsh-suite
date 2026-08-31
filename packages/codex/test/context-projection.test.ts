@@ -221,16 +221,18 @@ test('a turn holding only tool results continues from them instead of failing', 
     'session-a',
   )
 
-  // The results are this turn's input, prefixed by the line that says why.
+  // The turn input is the notice alone. The results are NOT repeated here:
+  // they reach the model through the imported history, which
+  // `test:live:inject-items` confirmed the model actually reads.
   assert.deepEqual(history.turnInput, [
     {
       type: 'text',
       text: '[dsh: this turn continues from tool results produced outside the Codex thread]',
       text_elements: [],
     },
-    { type: 'text', text: '[dsh: tool result for call_a]\nstarted', text_elements: [] },
   ])
-  // They also stay in the imported history, paired with the call that made them.
+  // The results live in the imported history, paired with the call that made
+  // them -- which is now the single path by which the model sees them.
   assert.deepEqual(history.injectItems.slice(-2), [
     {
       type: 'function_call',
@@ -274,10 +276,9 @@ test('two parallel tool results from one assistant message both reach the contin
     noImages,
   )
 
-  assert.deepEqual(history.turnInput.slice(1), [
-    { type: 'text', text: '[dsh: tool result for call_a]\nstarted a', text_elements: [] },
-    { type: 'text', text: '[dsh: tool result for call_b]\nstarted b', text_elements: [] },
-  ])
+  // Both results reach the model, and exactly once each: the turn input is the
+  // notice and nothing more, so the imported history is the only carrier.
+  assert.equal(history.turnInput.length, 1)
   assert.equal(
     history.injectItems.filter(item => item.type === 'function_call_output').length,
     2,

@@ -259,12 +259,13 @@ export async function prepareCodexHistory(
     if (resultsStart === pending.length) {
       throw new Error('codex-plugin-dsh: the current Codex turn has no user input')
     }
-    // The results stay in the imported history too, where they pair with the
-    // `function_call` items of the step that made them. Sending them as input
-    // as well is deliberate: it costs one repetition and keeps the turn
-    // working whether or not `thread/inject_items` reaches the model.
+    // The results go in ONCE, in the imported history, where they pair with the
+    // `function_call` items of the step that made them. They used to be sent as
+    // turn input as well, because nothing had confirmed `thread/inject_items`
+    // reaches the model at all; `test:live:inject-items` now shows it does, so
+    // the repetition is dropped and the turn input is the notice alone.
     historical = pending
-    current = pending.slice(resultsStart)
+    current = []
     continuesFromToolResults = true
   }
   const projected = (await Promise.all(current.map(message => Promise.all(message.content.map(async (block) => {
