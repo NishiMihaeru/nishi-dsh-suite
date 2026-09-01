@@ -105,6 +105,11 @@ Note what none of these reviews is: their charters, area briefs and the reading 
 
 Decided and closed, so nobody reopens them: old vendor threads already in the user's Codex account are not being cleaned up; web search keeps routing through the session's primary model.
 
+Two more, decided 2026-09-01 while simplifying the Antigravity bridge, recorded because both are the kind of thing a later reader would otherwise redo:
+
+- **the `schema` transport's tool path is NOT being deleted.** The obvious cleanup once `mcp-bridge` became the default, and deliberately declined. `mcp-bridge` needs a once-per-machine `agy mcp add` plus a grant in user-owned vendor configuration, and it hard-fails by design when either is missing; `transport: "schema"` is the only remedy that lives inside this repository, and it still carries the larger body of live evidence. Revisit once the bridge has accumulated comparable live evidence — not before, and never as tidying;
+- **`runTurn` and `runMcpTurn` are NOT being merged behind a shared `prepareSession`.** They look near-identical and are not: one handles a request with no session id by opening a one-shot child, the other refuses such a request outright; one commits `sentDigests` only on success through a local, the other inside `settleMcpStep`; and they select different workspaces and vendor agents. The shared part is real but thinner than it looks, and this was the change most likely to introduce a silent regression for the least gain. Reconsider only if the two paths converge on their own.
+
 ## Working notes that cost real time to learn
 
 - `DSH.md` reaches every request on every route: `nishi-dsh-project-memory` reads it and renders it as `## Project Contract (DSH.md)`, and the runtime keeps that block visible across compaction. It is therefore the cheapest place to put behaviour that must always be in front of the model, and it needs no preset change. Its *Working Discipline* section was added after two real sessions failed in ways nothing in the tree corrected: one repeated `todo_write` 43 times after the work was finished, another wrote a task list once and never touched it again across 157 steps.
