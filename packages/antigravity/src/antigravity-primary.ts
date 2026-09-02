@@ -612,6 +612,45 @@ function resultFailure(result: AgyTurnResult): LlmError {
 interface OpenMcpTurn {
   readonly outcome: Promise<AgyTurnOutcome>
   readonly abort: AbortController
+  /**
+   * Whether {@link outcome} has already settled, readable without awaiting it.
+   *
+   * This is what makes one measured vendor behaviour checkable rather than
+   * assumed: that a blocked MCP call holds the vendor turn open. See
+   * {@link openVendorTurn}.
+   */
+  readonly settled: () => boolean
+}
+
+/**
+ * Hold an open vendor turn together with a synchronous view of whether it has
+ * finished.
+ *
+ * `agy` keeping its turn open while an MCP call blocks is undocumented,
+ * established by probe, and load-bearing for the whole `mcp-bridge` transport.
+ * It is also the only one of that transport's vendor assumptions that would
+ * fail SILENTLY. The other two -- that the environment reaches the MCP child
+ * verbatim, and that `agy mcp add --env` merges with it rather than replacing
+ * it -- both end as a server that never claims its channel, which
+ * `attached() === false` already refuses loudly. This one does not: a vendor
+ * that abandoned the call answers its turn from whatever the model was handed
+ * instead of the result, and the race in `settleMcpStep` would return that as
+ * an ordinary completion.
+ *
+ * The flag lets the resume path assert the turn is still open at the moment it
+ * answers a parked call, which catches the break whatever vendor version
+ * introduces it. Deliberately checked here rather than gated on a version
+ * range: `agy` is user-installed and self-updating, so a range would refuse
+ * every good new release while still believing a bad patch inside it. See
+ * `docs/ROADMAP.md` section 3.
+ */
+function openVendorTurn(outcome: Promise<AgyTurnOutcome>, abort: AbortController): OpenMcpTurn {
+  let done = false
+  // `finally` runs before anything awaiting the derived promise resumes, so a
+  // reader that has observed the outcome has necessarily observed the flag.
+  const tracked = outcome.finally(() => { done = true })
+  tracked.catch(() => {})
+  return { outcome: tracked, abort, settled: () => done }
 }
 
 /**
@@ -1614,6 +1653,33 @@ export class AntigravityCliAdapter extends LlmAdapter {
           'ANTIGRAVITY_PROTOCOL',
         )
       }
+      const openTurn = state.openMcpTurn
+      if (openTurn !== undefined && openTurn.settled()) {
+        // The vendor MUST still be blocked on this call. A turn that has
+        // SUCCEEDED while its call went unanswered means the behaviour this
+        // whole transport rests on did not hold: the model wrote a complete
+        // answer without the tool result, and settling the race below would
+        // hand that back as an ordinary completion.
+        //
+        // A FAILED turn is not that. Every turn failure runs through
+        // `AgyTurnProcess.fail`, which marks the child dead, so the aliveness
+        // check at the top of this method sweeps almost all of them into a
+        // rebuild before reaching here. What is left is the narrow race where
+        // the child dies AFTER that check -- during the registration
+        // precondition or the history comparison -- and such a turn must
+        // report its own error rather than be dressed up as a vendor-contract
+        // break.
+        const failure = await openTurn.outcome.then(() => undefined, (error: unknown) => error)
+        await this.closeSession(key)
+        if (failure !== undefined) throw failure
+        throw new LlmError(
+          'Antigravity mcp-bridge: the vendor turn ended while still blocked on DSH tool call '
+          + `${JSON.stringify(outstanding.id)}, so the model answered without ever receiving its result. `
+          + 'The bridge requires `agy` to hold a turn open across a blocked MCP call; this vendor build '
+          + 'did not. Set `transport: "schema"` to fall back to the in-repository path.',
+          'ANTIGRAVITY_PROTOCOL',
+        )
+      }
       state.bridge?.resolve(outstanding.id, result.text, result.isError)
       return await this.settleMcpStep(key, state, options)
     }
@@ -1664,7 +1730,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       ])
       const outcome = state.process.turn(fullEnvelope(options, this.callIdView(state), false), turnSignal)
       outcome.catch(() => {})
-      state.openMcpTurn = { outcome, abort }
+      state.openMcpTurn = openVendorTurn(outcome, abort)
     } else {
       const abort = new AbortController()
       const turnSignal = AbortSignal.any([
@@ -1679,7 +1745,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       }
       const outcome = state.process.turn(deltaEnvelope(unheard, this.callIdView(state)), turnSignal)
       outcome.catch(() => {})
-      state.openMcpTurn = { outcome, abort }
+      state.openMcpTurn = openVendorTurn(outcome, abort)
     }
     return await this.settleMcpStep(key, state, options)
   }

@@ -765,3 +765,180 @@ test('a repeated request on a suspended turn still fails by name rather than reb
   }
   })
 })
+
+
+/**
+ * One adapter over a list of controllable vendor children, for the two tests
+ * below.
+ *
+ * Both drive the same shape -- suspend on a tool call, break the turn under
+ * the adapter, answer -- and differ only in HOW the turn ends, so the setup is
+ * shared rather than copied a third and fourth time.
+ */
+function childAdapter(...children: ReturnType<typeof controllableChild>[]) {
+  const turnEnvs: Record<string, string>[] = []
+  let spawned = 0
+  const ctx = {
+    subprocess: {
+      async resolveExecutable() { return '/resolved/agy' },
+      spawn(spec: { argv: readonly string[]; env?: Record<string, string> }) {
+        if (spec.argv.includes('list')) return collected('dshtools stdio enabled node /x/lib/mcp-bridge-server.js\n')
+        if (spec.argv.includes('models')) {
+          return collected(JSON.stringify({ conversation_id: '', status: 'SUCCESS', response: CATALOG }) + '\n')
+        }
+        if (spec.env) turnEnvs.push(spec.env)
+        const child = children[Math.min(spawned, children.length - 1)]!
+        spawned += 1
+        return child.handle
+      },
+    },
+  }
+  return {
+    adapter: new AntigravityCliAdapter(ctx as any, baseConfig),
+    getTurnEnv: () => turnEnvs[0],
+    turnEnvs,
+    spawnCount: () => spawned,
+  }
+}
+
+/** The history a well-behaved second step carries: the call, then its result. */
+function answeredHistory(callId: string, args: unknown) {
+  return [
+    { id: 'm1', role: 'user', content: [{ type: 'text', text: 'read /etc/hosts' }] },
+    { id: 'm2', role: 'assistant', content: [{ type: 'tool-call', id: callId, name: 'read_file', arguments: args }] },
+    { id: 'm3', role: 'user', content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text: '127.0.0.1 localhost' }] }] },
+  ]
+}
+
+/**
+ * The one bridge assumption that would otherwise break in silence.
+ *
+ * Three measured `agy` behaviours hold this transport up. Two of them -- that
+ * the environment reaches the MCP child verbatim, and that `agy mcp add --env`
+ * merges with it rather than replacing it -- fail as a server that never
+ * claims its channel, which `attached() === false` already refuses by name.
+ * The third, that a blocked MCP call holds the vendor turn open, fails
+ * differently: the model answers from whatever it was handed in place of the
+ * result, the race in `settleMcpStep` sees an ordinary finished turn, and a
+ * whole turn of reasoning built on a result that never arrived is recorded as
+ * a normal completion.
+ *
+ * Nothing in a version string says this happened, which is why the assumption
+ * is asserted where it is observable rather than gated on a version range.
+ */
+test('a vendor turn that ended while still blocked fails loudly instead of recording a toolless answer', async () => {
+  await withVendorHome(GRANTED, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bridge-abandoned-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+  const child = controllableChild(3500)
+  const { adapter, getTurnEnv, spawnCount } = childAdapter(child)
+  let server: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
+  try {
+    const request = {
+      provider: 'antigravity-cli',
+      model: 'gemini-3.7-flash-low',
+      sessionId: 's1',
+      messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'read /etc/hosts' }] }],
+      tools: TOOLS,
+    }
+    const suspended = await suspendOnToolCall(adapter, request, getTurnEnv)
+    server = suspended.server
+    assert.equal(spawnCount(), 1)
+
+    // The vendor break itself, in one line: the turn completes SUCCESSFULLY
+    // while its MCP call is still outstanding. Real `agy 1.1.22` cannot do
+    // this, which is the whole reason the transport was adopted.
+    child.finishTurn('I could not read the file, so here is a guess.')
+    await new Promise(r => setTimeout(r, 150))
+
+    await assert.rejects(
+      async () => {
+        for await (const _ of adapter.stream({
+          ...request,
+          messages: answeredHistory(suspended.toolCall.block.id, suspended.toolCall.block.arguments),
+        } as any)) { /* must not get here */ }
+      },
+      /ended while still blocked on DSH tool call/,
+    )
+    // The answer the model never waited for must not be written either: a
+    // server released into a finished turn would hand it to whatever turn came
+    // next on the same child.
+    assert.equal(
+      server.frames.some(f => f.t === 'result'),
+      false,
+      'a turn that already ended must not be answered as though it were listening',
+    )
+  } finally {
+    server?.socket.destroy()
+    await adapter.dispose()
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+  })
+})
+
+/**
+ * The other half, and the reason the new check tests SUCCESS rather than mere
+ * settlement.
+ *
+ * Every turn failure runs through `AgyTurnProcess.fail`, which marks the child
+ * dead, so a turn that died under the adapter is swept into a rebuild by the
+ * aliveness check long before the blocked-call path is reached. Reporting that
+ * as a vendor-contract break would fire on every dead child and mean nothing.
+ */
+test('a vendor child that died while its turn was suspended rebuilds rather than reporting a contract break', async () => {
+  await withVendorHome(GRANTED, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bridge-died-'))
+  const previous = process.env[BRIDGE_SOCKET_DIR_ENV]
+  process.env[BRIDGE_SOCKET_DIR_ENV] = dir
+  const first = controllableChild(3600)
+  const second = controllableChild(3601)
+  const { adapter, getTurnEnv, turnEnvs, spawnCount } = childAdapter(first, second)
+  let serverOne: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
+  let serverTwo: { socket: ReturnType<typeof connect>; frames: any[] } | undefined
+  try {
+    const request = {
+      provider: 'antigravity-cli',
+      model: 'gemini-3.7-flash-low',
+      sessionId: 's1',
+      messages: [{ id: 'm1', role: 'user', content: [{ type: 'text', text: 'read /etc/hosts' }] }],
+      tools: TOOLS,
+    }
+    const suspended = await suspendOnToolCall(adapter, request, getTurnEnv)
+    serverOne = suspended.server
+    assert.equal(spawnCount(), 1)
+
+    // The child dies mid-suspension: the turn settles, but as a failure, and
+    // the child is dead with it.
+    first.handle.terminate()
+    await new Promise(r => setTimeout(r, 150))
+
+    const chunks: any[] = []
+    const step = (async () => {
+      for await (const chunk of adapter.stream({
+        ...request,
+        messages: answeredHistory(suspended.toolCall.block.id, suspended.toolCall.block.arguments),
+      } as any)) chunks.push(chunk)
+    })()
+    await new Promise(r => setTimeout(r, 300))
+    assert.equal(spawnCount(), 2, 'a dead child must rebuild the vendor conversation')
+
+    assert.ok(turnEnvs[1], 'second child env must be captured')
+    serverTwo = await attachServer(turnEnvs[1])
+    second.finishTurn('127.0.0.1 localhost')
+    await step
+
+    const text = chunks.find(c => c.type === 'block-end' && c.block?.type === 'text')
+    assert.equal(text?.block.text, '127.0.0.1 localhost')
+  } finally {
+    serverOne?.socket.destroy()
+    serverTwo?.socket.destroy()
+    await adapter.dispose()
+    if (previous === undefined) delete process.env[BRIDGE_SOCKET_DIR_ENV]
+    else process.env[BRIDGE_SOCKET_DIR_ENV] = previous
+    await rm(dir, { recursive: true, force: true })
+  }
+  })
+})
