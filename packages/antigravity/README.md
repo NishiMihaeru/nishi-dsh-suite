@@ -39,6 +39,12 @@ An auxiliary call (`purpose` set: compaction, session titles) gets a schema with
 
 DSH tool schemas are rewritten into the vendor's accepted subset first. Annotation-only keywords are dropped and `const` becomes a one-member `enum`; a schema using a composite keyword (`$ref`, `oneOf`, `allOf`, `if`) falls back to the untyped object for **that tool alone**, never for the catalog around it.
 
+### Per-turn stamp
+
+Every envelope carries a `turn` field the reply must echo, and a decision stamped for any other turn is discarded. It exists because `structured_output` is not cleared between turns: measured on real `agy 1.1.24`, a turn that produced none of its own resolved with the **previous** turn's object, verbatim and schema-valid, while its `response` held plain prose. Read without the stamp that is indistinguishable from a fresh decision, so a stale `tool_calls` runs the same tool a second time and the model, handed a duplicate result, has every reason to answer in prose again — a repeated-identical-call loop generated inside the transport. The vendor documents the schema as binding "the terminal `result` event" while `--help` says "only applicable to the final result", so per-turn enforcement is treated as best-effort and its absence detected rather than relied on.
+
+A stamp that does not match falls through to the turn's own `response` before failing, since the vendor's parse can miss a payload that is plainly there. When neither source answers this turn the conversation is abandoned rather than continued: the vendor is holding a turn DSH rejected, and the next request reopens from DSH's history.
+
 ### Context capacity
 
 The route advertises `contextWindowTokens` (default `200_000`). It is configured, not discovered: the vendor discloses no per-model window. Without any capacity `compaction-basic` refuses automatic pressure compaction and the refusal is swallowed as a single warning, so a session's history would grow with no bound and no visible symptom.
@@ -55,7 +61,9 @@ It requires the bridge server to be registered with `agy` **once per machine**, 
 agy mcp add dshtools node <install>/nishi-dsh-antigravity/lib/mcp-bridge-server.js
 ```
 
-then add `"mcp(dshtools/*)"` to `userSettings.globalPermissionGrants.allow` in `~/.gemini/config/config.json`. `toolPermission` stays at its strict default, no trusted workspace is needed, and `--dangerously-skip-permissions` is never used. Until both are in place the first turn fails loudly, naming the exact command and the resolved path — it does not fall back on its own, because a route that silently hands the model no tools looks healthy and reads as a disobedient model.
+then add `"mcp(dshtools/*)"` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` — the vendor's documented store, and the one its own headless denial message names. A grant in `userSettings.globalPermissionGrants.allow` of `~/.gemini/config/config.json`, which the interactive CLI writes, is honoured too and this package reads both; measured one arm per file against real `agy 1.1.24`, with a control run showing the same call denied when neither carries the grant. `toolPermission` stays at its strict default, no trusted workspace is needed, and `--dangerously-skip-permissions` is never used. Until both the registration and the grant are in place the first turn fails loudly, naming the exact command and the resolved path — it does not fall back on its own, because a route that silently hands the model no tools looks healthy and reads as a disobedient model.
+
+Neither half can be shipped inside the workspace this package creates, which is why both are asked of the user. A workspace-scoped `.agents/mcp_config.json` **is** loaded and connected — the vendor writes a schema cache for it — but its tools are never declared to the model, which reports only the globally registered servers; and a `permissions` block in a workspace `.agents/settings.json` is ignored outright. Both probed on `agy 1.1.24`; see `docs/verification/agy-cli-contract.md`.
 
 A registered server is reachable by every `agy` session on the machine, which is the transport's one irreducible cost. It is narrowed rather than removed. Before spawning a vendor child the adapter mints a single-use token and hands it, with the socket path, to the child through its environment; measured against real `agy 1.1.22`, the vendor passes its environment to the MCP servers it launches verbatim -- 95 keys in, 95 keys out, nothing injected and nothing dropped. A server that presents no token, or one nobody registered, is served an empty catalog, so an unrelated `agy` session gets no tools.
 

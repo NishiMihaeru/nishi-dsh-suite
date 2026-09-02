@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
+import { stamped, TURN_PLACEHOLDER } from './turn-stamp.ts'
 
 /**
  * The per-session live `agy` child.
@@ -86,7 +88,7 @@ function liveChild(replies: readonly unknown[]) {
       received.push(line)
       const reply = replies[Math.min(next, replies.length - 1)]
       next += 1
-      stdout.write(`${JSON.stringify({ event: 'result', result: reply })}\n`)
+      stdout.write(`${JSON.stringify({ event: 'result', result: stamped(reply, line) })}\n`)
       cut = buffer.indexOf('\n')
     }
   })
@@ -237,6 +239,99 @@ test('a second step on one session continues the live child instead of spawning 
     assert.equal(envelopes.length, 2)
     assert.equal(envelopes[0].kind, 'full')
     assert.equal(envelopes[1].kind, 'delta')
+  } finally { await adapter.dispose() }
+})
+
+test('every envelope carries a turn stamp, and no two turns of one conversation share it', async () => {
+  const { ctx, child } = harness([
+    toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
+    messageReply('done'),
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('read a.ts')
+    const step1 = await collect(adapter.stream(request({ messages: [first] })))
+    const callId = toolCallIds(step1)[0]
+    await collect(adapter.stream(request({
+      messages: [first, assistantToolCall(callId, 'read_file', '{"path":"a.ts"}'), toolResult(callId, 'file body')],
+    })))
+
+    const [full, delta] = child.envelopes()
+    assert.equal(typeof full.turn, 'string')
+    assert.equal(typeof delta.turn, 'string')
+    assert.notEqual(full.turn, delta.turn, 'a reused stamp could not tell the two turns apart')
+  } finally { await adapter.dispose() }
+})
+
+/**
+ * The defect this guard exists for, reproduced against real `agy 1.1.24`:
+ * a turn that produces no structured output of its own still resolves with
+ * the PREVIOUS turn's `structured_output`, verbatim and schema-valid. Read
+ * without the stamp, that stale `tool_calls` is executed a second time and
+ * the model, seeing a duplicate result, has every reason to answer in prose
+ * again -- a repeated-identical-call loop generated inside the transport.
+ * See `docs/verification/agy-cli-contract.md`.
+ */
+test('a reply stamped for an earlier turn is refused instead of executed again', async () => {
+  const stale = {
+    conversation_id: 'c1',
+    status: 'SUCCESS',
+    // The exact vendor shape: prose in `response`, no JSON in it at all, and
+    // an envelope still carrying the first turn's decision.
+    response: 'banana\n',
+    structured_output: { kind: 'tool_calls', text: '', turn: 'stale-01', tool_calls: [{ id: 'call_1', name: 'read_file', arguments: { path: 'a.ts' } }] },
+  }
+  const { ctx, children, spawns } = multiHarness([
+    [toolCallReply('call_1', 'read_file', { path: 'a.ts' }), stale],
+    [messageReply('rebuilt')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('read a.ts')
+    const step1 = await collect(adapter.stream(request({ messages: [first] })))
+    const callId = toolCallIds(step1)[0]
+    const continued = [first, assistantToolCall(callId, 'read_file', '{"path":"a.ts"}'), toolResult(callId, 'file body')]
+
+    await assert.rejects(collect(adapter.stream(request({ messages: continued }))), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, 'ANTIGRAVITY_STALE_DECISION')
+      assert.match(error.message, /stale-01/)
+      return true
+    })
+
+    // And the conversation is abandoned rather than continued: the vendor is
+    // holding a turn DSH rejected, so the next request reopens from history.
+    await collect(adapter.stream(request({ messages: [...continued, userText('again')] })))
+    assert.equal(spawns.length, 2, 'a refused turn must leave no conversation to continue')
+    assert.equal(children[1].envelopes()[0].kind, 'full')
+  } finally { await adapter.dispose() }
+})
+
+/**
+ * The vendor's own parse can miss a payload that is plainly in the turn's
+ * `response`, so a failing stamp on `structured_output` falls through to the
+ * response rather than failing the turn outright.
+ */
+test('a fresh decision in the turn response wins over a stale structured_output', async () => {
+  const { ctx, spawns } = multiHarness([[
+    messageReply('first'),
+    {
+      conversation_id: 'c1',
+      status: 'SUCCESS',
+      response: JSON.stringify({ kind: 'message', text: 'fresh answer', turn: TURN_PLACEHOLDER, tool_calls: [] }),
+      structured_output: { kind: 'message', text: 'first', turn: 'stale-02', tool_calls: [] },
+    },
+  ]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('one')
+    await collect(adapter.stream(request({ messages: [first] })))
+    const chunks = await collect(adapter.stream(request({ messages: [first, userText('two')] })))
+
+    const texts = chunks.filter(chunk => chunk.type === 'block-end' && chunk.block?.type === 'text')
+      .map(chunk => String(chunk.block.text))
+    assert.deepEqual(texts, ['fresh answer'])
+    assert.equal(spawns.length, 1, 'a readable turn keeps the conversation')
   } finally { await adapter.dispose() }
 })
 

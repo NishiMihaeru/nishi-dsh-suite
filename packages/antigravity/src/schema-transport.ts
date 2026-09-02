@@ -19,12 +19,34 @@ import { record } from './agy-vendor.js'
 
 export const BRIDGE_SCHEMA_FILE = 'bridge-output.schema.json'
 
+/**
+ * The field every reply must echo from the envelope it is answering.
+ *
+ * It exists because `structured_output` is not cleared between turns. When a
+ * turn produces no structured output of its own -- measured on real
+ * `agy 1.1.24`, on a turn whose user instruction competed with the schema and
+ * which answered in prose -- the envelope still carries the PREVIOUS turn's
+ * object, verbatim and schema-valid. Read without this field that is
+ * indistinguishable from a fresh decision, so a stale `tool_calls` becomes
+ * the same tool executed twice, and the model, seeing a duplicate result,
+ * has every reason to answer in prose again. That is a repeated-identical-
+ * call generator inside the transport itself.
+ *
+ * The vendor documents the schema as applying to "the terminal `result`
+ * event" while `--help` says "for stream-json, only applicable to the final
+ * result", so per-turn enforcement is read here as best-effort and its
+ * absence detected rather than relied upon. See
+ * `docs/verification/agy-cli-contract.md`.
+ */
+export const BRIDGE_TURN_FIELD = 'turn'
+
 export const BRIDGE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
     kind: { type: 'string', enum: ['message', 'tool_calls'] },
     text: { type: 'string' },
+    turn: { type: 'string' },
     tool_calls: {
       type: 'array',
       items: {
@@ -39,7 +61,7 @@ export const BRIDGE_SCHEMA = {
       },
     },
   },
-  required: ['kind', 'text', 'tool_calls'],
+  required: ['kind', 'text', 'turn', 'tool_calls'],
 } as const
 
 /**
@@ -169,8 +191,9 @@ const BRIDGE_MESSAGE_ONLY_SCHEMA = {
   properties: {
     kind: { type: 'string', enum: ['message'] },
     text: { type: 'string' },
+    turn: { type: 'string' },
   },
-  required: ['kind', 'text'],
+  required: ['kind', 'text', 'turn'],
 } as const
 
 export function bridgeSchemaFor(tools: readonly ToolSchema[] | undefined, messageOnly: boolean): unknown {
@@ -192,12 +215,13 @@ export function bridgeSchemaFor(tools: readonly ToolSchema[] | undefined, messag
     properties: {
       kind: { type: 'string', enum: ['message', 'tool_calls'] },
       text: { type: 'string' },
+      turn: { type: 'string' },
       tool_calls: {
         type: 'array',
         items: variants.length === 1 ? variants[0] : { anyOf: variants },
       },
     },
-    required: ['kind', 'text', 'tool_calls'],
+    required: ['kind', 'text', 'turn', 'tool_calls'],
   }
 }
 
@@ -273,23 +297,15 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
-export function structuredResult(result: AgyTurnResult): BridgeOutput {
-  const structured = record(result.structured_output)
-  if (structured) return validateBridgeOutput(structured)
-  if (typeof result.response !== 'string') {
-    throw new LlmError(
-      `Antigravity returned no structured output: ${JSON.stringify(result)}`,
-      'ANTIGRAVITY_PROTOCOL',
-    )
-  }
-
+/** The decision object carried by this turn's own `response` text, if any. */
+function responseRow(response: string): Record<string, unknown> {
   try {
-    const parsed = JSON.parse(result.response) as unknown
+    const parsed = JSON.parse(response) as unknown
     const row = record(parsed)
-    if (row) return validateBridgeOutput(row)
+    if (row) return row
   } catch {}
 
-  const values = parseConcatenatedJsonValues(result.response)
+  const values = parseConcatenatedJsonValues(response)
   if (values.length === 0) {
     throw new LlmError('Antigravity returned an empty structured response', 'ANTIGRAVITY_PROTOCOL')
   }
@@ -307,10 +323,72 @@ export function structuredResult(result: AgyTurnResult): BridgeOutput {
       )
     }
   }
-  return validateBridgeOutput(firstRow)
+  return firstRow
 }
 
-function validateBridgeOutput(row: Record<string, unknown>): BridgeOutput {
+/** Whether a candidate decision was authored for the turn now being read. */
+function answersTurn(row: Record<string, unknown>, expected: string | undefined): boolean {
+  if (expected === undefined) return true
+  return row[BRIDGE_TURN_FIELD] === expected
+}
+
+/**
+ * Read one turn's decision, and refuse a decision that belongs to an earlier
+ * turn of the same conversation.
+ *
+ * `structured_output` is preferred but no longer trusted on its own: see
+ * {@link BRIDGE_TURN_FIELD} for why an envelope can carry a schema-valid
+ * object the model never authored for this turn. Its stamp is checked first,
+ * and a failing stamp falls through to this turn's own `response` text rather
+ * than failing outright -- the vendor's own parse can miss a payload that is
+ * plainly there, and only when NEITHER source is stamped for this turn is the
+ * turn unusable. On both measured stale turns the `response` held no JSON at
+ * all, so that fall-through costs nothing and covers the narrower case.
+ *
+ * @param result - The vendor's `result` payload for the turn just completed.
+ * @param expectedTurn - The stamp this turn's envelope carried, or `undefined`
+ *   for a request that sent none, which skips the check.
+ */
+export function structuredResult(result: AgyTurnResult, expectedTurn: string | undefined): BridgeOutput {
+  const structured = record(result.structured_output)
+  if (structured !== undefined && answersTurn(structured, expectedTurn)) {
+    return validateBridgeOutput(structured, expectedTurn)
+  }
+
+  let responseFailure: unknown
+  if (typeof result.response === 'string') {
+    try {
+      const row = responseRow(result.response)
+      if (answersTurn(row, expectedTurn)) return validateBridgeOutput(row, expectedTurn)
+    } catch (error: unknown) {
+      responseFailure = error
+    }
+  }
+
+  if (structured !== undefined) {
+    throw new LlmError(
+      `Antigravity answered this turn with a decision stamped ${JSON.stringify(structured[BRIDGE_TURN_FIELD])} `
+      + `instead of ${JSON.stringify(expectedTurn)}, so the vendor produced no structured output of its own for `
+      + 'this turn and its envelope still carried the previous one. The turn is discarded rather than executed '
+      + 'again; see docs/verification/agy-cli-contract.md.',
+      'ANTIGRAVITY_STALE_DECISION',
+    )
+  }
+  if (responseFailure !== undefined) throw responseFailure
+  throw new LlmError(
+    `Antigravity returned no structured output: ${JSON.stringify(result)}`,
+    'ANTIGRAVITY_PROTOCOL',
+  )
+}
+
+function validateBridgeOutput(row: Record<string, unknown>, expectedTurn: string | undefined): BridgeOutput {
+  if (!answersTurn(row, expectedTurn)) {
+    throw new LlmError(
+      `Antigravity decision is stamped ${JSON.stringify(row[BRIDGE_TURN_FIELD])} instead of `
+      + `${JSON.stringify(expectedTurn)}`,
+      'ANTIGRAVITY_STALE_DECISION',
+    )
+  }
   if (row.kind !== 'message' && row.kind !== 'tool_calls') {
     throw new LlmError(
       `Antigravity returned invalid bridge kind ${JSON.stringify(row.kind)}`,

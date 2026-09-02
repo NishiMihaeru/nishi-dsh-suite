@@ -40,6 +40,7 @@ import type { AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 import {
   BRIDGE_SCHEMA,
   BRIDGE_SCHEMA_FILE,
+  BRIDGE_TURN_FIELD,
   bridgeSchemaFor,
   structuredResult,
 } from './schema-transport.js'
@@ -66,26 +67,66 @@ const MCP_BRIDGE_SERVER_FILE = 'mcp-bridge-server.js'
 export const DEFAULT_ANTIGRAVITY_TRANSPORT: 'schema' | 'mcp-bridge' = 'mcp-bridge'
 
 /**
- * The vendor's global MCP permission grants, or `undefined` if they cannot be
- * read where this package expects them.
+ * The two files the vendor honours permission grants from, in the order this
+ * package names them to a user.
+ *
+ * `settings.json` -> `permissions.allow` is the DOCUMENTED store, and it is
+ * what the vendor's own headless denial message names: *"Add an allow-rule
+ * under permissions.allow in settings.json"*. `config/config.json` ->
+ * `userSettings.globalPermissionGrants.allow` is what the interactive CLI
+ * writes and is documented nowhere. Probed on real `agy 1.1.24` with one
+ * `command(echo)` grant, one arm per file: BOTH are honoured, and with the
+ * grant in neither the same call is denied. So a user may reasonably have
+ * granted the bridge in either place, and reading only the undocumented one
+ * would refuse a route the vendor would have run. See
+ * `docs/verification/agy-cli-contract.md`.
+ */
+const VENDOR_GRANT_STORES = [
+  {
+    segments: ['.gemini', 'antigravity-cli', 'settings.json'],
+    display: '~/.gemini/antigravity-cli/settings.json',
+    key: 'permissions.allow',
+    read: (parsed: unknown): unknown => record(record(parsed)?.permissions)?.allow,
+  },
+  {
+    segments: ['.gemini', 'config', 'config.json'],
+    display: '~/.gemini/config/config.json',
+    key: 'userSettings.globalPermissionGrants.allow',
+    read: (parsed: unknown): unknown => record(record(record(parsed)?.userSettings)?.globalPermissionGrants)?.allow,
+  },
+] as const
+
+/** The documented store, named in setup instructions and in the denial text. */
+const DOCUMENTED_GRANT_STORE = VENDOR_GRANT_STORES[0]
+
+/**
+ * The vendor's global MCP permission grants, or `undefined` if none of the
+ * stores could be read where this package expects them.
  *
  * Read-only, and deliberately forgiving: `undefined` means "unknown", never
- * "absent". The file belongs to the vendor and to the user, and an unexpected
- * shape must not be able to disable a working route.
+ * "absent" -- a store that is missing or shaped unexpectedly contributes
+ * nothing rather than denying the route, because the layout is the vendor's
+ * to change and turning a layout change into a dead route would be worse
+ * than the gap it closes. A grant in ANY store counts, which is what the
+ * vendor itself does.
  */
 async function readVendorMcpGrants(): Promise<string[] | undefined> {
   const home = process.env.HOME ?? process.env.USERPROFILE
   if (home === undefined) return undefined
-  try {
-    const raw = await readFile(join(home, '.gemini', 'config', 'config.json'), 'utf8')
-    const parsed: unknown = JSON.parse(raw)
-    const settings = record(record(parsed)?.userSettings)
-    const allow = record(settings?.globalPermissionGrants)?.allow
-    if (!Array.isArray(allow)) return undefined
-    return allow.filter((entry): entry is string => typeof entry === 'string')
-  } catch {
-    return undefined
+  let known = false
+  const grants: string[] = []
+  for (const store of VENDOR_GRANT_STORES) {
+    try {
+      const raw = await readFile(join(home, ...store.segments), 'utf8')
+      const allow = store.read(JSON.parse(raw) as unknown)
+      if (!Array.isArray(allow)) continue
+      known = true
+      grants.push(...allow.filter((entry): entry is string => typeof entry === 'string'))
+    } catch {
+      continue
+    }
   }
+  return known ? grants : undefined
 }
 
 /** Absolute path of this package's built bridge server, for the setup hint. */
@@ -100,9 +141,11 @@ type McpStep =
 /**
  * Bumped from `v1` with the delta protocol: a `v1` reader assumed every
  * envelope carried the whole request, which a `delta` envelope deliberately
- * does not.
+ * does not. Bumped again to `v3` with the per-turn stamp: a `v2` reader
+ * answered without echoing {@link BRIDGE_TURN_FIELD}, and every such reply is
+ * now discarded, so the two are not interchangeable in either direction.
  */
-const BRIDGE_PROTOCOL = 'dsh-antigravity-primary-v2'
+const BRIDGE_PROTOCOL = 'dsh-antigravity-primary-v3'
 const WINDOWS_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'
 
 /**
@@ -202,6 +245,9 @@ function bridgeAgentMarkdown(): string {
     '- Never invoke Antigravity-native filesystem, shell, web, MCP, plugin, skill, or subagent tools.',
     '- DSH owns tools, permissions, durable history, workspace access, memory, and execution.',
     '- Each user message is one JSON DSH bridge envelope.',
+    '- Every envelope carries a `turn` field. Copy its value into the `turn` field of your reply,',
+    '  unchanged. It identifies which envelope you are answering; a reply carrying any other value',
+    '  is discarded, because it cannot be told apart from an earlier turn\'s answer.',
     '- A `full` envelope opens the conversation: its `system` field is the authoritative DSH',
     '  system instruction, its `messages` field is the DSH conversation history so far, and its',
     '  `tools` field is the DSH tool catalog.',
@@ -421,13 +467,19 @@ function serializeMessage(message: Message, view: CallIdView): unknown {
  * expressible as a delta and forces a rebuild instead (see
  * {@link requestSignature}).
  */
-function fullEnvelope(options: GenerateOptions, view: CallIdView, includeTools = true): string {
+function fullEnvelope(
+  options: GenerateOptions,
+  view: CallIdView,
+  includeTools = true,
+  turn?: string,
+): string {
   return `${JSON.stringify({
     event: 'user',
     message: {
       content: JSON.stringify({
         protocol: BRIDGE_PROTOCOL,
         kind: 'full',
+        ...turn === undefined ? {} : { [BRIDGE_TURN_FIELD]: turn },
         system: options.system ?? '',
         messages: options.messages.map(message => serializeMessage(message, view)),
         // Omitted on the MCP transport: the catalog reaches the model as real
@@ -448,13 +500,14 @@ function fullEnvelope(options: GenerateOptions, view: CallIdView, includeTools =
 }
 
 /** The envelope continuing a vendor conversation: only what DSH appended since the last reply. */
-function deltaEnvelope(messages: readonly Message[], view: CallIdView): string {
+function deltaEnvelope(messages: readonly Message[], view: CallIdView, turn?: string): string {
   return `${JSON.stringify({
     event: 'user',
     message: {
       content: JSON.stringify({
         protocol: BRIDGE_PROTOCOL,
         kind: 'delta',
+        ...turn === undefined ? {} : { [BRIDGE_TURN_FIELD]: turn },
         messages: messages.map(message => serializeMessage(message, view)),
       }),
     },
@@ -849,7 +902,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       return
     }
 
-    const { outcome: { result, events }, session } = await this.runTurn(options)
+    const { outcome: { result, events }, session, turn } = await this.runTurn(options)
     const blocked = nativeToolNames(events).filter(name => BLOCKED_NATIVE_TOOLS.has(name))
     if (blocked.length > 0) {
       throw new LlmError(
@@ -867,7 +920,25 @@ export class AntigravityCliAdapter extends LlmAdapter {
       throw resultFailure(result)
     }
 
-    const output = structuredResult(result)
+    // A reply this adapter could not read leaves the vendor holding a turn DSH
+    // has rejected, and a delta on top of it would ask the model to continue
+    // from an exchange only one side believes in. So the conversation is
+    // abandoned here for the same reason `runTurn` abandons it on a vendor
+    // failure: the next request reopens from DSH's history, which is the
+    // authoritative copy. A stale stamp is the case this matters most for --
+    // continuing would re-read the same decision and re-run the same tool.
+    // The key is asked for rather than derived from `sessionId`, because an
+    // auxiliary call carries a session id and does NOT own that session's
+    // conversation: tearing the real one down over a failed compaction fold
+    // would cost the whole prefix the live child exists to keep.
+    let output
+    try {
+      output = structuredResult(result, turn)
+    } catch (error: unknown) {
+      const key = this.sessionKey(options)
+      if (key !== undefined) await this.closeSession(key)
+      throw error
+    }
     let nextIndex = 0
 
     if (output.text.length > 0) {
@@ -1439,6 +1510,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
   private async runTurn(options: GenerateOptions): Promise<{
     readonly outcome: AgyTurnOutcome
     readonly session: AgySessionState | undefined
+    /** The stamp this turn's envelope carried, for {@link structuredResult}. */
+    readonly turn: string
   }> {
     if (this.disposed) {
       throw new LlmError('Antigravity adapter has been disposed', 'ANTIGRAVITY_CLI')
@@ -1446,12 +1519,21 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const signal = this.combinedSignal(options.signal, this.config.turnTimeoutMs)
     const key = this.sessionKey(options)
 
+    // Minted per turn rather than counted: nothing has to be threaded through
+    // session state, a rebuilt conversation cannot restart into a value it has
+    // already used, and the mismatch names both stamps when it fires.
+    const turn = randomUUID().slice(0, 8)
+
     if (key === undefined) {
       const lifetime = new AbortController()
       const child = await this.startProcess(options, lifetime.signal, signal)
       try {
-        const payload = fullEnvelope(options, dshId => dshId)
-        return { outcome: await this.awaitTurn(child, payload, signal, options), session: undefined }
+        const payload = fullEnvelope(options, dshId => dshId, true, turn)
+        return {
+          outcome: await this.awaitTurn(child, payload, signal, options),
+          session: undefined,
+          turn,
+        }
       } finally {
         lifetime.abort()
         this.turnChildren.delete(child)
@@ -1485,7 +1567,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
         idleTimer: undefined,
       }
       this.sessions.set(key, state)
-      payload = fullEnvelope(options, this.callIdView(state))
+      payload = fullEnvelope(options, this.callIdView(state), true, turn)
       delivered = options.messages.map(messageDigest)
     } else {
       const appended = options.messages.slice(state.sentDigests.length)
@@ -1500,14 +1582,14 @@ export class AntigravityCliAdapter extends LlmAdapter {
         await this.closeSession(key)
         return await this.runTurn(options)
       }
-      payload = deltaEnvelope(unheard, this.callIdView(state))
+      payload = deltaEnvelope(unheard, this.callIdView(state), turn)
     }
 
     try {
       const outcome = await this.awaitTurn(state.process, payload, signal, options)
       state.sentDigests = delivered
       this.armIdleReaper(key, state)
-      return { outcome, session: state }
+      return { outcome, session: state, turn }
     } catch (error: unknown) {
       await this.closeSession(key)
       throw error
@@ -1537,9 +1619,11 @@ export class AntigravityCliAdapter extends LlmAdapter {
     throw new LlmError(
       `Antigravity mcp-bridge transport cannot run: ${problem}\n`
       + `Register the bridge server once per machine:\n  agy mcp add dshtools node ${bridgeServerPath()}\n`
-      + 'then add "mcp(dshtools/*)" to userSettings.globalPermissionGrants.allow in '
-      + '~/.gemini/config/config.json. Or set this provider\'s transport to "schema" to use the '
-      + 'forced-schema path instead.',
+      + `then add "mcp(dshtools/*)" to ${DOCUMENTED_GRANT_STORE.key} in `
+      + `${DOCUMENTED_GRANT_STORE.display}. Both must come from your own vendor configuration: a `
+      + 'workspace-scoped MCP server is loaded but its tools are never declared to the model, and a '
+      + 'workspace-scoped permissions block is ignored outright. Or set this provider\'s transport to '
+      + '"schema" to use the forced-schema path instead, which needs no vendor setup at all.',
       'ANTIGRAVITY_CLI',
     )
   }
@@ -1555,11 +1639,13 @@ export class AntigravityCliAdapter extends LlmAdapter {
    * empty string. No denial event is emitted, nothing fails, and the route looks
    * healthy while being useless -- so the check has to happen up front.
    *
-   * The vendor's configuration file is READ, never written; that boundary is the
-   * same one that keeps vendor auth outside the suite. An unreadable or
-   * unexpected file is therefore not treated as a missing grant: the layout is
-   * the vendor's to change, and turning a layout change into a dead route would
-   * be worse than the gap it closes.
+   * The vendor's configuration files are READ, never written; that boundary is
+   * the same one that keeps vendor auth outside the suite. Both stores the
+   * vendor honours are consulted and a grant in either counts
+   * ({@link VENDOR_GRANT_STORES}). An unreadable or unexpected file is not
+   * treated as a missing grant: the layout is the vendor's to change, and
+   * turning a layout change into a dead route would be worse than the gap it
+   * closes.
    *
    * @returns `undefined` when the transport may run, or a description of the
    *   first problem found.
@@ -1587,8 +1673,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const granted = grants.some(grant => grant === 'mcp(*)' || grant.startsWith(`mcp(${serverName}/`))
     if (!granted) {
       return `the bridge server ${JSON.stringify(serverName)} is registered but not permitted: `
-        + `nothing in globalPermissionGrants.allow grants it, so the vendor would give the model no DSH tools `
-        + `and answer as if it had none. Add "mcp(${serverName}/*)"`
+        + `nothing in ${VENDOR_GRANT_STORES.map(store => store.key).join(' or ')} grants it, so the vendor `
+        + `would give the model no DSH tools and answer as if it had none. Add "mcp(${serverName}/*)"`
     }
     return undefined
   }

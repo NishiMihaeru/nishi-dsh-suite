@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
+import { stampedLine } from './turn-stamp.ts'
 
 /**
  * Regression net for `BLOCKED_NATIVE_TOOLS` (antigravity-primary.ts:58),
@@ -30,17 +31,31 @@ const config = {
 }
 
 /** A stream-json managed child: writes `lines` to stdout, then exits with `exitCode`/`stderr`. */
-function streamingChild(opts: { lines?: readonly string[]; stderr?: string; exitCode?: number | null }) {
-  const { lines = [], stderr = '', exitCode = 0 } = opts
+function streamingChild(opts: { lines?: readonly string[]; stderr?: string; exitCode?: number | null; streaming?: boolean }) {
+  const { lines = [], stderr = '', exitCode = 0, streaming = true } = opts
   const stdin = new PassThrough()
   const stdout = new PassThrough()
-  stdin.on('data', () => {})
   const done = Promise.withResolvers<{ exitCode: number | null; signal: NodeJS.Signals | null }>()
-  queueMicrotask(() => {
-    for (const line of lines) stdout.write(`${line}\n`)
+  // A turn child answers the line it was given rather than emitting on a
+  // timer, because its reply has to echo that envelope's turn stamp and the
+  // stamp is only knowable from the line. A one-shot collected call -- the
+  // model catalog -- is handed no stdin at all and must not wait for one.
+  const emit = (inputLine: string) => {
+    for (const line of lines) stdout.write(`${stampedLine(line, inputLine)}\n`)
     stdout.end()
     done.resolve({ exitCode, signal: null })
-  })
+  }
+  if (streaming) {
+    let answered = false
+    stdin.on('data', chunk => {
+      if (answered) return
+      answered = true
+      emit(String(chunk))
+    })
+  } else {
+    stdin.on('data', () => {})
+    queueMicrotask(() => { emit('') })
+  }
   return {
     pid: 3000,
     stdin,
@@ -59,7 +74,9 @@ function turnCtx(streamOpts: { lines?: readonly string[]; stderr?: string; exitC
   return {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn() { return streamingChild(streamOpts) },
+      spawn(spec: { argv: readonly string[] }) {
+        return streamingChild({ ...streamOpts, streaming: spec.argv.includes('--input-format') })
+      },
     },
   } as any
 }

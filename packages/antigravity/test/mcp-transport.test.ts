@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import {
   BRIDGE_SOCKET_DIR_ENV,
@@ -114,17 +115,34 @@ test('an auxiliary call and a toolless request never use the bridge', () => {
 
 
 /**
- * A fake vendor home, so these tests never read the developer's real
- * `~/.gemini/config/config.json`. The bridge precondition consults it, and a
- * test whose result depends on the machine it runs on is not a test.
+ * A fake vendor home, so these tests never read the developer's real vendor
+ * configuration. The bridge precondition consults it, and a test whose result
+ * depends on the machine it runs on is not a test.
+ *
+ * `store` selects which of the two files the vendor honours the grant is
+ * written to -- `settings` is the documented one, `config` the one the
+ * interactive CLI writes. Both are accepted by real `agy 1.1.24`, measured one
+ * arm per file, so both have to be accepted here.
  */
-async function withVendorHome<T>(grants: string[] | null, fn: () => Promise<T>): Promise<T> {
+async function withVendorHome<T>(
+  grants: string[] | null,
+  fn: () => Promise<T>,
+  store: 'config' | 'settings' = 'config',
+): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), 'vendor-home-'))
-  if (grants !== null) {
+  if (grants !== null && store === 'config') {
     await mkdir(join(home, '.gemini', 'config'), { recursive: true })
     await writeFile(
       join(home, '.gemini', 'config', 'config.json'),
       JSON.stringify({ userSettings: { globalPermissionGrants: { allow: grants } } }),
+      'utf8',
+    )
+  }
+  if (grants !== null && store === 'settings') {
+    await mkdir(join(home, '.gemini', 'antigravity-cli'), { recursive: true })
+    await writeFile(
+      join(home, '.gemini', 'antigravity-cli', 'settings.json'),
+      JSON.stringify({ permissions: { allow: grants } }),
       'utf8',
     )
   }
@@ -530,6 +548,32 @@ test('a grant for the same server under any tool name is accepted', async () => 
   await withVendorHome(['mcp(*)'], async () => {
     const { error } = await runOneTurn(ENABLED_ROW, true)
     assert.equal(error, undefined, `a blanket grant must be accepted: ${String((error as Error)?.message)}`)
+  })
+})
+
+/**
+ * The documented store is `permissions.allow` in
+ * `~/.gemini/antigravity-cli/settings.json`, and it is what the vendor's own
+ * headless denial message tells a user to edit. The undocumented
+ * `globalPermissionGrants` store the interactive CLI writes was the only one
+ * this package used to read, so a user who followed the vendor's own
+ * documentation had a route refused that the vendor would have run. Probed on
+ * real `agy 1.1.24`: both stores are honoured, and with the grant in neither
+ * the same call is denied. See `docs/verification/agy-cli-contract.md`.
+ */
+test('a grant in the documented settings.json store alone is accepted', async () => {
+  await withVendorHome(GRANTED, async () => {
+    const { error } = await runOneTurn(ENABLED_ROW, true)
+    assert.equal(error, undefined, `the documented store must be read: ${String((error as Error)?.message)}`)
+  }, 'settings')
+})
+
+test('the setup instructions name the documented store', async () => {
+  await withVendorHome([], async () => {
+    const { error } = await runOneTurn(ENABLED_ROW, true)
+    assert.ok(error instanceof LlmError)
+    assert.match(error.message, /permissions\.allow/)
+    assert.match(error.message, /antigravity-cli\/settings\.json/)
   })
 })
 
