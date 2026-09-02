@@ -4,7 +4,7 @@ Current target: `0.1.0-rc.3`
 
 Status: **IN REPOSITORY / UNPUBLISHED / FOUNDATION & CODEX THAWED PENDING RE-VALIDATION**
 
-The local gate is green — `pnpm verify:local` exits `0` on every run since a load-sensitive Project Memory recovery read race was fixed. Codex and Antigravity live acceptance are no longer missing: both were re-run in full on 2026-08-31 against this tree, together with a first cross-route delegation run, which found a Codex defect on a mid-turn route switch, since fixed (`ROADMAP.md` §2). Four further live suites were added on 2026-08-31 and pass: the Antigravity MCP tool bridge, the vendor's enforcement of an agent tool allowlist, and for Codex that `thread/inject_items` reaches the model at all, alongside the existing tool-result continuation probe.
+The local gate is green — `pnpm verify:local` exits `0` on every run since a load-sensitive Project Memory recovery read race was fixed. Codex and Antigravity live acceptance are no longer missing: both were re-run in full on 2026-08-31 against this tree, together with a first cross-route delegation run, which found a Codex defect on a mid-turn route switch, since fixed (`ROADMAP.md` §2). Four further live suites were added on 2026-08-31 and passed: the Antigravity MCP tool bridge -- since removed with its transport, `ROADMAP.md` §3 -- the vendor's enforcement of an agent tool allowlist, and for Codex that `thread/inject_items` reaches the model at all, alongside the existing tool-result continuation probe.
 
 A whole-tree adversarial review by two models that did not write the code then reported **16 defects on this green tree**, all now closed: 15 fixed, one rejected on the upstream subprocess contract, one referred to the maintainer and decided. Two were in code written the same day, one of them a local-socket exposure. Method and findings: `verification/gemini/LATEST.md`.
 
@@ -106,7 +106,7 @@ The old `ctx.projectMemory` delegated service boundary is gone. Memory is expose
 
 ## Deployment prerequisite introduced in rc.3
 
-`antigravity-cli` defaults to the `mcp-bridge` tool transport, which needs the bridge server registered once per machine in the user's own `agy` configuration, plus a narrow `mcp(<server>/*)` grant. Until both are in place the route's first turn fails, naming the exact command and the resolved path; it deliberately does not fall back, because a route that silently hands the model no tools looks healthy. `transport: "schema"` selects the previous forced-schema path and needs no setup. This must be stated in any install or Market description.
+`antigravity-cli` needs no vendor setup beyond a working `agy` login: it has one tool transport, the forced output schema, and the `transport` config key is gone. The `mcp-bridge` transport that briefly required a once-per-machine server registration and an `mcp(<server>/*)` grant was removed on 2026-09-03 (`ROADMAP.md` §3), so any install or Market description written against that requirement is stale.
 
 ## Open release work
 
@@ -147,7 +147,6 @@ Release must continue to satisfy:
 - vendor sign-in stays inside official vendor products;
 - no silent provider fallback for routed search;
 - Project Memory path/symlink confinement remains fail-closed;
-- the Antigravity MCP bridge's socket directory stays private to the invoking user: ownership and mode are verified rather than assumed, because `mkdir` with a mode does not correct a directory that already exists, and a world-writable one would expose every tool catalog the bridge hands out;
 - the bridge server's global registration in the user's own vendor configuration is an accepted exposure, narrowed by the parent-pid claim: a server no live adapter claims is served an empty catalog. It is never written by this suite;
 - no Windows support claim before Windows acceptance.
 

@@ -1,13 +1,13 @@
 /**
- * The `schema` transport's pure parts: the structured-output JSON Schema
- * generation for a tool catalog and the parsing of turn results.
+ * The forced structured-output machinery: the JSON Schema generated for a tool
+ * catalog, and the parsing of turn results against it.
  *
- * Kept separate from `antigravity-primary.ts` so the structured-output
- * machinery is isolated and directly testable without a live vendor process.
- * The schema transport needs no setup at all, where `mcp-bridge` requires a
- * once-per-machine vendor registration, and it is the only route auxiliary
- * and toolless requests take even when the bridge is selected -- a live tool
- * catalog is what made compaction answer with a tool call.
+ * Kept separate from `antigravity-primary.ts` so it is isolated and directly
+ * testable without a live vendor process. This was one of two transports until
+ * the other -- DSH's catalog handed to the vendor's own harness as MCP tools --
+ * was removed for resting on four undocumented vendor behaviours, one of which
+ * had already broken in production, and for a setup cost that could not be
+ * shipped rather than asked of the user. See `docs/ROADMAP.md` section 3.
  *
  * Internal to this package.
  *

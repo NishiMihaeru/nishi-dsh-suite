@@ -49,27 +49,15 @@ A stamp that does not match falls through to the turn's own `response` before fa
 
 The route advertises `contextWindowTokens` (default `200_000`). It is configured, not discovered: the vendor discloses no per-model window. Without any capacity `compaction-basic` refuses automatic pressure compaction and the refusal is swallowed as a single warning, so a session's history would grow with no bound and no visible symptom.
 
-### Tool transport, and the one-time setup it needs
+### One tool transport, and why the other was removed
 
-Two transports exist, selected by `transport`.
+DSH's tool catalog reaches the model as text in the forced-output envelope, and the model answers with a decision DSH executes. There is nothing to install: this route works from a plain `agy` login.
 
-`mcp-bridge` is the **default**. DSH's tool catalog is handed to the vendor's own harness as MCP tools, so the model calls them natively; DSH still executes every call, through its own agent loop with its own permissions and durable history. This is the shape `nishi-dsh-codex` already uses for App Server dynamic tools.
+A second transport existed until it was removed with the `transport` config key. It handed the catalog to the vendor's own harness as MCP tools so the model called them natively, through a server process the vendor launched and a unix socket back to the adapter. It was built, live-accepted and briefly the default. Three things ended it, and each is recorded with its evidence in `docs/ROADMAP.md` section 3:
 
-It requires the bridge server to be registered with `agy` **once per machine**, and this package deliberately does not write your vendor configuration — the same boundary that keeps vendor authentication outside the suite:
-
-```bash
-agy mcp add dshtools node <install>/nishi-dsh-antigravity/lib/mcp-bridge-server.js
-```
-
-then add `"mcp(dshtools/*)"` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json` — the vendor's documented store, and the one its own headless denial message names. A grant in `userSettings.globalPermissionGrants.allow` of `~/.gemini/config/config.json`, which the interactive CLI writes, is honoured too and this package reads both; measured one arm per file against real `agy 1.1.24`, with a control run showing the same call denied when neither carries the grant. `toolPermission` stays at its strict default, no trusted workspace is needed, and `--dangerously-skip-permissions` is never used. Until both the registration and the grant are in place the first turn fails loudly, naming the exact command and the resolved path — it does not fall back on its own, because a route that silently hands the model no tools looks healthy and reads as a disobedient model.
-
-Neither half can be shipped inside the workspace this package creates, which is why both are asked of the user. A workspace-scoped `.agents/mcp_config.json` **is** loaded and connected — the vendor writes a schema cache for it — but its tools are never declared to the model, which reports only the globally registered servers; and a `permissions` block in a workspace `.agents/settings.json` is ignored outright. Both probed on `agy 1.1.24`; see `docs/verification/agy-cli-contract.md`.
-
-A registered server is reachable by every `agy` session on the machine, which is the transport's one irreducible cost. It is narrowed rather than removed. Before spawning a vendor child the adapter mints a single-use token and hands it, with the socket path, to the child through its environment; measured against real `agy 1.1.22`, the vendor passes its environment to the MCP servers it launches verbatim -- 95 keys in, 95 keys out, nothing injected and nothing dropped. A server that presents no token, or one nobody registered, is served an empty catalog, so an unrelated `agy` session gets no tools.
-
-That environment reaches **every** MCP server the vendor launches, third-party ones included -- a probe registered with no environment of its own still read a planted variable. The token is therefore readable by a co-resident server, and what keeps that from being a way in is that a token binds exactly once: the first claimant gets the channel and every later one is refused outright. An impostor that wins the race does not get served either -- the real server is refused instead and the turn fails loudly.
-
-`transport: "schema"` selects the transport this package shipped with: `agy` stripped to a model endpoint and its reply forced through `--json-schema`. It needs no setup, and switching is a one-key config change in either direction. It remains the transport with the larger body of live evidence.
+- **it rested on four undocumented vendor behaviours**, where everything this transport needs is published bar one ambiguity that is now detected rather than trusted. The load-bearing one — that a blocking MCP call holds the vendor turn open — had already broken in production: a long tool becomes a yielded cell, the model is re-invoked at each yield boundary, and on one of them it stops waiting;
+- **its setup could not be shipped, only asked for.** A globally registered server and a permission grant, both in your own vendor configuration, with a fresh install doing nothing until both were in place. Probed on `agy 1.1.24`: a workspace-scoped `.agents/mcp_config.json` is loaded and connected but its tools are never declared to the model, and a workspace `permissions` block is ignored outright, so neither half could move into the workspace this package creates;
+- **it did not hold the property it existed for.** Two independent reviewers found the same hole: the one-shot token binds whichever process claims it first, so a co-resident process claiming first was served DSH's entire tool catalog while the real server was refused — and because the same sticky flag answers "did a server attach", the turn then came back as prose and was accepted as an ordinary success. An earlier version of this file claimed that race fails loudly. It did not.
 
 ## Runtime boundary
 

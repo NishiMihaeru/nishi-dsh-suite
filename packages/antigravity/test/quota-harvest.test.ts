@@ -44,9 +44,6 @@ const primaryConfig = {
   turnTimeoutMs: 5_000,
   disposeGraceMs: 1_000,
   stderrMaxBytes: 64_000,
-  // Pinned: these assert the forced-schema transport. The package default is
-  // `mcp-bridge`, which would send them down a path they are not about.
-  transport: 'schema' as const,
 }
 
 const SUCCESS_RESULT_LINE = JSON.stringify({

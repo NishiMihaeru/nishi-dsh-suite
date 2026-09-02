@@ -60,10 +60,11 @@ function createTestContext(turnSpawns: { count: number }) {
       return findOnPath(name) ?? name
     },
     spawn(spec: any) {
-      // `list` alongside `models`: since `mcp-bridge` became the default this
-      // adapter also runs `agy mcp list` as a registration precondition, and
-      // counting that housekeeping call as a turn child is what made this
-      // assertion read 2. Kept in step with `test-live/mcp-bridge.test.ts`.
+      // `models` is the catalog lookup, not a turn: counting that housekeeping
+      // call as a turn child is what made this assertion read 2. `list` is
+      // still excluded although nothing runs it since the MCP bridge was
+      // removed, because a future housekeeping subcommand would trip this the
+      // same way and the exclusion costs nothing.
       const housekeeping = spec.argv.includes('models') || spec.argv.includes('list')
       if (!housekeeping) turnSpawns.count += 1
       const [cmd, ...args] = spec.argv
