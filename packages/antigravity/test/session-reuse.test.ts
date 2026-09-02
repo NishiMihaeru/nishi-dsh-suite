@@ -922,3 +922,61 @@ test('a non-SUCCESS turn result abandons the conversation so the next request re
     assert.equal(children[1].envelopes()[0].kind, 'full')
   } finally { await adapter.dispose() }
 })
+
+/**
+ * Both reviewers found this with a probe: `source` is serialized to the vendor
+ * and was not digested, so a `source`-only rewrite passed the divergence check
+ * and the vendor kept the value it was first told.
+ */
+test('a source-only rewrite rebuilds, because the vendor was told the old source', async () => {
+  const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('first')
+    await collect(adapter.stream(request({ messages: [first] })))
+
+    const resourced = { ...first, source: { kind: 'plugin', plugin: 'auth' } }
+    await collect(adapter.stream(request({ messages: [resourced, userText('next')] })))
+
+    assert.equal(spawns.length, 2, 'a source rewrite must reach the vendor as a rebuild')
+  } finally { await adapter.dispose() }
+})
+
+/**
+ * A second concurrent request for one session is refused -- that policy is not
+ * new -- but it used to be refused by the vendor child, which meant a second
+ * child had already been spawned for a first request, and the refusal arrived
+ * inside the catch that closes the session, killing the in-flight turn.
+ */
+test('a second concurrent request for one session is refused without a second child', async () => {
+  const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('first')
+    const one = collect(adapter.stream(request({ messages: [first] })))
+    const two = collect(adapter.stream(request({ messages: [first] })))
+
+    await assert.rejects(two, (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, 'ANTIGRAVITY_PROTOCOL')
+      assert.match(error.message, /second concurrent request/)
+      return true
+    })
+    // The first request must be untouched by the second's refusal.
+    const chunks = await one
+    assert.ok(chunks.some(chunk => chunk.type === 'finish'), 'the in-flight turn must still finish')
+    assert.equal(spawns.length, 1, 'the refused request must not have spawned a child')
+  } finally { await adapter.dispose() }
+})
+
+test('a session that finished a turn still accepts the next one', async () => {
+  const { ctx, spawns } = harness([messageReply('one'), messageReply('two')])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('first')
+    await collect(adapter.stream(request({ messages: [first] })))
+    const second = userText('second')
+    await collect(adapter.stream(request({ messages: [first, second] })))
+    assert.equal(spawns.length, 1, 'the in-flight guard must release when a turn ends')
+  } finally { await adapter.dispose() }
+})

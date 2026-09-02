@@ -4,15 +4,17 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 import { ephemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
-import { bridgeMcpAgentMarkdown } from '../src/mcp-transport.js'
+import { bridgeAgentMarkdown } from '../src/antigravity-primary.js'
 
 /**
  * Does the vendor actually honour an agent's `tools:` allowlist?
  *
- * Both transports on this route depend on the answer. Each ships an agent
+ * The one transport on this route depends on the answer. It ships an agent
  * definition allowing `finish` and nothing else, and `ARCHITECTURE.md` calls
  * that prevention, with the post-hoc `BLOCKED_NATIVE_TOOLS` check as a
- * backstop. Nothing had ever observed the prevention half.
+ * backstop. Nothing had ever observed the prevention half. It used to run the
+ * MCP transport's agent definition, which was byte-for-byte this one; that
+ * transport is gone and the suite now names the definition that ships.
  *
  * The doubt was concrete rather than idle: `init.tools` reports 57 native tools
  * regardless of what the agent asked for, which reads exactly like an ignored
@@ -36,8 +38,8 @@ const FILE_TOOLS = ['view_file', 'find_by_name', 'grep_search', 'list_dir', 'run
 test('ANTIGRAVITY ALLOWLIST: a finish-only agent cannot reach the vendor\'s own file tools', async () => {
   const workspace = await ephemeralAgentWorkspace({
     prefix: 'dsh-allowlist-live-',
-    agentName: 'dsh-primary-mcp',
-    agentMarkdown: bridgeMcpAgentMarkdown(),
+    agentName: 'dsh-primary',
+    agentMarkdown: bridgeAgentMarkdown(),
     files: [],
   })
   // Inside the workspace the vendor is explicitly granted (`--add-dir`), so a
@@ -49,7 +51,7 @@ test('ANTIGRAVITY ALLOWLIST: a finish-only agent cannot reach the vendor\'s own 
     '--add-dir', workspace.root,
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
-    '--agent', 'dsh-primary-mcp',
+    '--agent', 'dsh-primary',
     '--sandbox',
     '--model', MODEL,
     '--print-timeout', '90s',

@@ -121,7 +121,15 @@ interface CatalogModel {
   readonly aliases?: readonly string[]
 }
 
-function bridgeAgentMarkdown(): string {
+/**
+ * The agent definition every turn on this route runs under.
+ *
+ * Exported for `test-live/agent-allowlist.test.ts`, which drives `agy`
+ * directly to observe whether the vendor honours a `tools:` allowlist at all.
+ * That suite has to use the definition the product actually ships, or it
+ * measures a fixture instead of the product.
+ */
+export function bridgeAgentMarkdown(): string {
   return [
     '---',
     `name: ${AGENT_NAME}`,
@@ -410,12 +418,23 @@ function deltaEnvelope(messages: readonly Message[], view: CallIdView, turn?: st
 }
 
 /**
- * Identity of one message as this conversation heard it: its id AND its
- * content, because DSH rewrites the second while preserving the first.
+ * Identity of one message as this conversation heard it.
+ *
+ * The basis is everything {@link serializeMessage} puts on the wire, and it is
+ * that for a reason rather than by coincidence: the digest exists to answer
+ * "does DSH's history still agree with what this conversation was told", and a
+ * field that is sent but not digested makes the answer wrong. It began as
+ * `[id, role, content]` -- id alone was not enough, because the tool-result
+ * pruner rewrites content while carrying the id over -- and `source` was added
+ * after two independent reviewers each found, with a probe, that a rewrite of
+ * `source` alone passed the check while the vendor kept the value it was first
+ * told. `source` also decides whether an assistant message counts as this
+ * route's own reply and is therefore withheld from a delta, so a silent change
+ * there changes what the vendor is sent as well as what it already has.
  */
 function messageDigest(message: Message): string {
   return createHash('sha256')
-    .update(JSON.stringify([message.id, message.role, message.content]))
+    .update(JSON.stringify([message.id, message.role, message.source, message.content]))
     .digest('hex')
     .slice(0, 32)
 }
@@ -620,6 +639,14 @@ interface AgySessionState {
   idleTimer: NodeJS.Timeout | undefined
 }
 
+/** What one completed vendor turn hands back to the streaming caller. */
+interface TurnRun {
+  readonly outcome: AgyTurnOutcome
+  readonly session: AgySessionState | undefined
+  /** The stamp this turn's envelope carried, for {@link structuredResult}. */
+  readonly turn: string
+}
+
 export class AntigravityCliAdapter extends LlmAdapter {
   private bridgeWorkspacePromise: Promise<EphemeralAgentWorkspace> | undefined
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
@@ -649,6 +676,10 @@ export class AntigravityCliAdapter extends LlmAdapter {
    * uniqueness has to hold wherever it is later read back. Combined with
    * {@link callInstanceId} to survive adapter restarts.
    */
+  /**
+   * Session keys with a turn in flight; see the refusal in {@link runTurn}.
+   */
+  private readonly turnsInFlight = new Set<string>()
   private callSeq = 0
   private disposed = false
 
@@ -1213,12 +1244,46 @@ export class AntigravityCliAdapter extends LlmAdapter {
    * a guess; the next request reopens from DSH's history, which is the
    * authoritative copy either way.
    */
-  private async runTurn(options: GenerateOptions): Promise<{
-    readonly outcome: AgyTurnOutcome
-    readonly session: AgySessionState | undefined
-    /** The stamp this turn's envelope carried, for {@link structuredResult}. */
-    readonly turn: string
-  }> {
+  private async runTurn(options: GenerateOptions): Promise<TurnRun> {
+    const key = this.sessionKey(options)
+    if (key === undefined) return await this.runTurnBody(options)
+    // One turn at a time per session, refused at the door.
+    //
+    // The vendor child already refuses a second concurrent turn, but by then
+    // the damage is done twice over. Reaching that refusal means a child was
+    // spawned first, so two concurrent FIRST requests for one session each
+    // built one and only the second was mapped -- leaving an orphan alive
+    // until disposal, with an idle timer that closes by key and would later
+    // reap the mapped child instead of itself. And the refusal arrived inside
+    // `runTurnBody`'s try, whose catch closes the session, so the second
+    // request killed the FIRST request's turn on its way out.
+    //
+    // Refusing before either can happen keeps the recorded policy -- a second
+    // concurrent request for one DSH session means the caller lost track of
+    // its own turn boundaries -- while making it cost the live conversation
+    // nothing.
+    if (this.turnsInFlight.has(key)) {
+      throw new LlmError(
+        `Antigravity received a second concurrent request for DSH session ${JSON.stringify(key)}; `
+        + 'one vendor conversation cannot serve two turns at once',
+        'ANTIGRAVITY_PROTOCOL',
+      )
+    }
+    this.turnsInFlight.add(key)
+    try {
+      return await this.runTurnBody(options)
+    } finally {
+      this.turnsInFlight.delete(key)
+    }
+  }
+
+  /**
+   * One turn, assuming this session has no other turn in flight.
+   *
+   * Separate from {@link runTurn} so the rebuild path below can recurse
+   * without tripping that guard on the key it already holds.
+   */
+  private async runTurnBody(options: GenerateOptions): Promise<TurnRun> {
     if (this.disposed) {
       throw new LlmError('Antigravity adapter has been disposed', 'ANTIGRAVITY_CLI')
     }
@@ -1286,7 +1351,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
         // Nothing to say. A turn needs an input line, and there is no honest
         // one to write, so reopen from DSH's history rather than invent one.
         await this.closeSession(key)
-        return await this.runTurn(options)
+        return await this.runTurnBody(options)
       }
       payload = deltaEnvelope(unheard, this.callIdView(state), turn)
     }
