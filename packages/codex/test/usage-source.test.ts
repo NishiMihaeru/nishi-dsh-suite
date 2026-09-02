@@ -139,21 +139,30 @@ test('usage source resolves and launches Codex in the DSH subprocess execution w
   assert.deepEqual(observations.waitSignals, [undefined], 'cleanup must wait for whole-tree exit without a grace-bound abort')
 })
 
-test('usage source rejects a Codex App Server version outside the audited runtime', async () => {
+test('usage source rejects a Codex App Server older than the audited runtime, and accepts a newer one', async () => {
   const source = new OfficialCodexRateLimitsSource({
+    cwd: '/provider/workspace',
+    async resolveExecutable() { return '/provider/runtime/codex' },
+    spawn() { return fakeAppServerChild({ version: '0.149.0' }) },
+  })
+
+  await assert.rejects(source.read(), /unsupported Codex App Server version.*0\.149\.0.*0\.150\.0 or newer/)
+
+  // The other direction, and the point of the change: a vendor upgrade past
+  // the audited runtime must not take quota reporting down with it.
+  const newer = new OfficialCodexRateLimitsSource({
     cwd: '/provider/workspace',
     async resolveExecutable() { return '/provider/runtime/codex' },
     spawn() { return fakeAppServerChild({ version: '0.151.0' }) },
   })
-
-  await assert.rejects(source.read(), /unsupported Codex App Server version.*0\.151\.0.*0\.150\.0/)
+  await newer.read()
 })
 
 test('an unsupported Codex App Server version is UNAVAILABLE, not a bare collection ERROR', async () => {
   const source = new OfficialCodexRateLimitsSource({
     cwd: '/provider/workspace',
     async resolveExecutable() { return '/provider/runtime/codex' },
-    spawn() { return fakeAppServerChild({ version: '0.151.0' }) },
+    spawn() { return fakeAppServerChild({ version: '0.149.0' }) },
   })
 
   await assert.rejects(source.read(), (error: unknown) => {
@@ -167,7 +176,7 @@ test('the usage collector reports UNAVAILABLE, not ERROR, for an installed-but-u
   const source = new OfficialCodexRateLimitsSource({
     cwd: '/provider/workspace',
     async resolveExecutable() { return '/provider/runtime/codex' },
-    spawn() { return fakeAppServerChild({ version: '0.151.0' }) },
+    spawn() { return fakeAppServerChild({ version: '0.149.0' }) },
   })
 
   const snapshot = await new CodexUsageCollector(source).collect(1234)

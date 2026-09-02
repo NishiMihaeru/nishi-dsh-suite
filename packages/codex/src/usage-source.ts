@@ -14,7 +14,8 @@ import type {
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
 import {
-  SUPPORTED_CODEX_APP_SERVER_VERSION,
+  MINIMUM_CODEX_APP_SERVER_VERSION,
+  codexAppServerVersionAtLeast,
   codexAppServerVersionFromUserAgent,
 } from './codex-plugin-dsh/app-server.js'
 import { CodexRateLimitsSourceError } from './usage.js'
@@ -239,13 +240,13 @@ export class OfficialCodexRateLimitsSource implements CodexRateLimitsSourceLike 
             throw new Error('codex-usage: initialize response result is invalid')
           }
           const version = codexAppServerVersionFromUserAgent(initialized.userAgent)
-          if (version !== SUPPORTED_CODEX_APP_SERVER_VERSION) {
+          if (version === undefined || !codexAppServerVersionAtLeast(version, MINIMUM_CODEX_APP_SERVER_VERSION)) {
             // An installed-but-unsupported Codex version is an availability
             // problem, not a collection error: the source spec only maps
             // CodexRateLimitsSourceError to a status, so an ordinary Error
             // here would collapse to ERROR instead of UNAVAILABLE.
             throw new CodexRateLimitsSourceError(
-              `codex-usage: unsupported Codex App Server version ${JSON.stringify(version ?? initialized.userAgent)}; expected ${SUPPORTED_CODEX_APP_SERVER_VERSION}`,
+              `codex-usage: unsupported Codex App Server version ${JSON.stringify(version ?? initialized.userAgent)}; requires ${MINIMUM_CODEX_APP_SERVER_VERSION} or newer`,
               'UNAVAILABLE',
             )
           }

@@ -3,12 +3,13 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import {
   CodexAppServerConnection,
-  SUPPORTED_CODEX_APP_SERVER_VERSION,
+  MINIMUM_CODEX_APP_SERVER_VERSION,
+  codexAppServerVersionAtLeast,
   codexAppServerVersionFromUserAgent,
 } from '../src/codex-plugin-dsh/app-server.ts'
 
 test('Codex App Server version parser accepts only the audited user-agent shape', () => {
-  assert.equal(SUPPORTED_CODEX_APP_SERVER_VERSION, '0.150.0')
+  assert.equal(MINIMUM_CODEX_APP_SERVER_VERSION, '0.150.0')
   assert.equal(
     codexAppServerVersionFromUserAgent('codex-plugin-dsh/0.150.0 (Linux 6.1; x86_64) codex-cli'),
     '0.150.0',
@@ -128,4 +129,29 @@ test('a recognized App Server exit condition reports only its own authored messa
     assert.doesNotMatch(error.message, /testuser/)
     return true
   })
+})
+
+/**
+ * The floor that replaced an exact pin on 2026-09-02.
+ *
+ * The pin refused every Codex release after the audited one, so a routine
+ * vendor upgrade broke the provider outright -- a certain cost on every
+ * release, paid against an uncertain protocol break that surfaces loudly as a
+ * JSON-RPC error on the method that changed. What a version CAN tell us is
+ * that a runtime is too old to carry the calls this provider depends on, and
+ * that is all the gate now claims.
+ */
+test('a Codex App Server newer than the audited runtime is accepted, and an older one is not', () => {
+  const floor = MINIMUM_CODEX_APP_SERVER_VERSION
+  assert.equal(codexAppServerVersionAtLeast('0.150.0', floor), true, 'the audited runtime itself')
+  assert.equal(codexAppServerVersionAtLeast('0.150.1', floor), true, 'a patch release must not break the provider')
+  assert.equal(codexAppServerVersionAtLeast('0.151.0', floor), true)
+  assert.equal(codexAppServerVersionAtLeast('1.0.0', floor), true)
+  assert.equal(codexAppServerVersionAtLeast('0.149.9', floor), false)
+  assert.equal(codexAppServerVersionAtLeast('0.99.0', floor), false, 'compared numerically, never as strings')
+  // Semver precedence, both directions: a candidate for the floor is older
+  // than the floor, while build metadata does not affect precedence at all.
+  assert.equal(codexAppServerVersionAtLeast('0.150.0-rc.1', floor), false)
+  assert.equal(codexAppServerVersionAtLeast('0.150.1-rc.1', floor), true)
+  assert.equal(codexAppServerVersionAtLeast('0.150.0+build.7', floor), true)
 })

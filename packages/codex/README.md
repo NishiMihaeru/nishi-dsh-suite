@@ -20,7 +20,7 @@ At runtime the package uses the user's installed official `codex` CLI/App Server
 
 Native Codex authentication remains vendor-owned. The Suite does not copy credentials, API keys, session tokens or authentication databases.
 
-The audited App Server contract is pinned to exactly `0.150.0`. A Codex CLI outside that version is a runtime-availability condition, not an internal fault: the usage source reports `UNAVAILABLE` rather than collapsing to `ERROR`, and the primary/search paths refuse to start.
+The audited App Server contract is `0.150.0`, and that is enforced as a FLOOR: `0.150.0` or newer runs, anything older refuses. It was an exact pin until 2026-09-02, which meant every Codex release after the audited one broke this provider outright -- a certain cost on each upgrade against an uncertain protocol break that, when it happens, surfaces loudly as a JSON-RPC error on the method that changed. A version can tell us a runtime is too OLD to carry `experimentalApi`, `thread/inject_items` or the checkpoint calls, so that is all the gate claims; the handshake version is otherwise recorded rather than judged. A Codex CLI below the floor is a runtime-availability condition, not an internal fault: the usage source reports `UNAVAILABLE` rather than collapsing to `ERROR`, and the primary/search paths refuse to start.
 
 ### Vendor diagnostics
 

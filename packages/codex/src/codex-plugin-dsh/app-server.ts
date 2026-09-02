@@ -5,8 +5,47 @@ import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { object, thrown } from './validation.js'
 import { codexVendorFailure } from './vendor-stderr.js'
 
-/** Exact external Codex runtime whose App Server contracts this provider is audited against. */
-export const SUPPORTED_CODEX_APP_SERVER_VERSION = '0.150.0'
+/** Oldest external Codex runtime whose App Server contracts this provider is audited against. */
+export const MINIMUM_CODEX_APP_SERVER_VERSION = '0.150.0'
+
+/**
+ * Whether an observed App Server version is new enough to be driven.
+ *
+ * A FLOOR rather than the exact pin this used to be, changed 2026-09-02. The
+ * pin refused every Codex release after the audited one, which trades a
+ * CERTAIN failure on every upgrade against an uncertain one. The two
+ * directions are not symmetric and only one is knowable from a version: a
+ * runtime too OLD to carry `experimentalApi`, `thread/inject_items` or the
+ * checkpoint calls is worth refusing up front, while a runtime NEWER than the
+ * audited one breaks, if it breaks at all, as a JSON-RPC error on the method
+ * that changed -- loud, attributable, and not something an upper bound would
+ * have caught anyway once the vendor moved inside it.
+ *
+ * Prerelease builds of the floor (`0.150.0-rc.1`) sort BELOW it, as semver
+ * says: the audited contracts are the release's, not its candidates'. Build
+ * metadata (`0.150.0+abc`) does not affect precedence and is ignored.
+ *
+ * See `docs/ROADMAP.md` section 3 for why Antigravity is NOT given an
+ * equivalent gate.
+ */
+export function codexAppServerVersionAtLeast(version: string, minimum: string): boolean {
+  const parse = (value: string): { readonly release: readonly number[]; readonly prerelease: boolean } => {
+    const core = value.split('+', 1)[0] ?? value
+    const dash = core.indexOf('-')
+    const release = (dash < 0 ? core : core.slice(0, dash)).split('.').map(part => Number(part))
+    return { release, prerelease: dash >= 0 }
+  }
+  const observed = parse(version)
+  const floor = parse(minimum)
+  for (let index = 0; index < 3; index += 1) {
+    const left = observed.release[index] ?? 0
+    const right = floor.release[index] ?? 0
+    if (Number.isNaN(left) || Number.isNaN(right)) return false
+    if (left !== right) return left > right
+  }
+  // Equal releases: a prerelease of the floor is older than the floor itself.
+  return !(observed.prerelease && !floor.prerelease)
+}
 
 /** Extract the Codex package version from the initialize user-agent prefix. */
 export function codexAppServerVersionFromUserAgent(value: unknown): string | undefined {
@@ -86,6 +125,14 @@ export class CodexAppServerConnection {
   private readonly transport: JsonRpcLineTransport
   private readonly queue = new NotificationQueue()
   private closePromise: Promise<void> | undefined
+  /**
+   * The App Server version this connection actually handshook, once known.
+   *
+   * Recorded rather than gated on beyond the floor: with no upper bound, the
+   * build a turn ran against is the first thing a later reader wants and the
+   * handshake discloses it for free.
+   */
+  appServerVersion: string | undefined
 
   constructor(
     private readonly child: SubprocessHandle,
@@ -141,11 +188,14 @@ export class CodexAppServerConnection {
       },
     }, signal), 'initialize response')
     const version = codexAppServerVersionFromUserAgent(initialized.userAgent)
-    if (version !== SUPPORTED_CODEX_APP_SERVER_VERSION) {
+    if (version === undefined || !codexAppServerVersionAtLeast(version, MINIMUM_CODEX_APP_SERVER_VERSION)) {
       throw new Error(
-        `codex-plugin-dsh: unsupported Codex App Server version ${JSON.stringify(version ?? initialized.userAgent)}; expected ${SUPPORTED_CODEX_APP_SERVER_VERSION}`,
+        `codex-plugin-dsh: unsupported Codex App Server version ${JSON.stringify(version ?? initialized.userAgent)}; requires ${MINIMUM_CODEX_APP_SERVER_VERSION} or newer`,
       )
     }
+    // Recorded and NOT gated on: a turn that fails against a newer runtime
+    // should carry the build it ran on rather than have it reconstructed.
+    this.appServerVersion = version
     this.transport.notify('initialized', {})
     await this.transport.flush()
   }
