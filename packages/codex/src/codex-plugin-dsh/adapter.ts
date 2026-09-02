@@ -128,6 +128,61 @@ class ActiveTurnQueue {
     for (const waiter of this.waiters.splice(0)) waiter.reject(error)
   }
 
+  /**
+   * Why the vendor has already stopped waiting for a parked tool call, if it
+   * has -- read from what is buffered here, unread.
+   *
+   * While DSH executes a tool it stops consuming this queue, so everything the
+   * App Server emits in that window waits here. Two buffered things each mean
+   * the vendor gave up on the call DSH is still holding:
+   *
+   * - a `dynamicToolCall` **item completion**. The vendor's own thread item
+   *   carries `status: "inProgress" | "completed" | "failed"`, from its
+   *   generated protocol bindings, and it completes that item when it is done
+   *   with the call. On the healthy path it does so only AFTER DSH answers --
+   *   observed in three live probes, where it arrived within 1 ms of the
+   *   response and never before it. Buffered ahead of the answer, it is the
+   *   vendor saying so in its own vocabulary, and it fires whether or not the
+   *   turn also ended;
+   * - a `turn/completed`, or a fatal non-retrying `error`. The turn finished
+   *   around its own outstanding call.
+   *
+   * Answering into either is silent by construction: buffered agent output
+   * replays on the continuing step, sets `finalOutput`, and the turn yields an
+   * ordinary `stop` -- a whole turn of reasoning built on a result the model
+   * never received, recorded as a normal answer. Reproduced against this
+   * adapter before the check existed, and seen in a real session log first.
+   *
+   * @returns a reason for the refusal, or `undefined` when the vendor is still
+   * waiting the way this transport needs it to.
+   */
+  abandonedCall(threadId: string, turnId: string): string | undefined {
+    for (const event of this.values) {
+      if (event.kind !== 'notification') continue
+      const { method, params } = event.notification
+      if (method === 'item/completed') {
+        const item = params.item
+        if (typeof item === 'object' && item !== null && (item as { type?: unknown }).type === 'dynamicToolCall') {
+          const status = (item as { status?: unknown }).status
+          return `the vendor completed the tool call itself (status ${JSON.stringify(status)})`
+        }
+        continue
+      }
+      // A fatal error ends the turn wherever it is addressed; a retrying one
+      // does not, and the main loop treats it the same way.
+      if (method === 'error') {
+        if (params.willRetry !== true) return 'the vendor turn failed'
+        continue
+      }
+      if (method !== 'turn/completed' || params.threadId !== threadId) continue
+      const completed = params.turn
+      if (typeof completed === 'object' && completed !== null && (completed as { id?: unknown }).id === turnId) {
+        return 'the vendor turn ended'
+      }
+    }
+    return undefined
+  }
+
   async next(signal: AbortSignal): Promise<ActiveTurnEvent> {
     signal.throwIfAborted()
     const value = this.values.shift()
@@ -677,6 +732,20 @@ export class CodexAppServerAdapter extends LlmAdapter {
           const pending = turn.awaiting
           if (pending === undefined) {
             throw new Error('codex-plugin-dsh: an App Server turn is already active for this DSH session')
+          }
+          // The fourth thing that can move under a parked call, and the second
+          // that moved silently: the VENDOR's own state rather than DSH's. A
+          // turn that ended around its own outstanding tool call answered from
+          // whatever the model had instead of the result, and resolving into it
+          // records that answer as an ordinary completion. Throwing discards
+          // the turn; the next request goes through `startTurn`, which realigns
+          // by checkpoint the same way the history guard above relies on.
+          const abandoned = turn.events.abandonedCall(turn.threadId, turn.turnId)
+          if (abandoned !== undefined) {
+            throw new Error(
+              `codex-plugin-dsh: ${abandoned} while a dynamic tool call was still parked, `
+              + 'so the model proceeded without ever receiving its result',
+            )
           }
           const continuation = await codexDynamicToolResult(
             options.messages,

@@ -48,8 +48,15 @@ const TOOL_RESULT = {
   content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'ok' }] }],
 } as any
 
-/** An adapter holding one turn parked on a dynamic tool call. */
-async function parkedOnToolCall() {
+/**
+ * An adapter holding one turn parked on a dynamic tool call.
+ *
+ * `sealEvents` closes the event queue so a continuation that gets PAST the
+ * guards fails by name instead of blocking on a vendor that will never speak.
+ * The vendor-abandonment test needs the queue OPEN, because what it is about
+ * is exactly what the vendor left buffered there.
+ */
+async function parkedOnToolCall({ sealEvents = true }: { sealEvents?: boolean } = {}) {
   const connection = {
     async initialize() {},
     async request(method: string) {
@@ -83,10 +90,7 @@ async function parkedOnToolCall() {
     call: { callId: 'call-1', tool: 'lookup', arguments: {}, threadId: 'thread-a', turnId: 'turn-a' },
     response,
   }
-  // So a continuation that gets PAST the guards fails by name instead of
-  // blocking on a vendor that will never speak: without the history check the
-  // divergent case below resolves the parked call and then waits here forever.
-  turn.events.fail(new Error('reached the event loop'))
+  if (sealEvents) turn.events.fail(new Error('reached the event loop'))
   return { adapter, turn }
 }
 
@@ -136,4 +140,118 @@ test('an unchanged prefix passes the history check and continues to the tool res
   } finally {
     await adapter.dispose()
   }
+})
+
+/**
+ * The vendor's own state moving under a parked call, which is the other half
+ * of the same window and was found by carrying the Antigravity fix across.
+ *
+ * DSH stops consuming the App Server's notifications while its own loop runs
+ * the tool, so a turn the vendor finished around its outstanding call waits in
+ * the queue. Answering into that used to succeed: the buffered agent message
+ * replayed on the continuing step, set `finalOutput`, and the turn yielded an
+ * ordinary `stop`. Probed against this adapter before the guard existed --
+ * `finish { kind: "stop" }`, no error, no diagnostic -- so a whole turn of
+ * reasoning built on a result the model never received was recorded as a
+ * normal answer.
+ *
+ * Whether a conforming Codex App Server can abandon an outstanding JSON-RPC
+ * request this way is a separate question and still unestablished. The guard
+ * does not depend on the answer: it costs one array scan and turns a silent
+ * wrong answer into a discarded turn that realigns through `startTurn`.
+ */
+test('a vendor turn that ended around its parked tool call is refused, not answered into', async () => {
+  const { adapter, turn } = await parkedOnToolCall({ sealEvents: false })
+
+  // Everything the vendor emits after abandoning the call, buffered while DSH
+  // is away executing the tool and replayed on the continuing step.
+  turn.events.push({
+    kind: 'notification',
+    notification: {
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-a',
+        turnId: 'turn-a',
+        item: { type: 'agentMessage', id: 'msg-1', text: 'I never got the lookup result, so here is my guess.' },
+      },
+    },
+  })
+  turn.events.push({
+    kind: 'notification',
+    notification: {
+      method: 'turn/completed',
+      params: { threadId: 'thread-a', turn: { id: 'turn-a', status: 'completed' } },
+    },
+  })
+
+  await assert.rejects(
+    drain(adapter, [OPENED_WITH[0], ASSISTANT_CALL, TOOL_RESULT]),
+    /the vendor turn ended while a dynamic tool call was still parked/,
+  )
+})
+
+/** A retrying error is not a turn end, and must not refuse a good continuation. */
+test('a retrying error buffered under a parked call does not refuse the continuation', async () => {
+  const { adapter, turn } = await parkedOnToolCall({ sealEvents: false })
+  turn.events.push({
+    kind: 'notification',
+    notification: { method: 'error', params: { willRetry: true, error: { message: 'transient' } } },
+  })
+  turn.events.fail(new Error('reached the event loop'))
+
+  // Reaching the event loop is the pass condition: the guard let it through.
+  await assert.rejects(
+    drain(adapter, [OPENED_WITH[0], ASSISTANT_CALL, TOOL_RESULT]),
+    /reached the event loop/,
+  )
+})
+
+/**
+ * The earlier and more precise trigger, taken from the vendor's own vocabulary.
+ *
+ * A `dynamicToolCall` thread item carries `status: "inProgress" | "completed" |
+ * "failed"` in the App Server's generated protocol bindings, and the vendor
+ * completes that item when it is done with the call. Three live probes put the
+ * healthy ordering beyond doubt: the completion arrived within 1 ms AFTER DSH
+ * answered, never before it. Buffered ahead of the answer it therefore means
+ * the vendor stopped waiting -- and unlike a buffered `turn/completed`, it says
+ * so even when the turn is still running and about to issue more calls, which
+ * is the half the turn-end scan alone cannot see.
+ */
+test('a tool call the vendor completed by itself is refused, even with the turn still running', async () => {
+  const { adapter, turn } = await parkedOnToolCall({ sealEvents: false })
+  turn.events.push({
+    kind: 'notification',
+    notification: {
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-a',
+        turnId: 'turn-a',
+        item: { type: 'dynamicToolCall', id: 'item-1', tool: 'lookup', status: 'failed', success: false },
+      },
+    },
+  })
+
+  await assert.rejects(
+    drain(adapter, [OPENED_WITH[0], ASSISTANT_CALL, TOOL_RESULT]),
+    /the vendor completed the tool call itself \(status "failed"\) while a dynamic tool call was still parked/,
+  )
+})
+
+/** An unrelated item completing under a parked call is not the vendor giving up. */
+test('an unrelated buffered item does not refuse the continuation', async () => {
+  const { adapter, turn } = await parkedOnToolCall({ sealEvents: false })
+  turn.events.push({
+    kind: 'notification',
+    notification: {
+      method: 'item/completed',
+      params: { threadId: 'thread-a', turnId: 'turn-a', item: { type: 'reasoning', id: 'r-1' } },
+    },
+  })
+  turn.events.fail(new Error('reached the event loop'))
+
+  await assert.rejects(
+    drain(adapter, [OPENED_WITH[0], ASSISTANT_CALL, TOOL_RESULT]),
+    /reached the event loop/,
+  )
 })
