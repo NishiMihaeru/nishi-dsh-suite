@@ -792,3 +792,136 @@ test('an ordinary turn still gets the tool-typed schema', async () => {
     assert.ok(schema.properties.tool_calls)
   } finally { await adapter.dispose() }
 })
+
+test('an optional usage field omitted on one turn preserves its baseline for subsequent turns', async () => {
+  const { ctx } = harness([
+    messageReply('turn 1', {
+      input_tokens: 1000, output_tokens: 50, cache_read_tokens: 500, thinking_tokens: 100,
+    }),
+    messageReply('turn 2', {
+      input_tokens: 1200, output_tokens: 80,
+    }),
+    messageReply('turn 3', {
+      input_tokens: 1500, output_tokens: 100, cache_read_tokens: 600, thinking_tokens: 150,
+    }),
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    // The same message objects every step: a fresh `userText('two')` would
+    // carry a new id, diverge from the delivered prefix, and rebuild -- which
+    // resets the baseline and makes this test measure nothing.
+    const m1 = userText('one')
+    const m2 = userText('two')
+    const m3 = userText('three')
+    const step1 = await collect(adapter.stream(request({ messages: [m1] })))
+    const step2 = await collect(adapter.stream(request({ messages: [m1, m2] })))
+    const step3 = await collect(adapter.stream(request({ messages: [m1, m2, m3] })))
+
+    const usage1 = step1.find(chunk => chunk.type === 'usage')?.usage
+    const usage2 = step2.find(chunk => chunk.type === 'usage')?.usage
+    const usage3 = step3.find(chunk => chunk.type === 'usage')?.usage
+
+    assert.deepEqual(usage1, { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 500, reasoningTokens: 100 })
+    assert.deepEqual(usage2, { inputTokens: 200, outputTokens: 30 })
+    assert.deepEqual(usage3, { inputTokens: 300, outputTokens: 20, cacheReadTokens: 100, reasoningTokens: 50 })
+  } finally { await adapter.dispose() }
+})
+
+test('tool-call ids minted across adapter restarts never collide', async () => {
+  const { ctx: ctx1 } = harness([
+    toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
+  ])
+  const adapter1 = new AntigravityCliAdapter(ctx1, primaryConfig)
+  const { ctx: ctx2 } = harness([
+    toolCallReply('call_1', 'read_file', { path: 'b.ts' }),
+  ])
+  const adapter2 = new AntigravityCliAdapter(ctx2, primaryConfig)
+  try {
+    const step1 = await collect(adapter1.stream(request({ messages: [userText('read a')] })))
+    const step2 = await collect(adapter2.stream(request({ messages: [userText('read b')] })))
+
+    const id1 = toolCallIds(step1)[0]
+    const id2 = toolCallIds(step2)[0]
+    assert.notEqual(id1, id2, 'adapter restart must not mint the same DSH tool-call id')
+  } finally {
+    await adapter1.dispose()
+    await adapter2.dispose()
+  }
+})
+
+test('response fall-through skips a prose prefix before the structured JSON payload', async () => {
+  const { ctx, spawns } = multiHarness([[
+    messageReply('first'),
+    {
+      conversation_id: 'c1',
+      status: 'SUCCESS',
+      response: `The capital of France is Paris.\n${JSON.stringify({
+        kind: 'message',
+        text: 'Paris is the capital of France.',
+        turn: TURN_PLACEHOLDER,
+        tool_calls: [],
+      })}`,
+      structured_output: { kind: 'message', text: 'first', turn: 'stale-prefix-01', tool_calls: [] },
+    },
+  ]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('one')
+    await collect(adapter.stream(request({ messages: [first] })))
+    const chunks = await collect(adapter.stream(request({ messages: [first, userText('two')] })))
+
+    const texts = chunks.filter(chunk => chunk.type === 'block-end' && chunk.block?.type === 'text')
+      .map(chunk => String(chunk.block.text))
+    assert.deepEqual(texts, ['Paris is the capital of France.'])
+    assert.equal(spawns.length, 1, 'a readable turn keeps the conversation')
+  } finally { await adapter.dispose() }
+})
+
+test('a turn rejected for unknown DSH tool abandons the conversation so the next request reopens a new child', async () => {
+  const { ctx, children, spawns } = multiHarness([
+    [toolCallReply('call_1', 'unregistered_tool', {})],
+    [messageReply('rebuilt')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('call unregistered')
+    await assert.rejects(collect(adapter.stream(request({ messages: [first] }))), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, 'ANTIGRAVITY_PROTOCOL')
+      assert.match(error.message, /unknown DSH tool "unregistered_tool"/)
+      return true
+    })
+
+    await collect(adapter.stream(request({ messages: [first, userText('retry')] })))
+    assert.equal(spawns.length, 2, 'an unknown tool rejection must abandon the conversation')
+    assert.equal(children[1].envelopes()[0].kind, 'full')
+  } finally { await adapter.dispose() }
+})
+
+test('a non-SUCCESS turn result abandons the conversation so the next request reopens a new child', async () => {
+  const failure = {
+    conversation_id: 'c1',
+    status: 'ERROR',
+    error: 'vendor model error',
+  }
+  const { ctx, children, spawns } = multiHarness([
+    [messageReply('first'), failure],
+    [messageReply('rebuilt')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('one')
+    await collect(adapter.stream(request({ messages: [first] })))
+    const continued = [first, userText('two')]
+
+    await assert.rejects(collect(adapter.stream(request({ messages: continued }))), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, 'ANTIGRAVITY_CLI')
+      return true
+    })
+
+    await collect(adapter.stream(request({ messages: [...continued, userText('three')] })))
+    assert.equal(spawns.length, 2, 'a failed turn must abandon the conversation')
+    assert.equal(children[1].envelopes()[0].kind, 'full')
+  } finally { await adapter.dispose() }
+})

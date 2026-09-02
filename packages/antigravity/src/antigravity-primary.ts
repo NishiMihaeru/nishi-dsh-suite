@@ -155,13 +155,18 @@ const WINDOWS_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'
  * preventive layers are the `finish`-only tool allowlist in
  * {@link bridgeAgentMarkdown} and the vendor's own `--sandbox` terminal
  * restrictions passed to every turn invocation; this set exists in case
- * either of those is bypassed or the vendor CLI changes behaviour.
+ * either of those is bypassed or the vendor CLI changes behaviour. Because
+ * this list is a finite denylist against an open vendor registry, a newly
+ * named native tool passes until it is added here.
  */
 const BLOCKED_NATIVE_TOOLS = new Set([
   'call_mcp_tool',
+  'find_by_name',
   'grep_search',
   'invoke_subagent',
+  'list_dir',
   'read_url_content',
+  'replace_file_content',
   'run_command',
   'search_web',
   'view_file',
@@ -412,13 +417,15 @@ function parseAgyEnvelope(stdout: string): AgyTurnResult | undefined {
  * Translates a DSH tool-call id back to the id the vendor itself minted for
  * that call.
  *
- * DSH ids are made unique per session (see {@link AntigravityCliAdapter.mintCallId});
+ * DSH ids are made unique across adapter instances by embedding an instance-scoped
+ * random token alongside the sequence counter (see {@link AntigravityCliAdapter.mintCallId});
  * the vendor's own are not, because the model authors them freely and reuses
  * `call_1` readily. The model must still recognise its own call in a result
  * it is handed back, so the wire keeps the vendor's id while DSH's durable
  * history keeps the unique one. An id with no recorded mapping -- history
  * from before this process, or from a rebuilt conversation -- passes through
- * unchanged, which is safe precisely because the DSH id is already unique.
+ * unchanged, which is safe precisely because the DSH id carries an instance-unique
+ * component that prevents collision across adapter restarts.
  */
 type CallIdView = (dshId: string) => string
 
@@ -623,6 +630,27 @@ function usageSinceLastTurn(reported: TokenUsage, previous: TokenUsage | undefin
   }
 }
 
+/**
+ * Retain the last known cumulative total per field across turns.
+ *
+ * An optional token field (e.g. `cacheReadTokens`, `reasoningTokens`) omitted by
+ * the vendor on one turn must preserve its previous baseline rather than reset
+ * to undefined. Otherwise, a subsequent turn reporting that field again would
+ * subtract against undefined and duplicate its earlier cumulative count.
+ * Fields never reported remain undefined so no spurious baseline is invented.
+ */
+function recordUsageBaseline(reported: TokenUsage, previous: TokenUsage | undefined): TokenUsage {
+  if (previous === undefined) return reported
+  const cacheRead = reported.cacheReadTokens ?? previous.cacheReadTokens
+  const reasoning = reported.reasoningTokens ?? previous.reasoningTokens
+  return {
+    inputTokens: reported.inputTokens,
+    outputTokens: reported.outputTokens,
+    ...(cacheRead === undefined ? {} : { cacheReadTokens: cacheRead }),
+    ...(reasoning === undefined ? {} : { reasoningTokens: reasoning }),
+  }
+}
+
 function isEffortUnsupported(result: AgyTurnResult): boolean {
   return typeof result.error === 'string' && isEffortUnsupportedText(result.error)
 }
@@ -739,7 +767,7 @@ interface AgySessionState {
   /** DSH tool-call id to the vendor's own id for the same call. */
   readonly vendorCallIds: Map<string, string>
   /**
-   * The last usage this conversation reported, as the vendor reported it.
+   * The last known cumulative usage this conversation reported per field.
    *
    * `agy` counts a conversation, not a turn: across four measured turns in
    * one child the reported `input_tokens` ran 4205, 8606, 13203, 18001 for
@@ -747,7 +775,8 @@ interface AgySessionState {
    * happened to be the step's own, and DSH could add the reports up. It no
    * longer is, so the adapter subtracts and reports the difference -- an
    * unsubtracted running total would be summed again by the token meter,
-   * inflating a session quadratically and tripping compaction early.
+   * inflating a session quadratically and tripping compaction early. Baselines
+   * are preserved across turns that omit optional fields (see {@link recordUsageBaseline}).
    */
   lastUsage: TokenUsage | undefined
   /** Idle reaper, refreshed on every turn. */
@@ -793,9 +822,15 @@ export class AntigravityCliAdapter extends LlmAdapter {
   /** Materialized structured-output schema files, keyed by tool-catalog digest. */
   private readonly schemaFiles = new Map<string, Promise<string>>()
   /**
+   * Per-adapter random token ensuring tool-call ids minted across process
+   * restarts never collide in DSH's durable history.
+   */
+  private readonly callInstanceId = randomUUID().slice(0, 8)
+  /**
    * Monotonic across the adapter, not per session: a DSH tool-call id reaches
    * durable history and outlives the conversation that minted it, so
-   * uniqueness has to hold wherever it is later read back.
+   * uniqueness has to hold wherever it is later read back. Combined with
+   * {@link callInstanceId} to survive adapter restarts.
    */
   private callSeq = 0
   private disposed = false
@@ -905,12 +940,14 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const { outcome: { result, events }, session, turn } = await this.runTurn(options)
     const blocked = nativeToolNames(events).filter(name => BLOCKED_NATIVE_TOOLS.has(name))
     if (blocked.length > 0) {
+      await this.abandonSession(options)
       throw new LlmError(
         `Antigravity bridge invoked blocked native tool(s): ${blocked.join(', ')}`,
         'ANTIGRAVITY_NATIVE_TOOL',
       )
     }
     if (!isSuccess(result)) {
+      await this.abandonSession(options)
       if (options.reasoningEffort !== undefined && isEffortUnsupported(result)) {
         throw new LlmError(
           `Antigravity model ${JSON.stringify(options.model)} does not support reasoning effort ${JSON.stringify(String(options.reasoningEffort))}`,
@@ -920,23 +957,11 @@ export class AntigravityCliAdapter extends LlmAdapter {
       throw resultFailure(result)
     }
 
-    // A reply this adapter could not read leaves the vendor holding a turn DSH
-    // has rejected, and a delta on top of it would ask the model to continue
-    // from an exchange only one side believes in. So the conversation is
-    // abandoned here for the same reason `runTurn` abandons it on a vendor
-    // failure: the next request reopens from DSH's history, which is the
-    // authoritative copy. A stale stamp is the case this matters most for --
-    // continuing would re-read the same decision and re-run the same tool.
-    // The key is asked for rather than derived from `sessionId`, because an
-    // auxiliary call carries a session id and does NOT own that session's
-    // conversation: tearing the real one down over a failed compaction fold
-    // would cost the whole prefix the live child exists to keep.
-    let output
+    let output: ReturnType<typeof structuredResult>
     try {
       output = structuredResult(result, turn)
     } catch (error: unknown) {
-      const key = this.sessionKey(options)
-      if (key !== undefined) await this.closeSession(key)
+      await this.abandonSession(options)
       throw error
     }
     let nextIndex = 0
@@ -950,6 +975,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
 
     for (const call of output.tool_calls) {
       if (!requestedTools.has(call.name)) {
+        await this.abandonSession(options)
         throw new LlmError(
           `Antigravity requested unknown DSH tool ${JSON.stringify(call.name)}`,
           'ANTIGRAVITY_PROTOCOL',
@@ -975,7 +1001,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       const usage = session === undefined
         ? reportedUsage
         : usageSinceLastTurn(reportedUsage, session.lastUsage)
-      if (session !== undefined) session.lastUsage = reportedUsage
+      if (session !== undefined) session.lastUsage = recordUsageBaseline(reportedUsage, session.lastUsage)
       yield { type: 'usage', usage }
     }
     yield {
@@ -1074,7 +1100,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const reportedUsage = usageFrom(result.usage)
     if (reportedUsage) {
       yield { type: 'usage', usage: usageSinceLastTurn(reportedUsage, session.lastUsage) }
-      session.lastUsage = reportedUsage
+      session.lastUsage = recordUsageBaseline(reportedUsage, session.lastUsage)
     }
     yield { type: 'finish', reason: { kind: 'stop' } }
   }
@@ -1396,13 +1422,19 @@ export class AntigravityCliAdapter extends LlmAdapter {
    * The vendor's id is model-authored and routinely repeated -- `call_1` on
    * every step is normal -- which leaves a conversation full of results the
    * model cannot match to their calls, and a model that cannot tell an
-   * answered call from an unanswered one calls again. The vendor's own id is
-   * kept as a readable suffix and, for the wire, in the session's mapping.
+   * answered call from an unanswered one calls again. An instance-unique random
+   * slice prevents collisions across adapter restarts in DSH's durable history.
+   * The vendor's own id is kept as a readable suffix and, for the wire, in
+   * the session's mapping.
    */
   private mintCallId(vendorId: string): ReturnType<typeof ToolCallId> {
     this.callSeq += 1
     const suffix = vendorId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32)
-    return ToolCallId(suffix.length > 0 ? `agy-${this.callSeq}-${suffix}` : `agy-${this.callSeq}`)
+    return ToolCallId(
+      suffix.length > 0
+        ? `agy-${this.callInstanceId}-${this.callSeq}-${suffix}`
+        : `agy-${this.callInstanceId}-${this.callSeq}`,
+    )
   }
 
   /**
@@ -1919,6 +1951,32 @@ export class AntigravityCliAdapter extends LlmAdapter {
     state.lifetime.abort()
     this.turnChildren.delete(state.process)
     await state.process.close()
+  }
+
+  /**
+   * Abandon this session's live vendor conversation, before throwing the error
+   * that made this turn unusable.
+   *
+   * A turn this adapter rejects (blocked native tool, non-SUCCESS turn result,
+   * unparseable or stale decision, or unknown DSH tool) leaves the vendor
+   * holding a turn DSH rejected, while `sentDigests` has already recorded it.
+   * A delta on top of it would ask the model to continue from an exchange
+   * only one side believes in. Abandoning the conversation forces the next
+   * request to reopen from DSH's authoritative history.
+   *
+   * It abandons and returns rather than throwing for the caller: a helper that
+   * always throws is invisible to control-flow analysis, so every caller then
+   * needs a definite-assignment assertion or an unreachable branch, and the
+   * compiler stops proving what the failure paths actually do.
+   *
+   * The key is asked for via `sessionKey(options)` because an auxiliary call
+   * carries a session id and does not own that session's conversation: tearing
+   * the real one down over a failed compaction fold would cost the whole prefix
+   * the live child exists to keep.
+   */
+  private async abandonSession(options: GenerateOptions): Promise<void> {
+    const key = this.sessionKey(options)
+    if (key !== undefined) await this.closeSession(key)
   }
 }
 

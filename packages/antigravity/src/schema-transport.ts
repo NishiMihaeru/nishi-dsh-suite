@@ -240,6 +240,25 @@ export interface BridgeOutput {
 function parseConcatenatedJsonValues(text: string): unknown[] {
   const values: unknown[] = []
   let index = 0
+  while (index < text.length && /\s/.test(text[index])) index += 1
+  if (index >= text.length) return values
+
+  if (text[index] !== '{' && text[index] !== '[') {
+    // When the text does not begin with a JSON value, the vendor emitted prose
+    // before its structured payload. Skipping forward to the first '{' is safe
+    // here specifically because every decision carries a per-turn stamp that
+    // the caller verifies, so a payload picked out of prose is still rejected
+    // unless it was authored for this turn.
+    const firstBrace = text.indexOf('{', index)
+    if (firstBrace === -1) {
+      throw new LlmError(
+        `Antigravity structured response contains non-JSON content at offset ${index}`,
+        'ANTIGRAVITY_PROTOCOL',
+      )
+    }
+    index = firstBrace
+  }
+
   while (index < text.length) {
     while (index < text.length && /\s/.test(text[index])) index += 1
     if (index >= text.length) break

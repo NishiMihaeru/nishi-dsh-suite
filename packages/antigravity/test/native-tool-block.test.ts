@@ -156,3 +156,22 @@ test('a turn with no tool activity at all does not raise ANTIGRAVITY_NATIVE_TOOL
 
   assert.ok(chunks.some((chunk: any) => chunk.type === 'finish' && chunk.reason?.kind === 'stop'))
 })
+
+test('a turn invoking newly denylisted native tools (replace_file_content, find_by_name, list_dir) raises ANTIGRAVITY_NATIVE_TOOL', async () => {
+  for (const toolName of ['replace_file_content', 'find_by_name', 'list_dir']) {
+    const lines = [
+      JSON.stringify({ step_update: { step_type: 'tool', tool_name: toolName } }),
+      successResultLine(),
+    ]
+    const ctx = turnCtx({ lines })
+    const adapter = new AntigravityCliAdapter(ctx, config)
+    const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
+
+    await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, 'ANTIGRAVITY_NATIVE_TOOL')
+      assert.match(error.message, new RegExp(toolName))
+      return true
+    })
+  }
+})
