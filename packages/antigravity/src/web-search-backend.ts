@@ -1,8 +1,16 @@
-import { createInterface } from 'node:readline'
 import type { Context } from '@deepseek-ai/cordis'
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-subprocess'
-import { ephemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
-import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
+import { ephemeralAgentWorkspace, VendorFailure } from 'nishi-dsh-core/runtime'
+import { AgyTurnProcess } from './agy-session.js'
+import {
+  nativeToolNames,
+  record,
+  resolveVendorInvocation,
+  SEARCH_NATIVE_ALLOWLIST,
+  unexpectedNativeTools,
+  type VendorInvocation,
+} from './agy-vendor.js'
 import { antigravityVendorFailure } from './vendor-stderr.js'
 
 const AGENT_NAME = 'dsh-web-search'
@@ -66,13 +74,6 @@ export interface AntigravitySearchBackendConfig {
   readonly stderrMaxBytes: number
 }
 
-interface AgyResult {
-  readonly status?: unknown
-  readonly response?: unknown
-  readonly error?: unknown
-  readonly structured_output?: unknown
-}
-
 function bounded(value: unknown): string {
   const text = String(value ?? '')
   return text.length <= 2_000 ? text : `${text.slice(0, 2_000)}…`
@@ -97,7 +98,7 @@ function effortArgs(value: string | undefined): string[] {
   return value === 'low' || value === 'medium' || value === 'high' ? ['--effort', value] : []
 }
 
-function structuredResult(result: AgyResult): unknown {
+function structuredResult(result: { readonly structured_output?: unknown; readonly response?: unknown }): unknown {
   const structured = record(result.structured_output)
   if (structured) return structured
   if (typeof result.response !== 'string' || result.response.trim().length === 0) {
@@ -112,6 +113,44 @@ function structuredResult(result: AgyResult): unknown {
       { cause: error },
     )
   }
+}
+
+function searchFailure(
+  error: unknown,
+  parentSignal: AbortSignal,
+  timeoutSignal: AbortSignal,
+  timeoutMs: number,
+): AntigravityWebSearchBackendError {
+  if (error instanceof AntigravityWebSearchBackendError) return error
+  if (parentSignal.aborted) {
+    return new AntigravityWebSearchBackendError('WEB_SEARCH_ABORTED', 'Antigravity web_search was aborted')
+  }
+  if (timeoutSignal.aborted) {
+    return new AntigravityWebSearchBackendError(
+      'WEB_SEARCH_PROVIDER_ERROR',
+      `Antigravity web_search timed out after ${timeoutMs}ms`,
+    )
+  }
+  if (error instanceof LlmError) {
+    const cause = error.cause
+    if (cause instanceof VendorFailure) {
+      return new AntigravityWebSearchBackendError(
+        'WEB_SEARCH_PROVIDER_ERROR',
+        `Antigravity web_search exited before a result event. ${cause.message}`,
+        { cause },
+      )
+    }
+    return new AntigravityWebSearchBackendError(
+      error.code === 'ANTIGRAVITY_PROTOCOL' ? 'WEB_SEARCH_PROTOCOL' : 'WEB_SEARCH_PROVIDER_ERROR',
+      error.message
+        .replaceAll('Antigravity CLI', 'Antigravity web_search')
+        .replaceAll('Antigravity subprocess', 'Antigravity web_search subprocess'),
+      { cause: error },
+    )
+  }
+  return error instanceof Error
+    ? new AntigravityWebSearchBackendError('WEB_SEARCH_PROVIDER_ERROR', error.message, { cause: error })
+    : new AntigravityWebSearchBackendError('WEB_SEARCH_PROVIDER_ERROR', String(error))
 }
 
 /** Official agy search_web backend. This class does not register a DSH tool. */
@@ -143,91 +182,19 @@ export class AntigravitySearchBackend {
         '--print-timeout', `${Math.max(1, Math.ceil(this.config.timeoutMs / 1000))}s`,
       ]
       const invocation = await this.invocation(args, signal)
-      const child = this.ctx.subprocess.spawn({
-        argv: [...invocation.argv],
-        cwd: root,
-        stdio: {
-          stdin: 'pipe',
-          stdout: 'pipe',
-          stderr: { maxBytes: this.config.stderrMaxBytes },
-        },
-        graceMs: this.config.disposeGraceMs,
-        signal,
-        env: { ...invocation.env },
-      })
-
+      let child: AgyTurnProcess | undefined
       try {
-        const stdin = child.stdin
-        const stdout = child.stdout
-        if (!stdin || !stdout) {
-          throw new AntigravityWebSearchBackendError('WEB_SEARCH_PROVIDER_ERROR', 'Antigravity web_search subprocess did not expose required stdio pipes')
-        }
-        stdin.on('error', () => {})
-        stdout.on('error', () => {})
-        stdout.setEncoding('utf8')
-        const lines = createInterface({ input: stdout, crlfDelay: Infinity })
-        const events: Record<string, unknown>[] = []
-        const resultPromise = new Promise<AgyResult>((resolve, reject) => {
-          let settled = false
-          const fail = (error: unknown): void => {
-            if (settled) return
-            settled = true
-            reject(error)
-          }
-          const onAbort = (): void => {
-            if (parentSignal.aborted) {
-              fail(new AntigravityWebSearchBackendError('WEB_SEARCH_ABORTED', 'Antigravity web_search was aborted'))
-            } else {
-              fail(new AntigravityWebSearchBackendError('WEB_SEARCH_PROVIDER_ERROR', `Antigravity web_search timed out after ${this.config.timeoutMs}ms`))
-            }
-          }
-          signal.addEventListener('abort', onAbort, { once: true })
-          lines.on('line', (line) => {
-            const trimmed = line.trim()
-            if (!trimmed) return
-            let parsed: unknown
-            try {
-              parsed = JSON.parse(trimmed) as unknown
-            } catch (error) {
-              fail(new AntigravityWebSearchBackendError('WEB_SEARCH_PROTOCOL', `Antigravity emitted non-JSON stdout in stream-json mode: ${bounded(trimmed)}`, { cause: error }))
-              return
-            }
-            const event = record(parsed)
-            if (!event) return
-            events.push(event)
-            if (event.event !== 'result') return
-            const result = (record(event.result) ?? {}) as AgyResult
-            if (!settled) {
-              settled = true
-              signal.removeEventListener('abort', onAbort)
-              resolve(result)
-            }
-          })
-          lines.on('close', () => {
-            if (settled) return
-            void child.done.then((outcome) => {
-              if (settled) return
-              const stderr = child.collected.stderr?.readFrom(0).text ?? ''
-              const failure = antigravityVendorFailure({
-                stage: 'web-search-exit',
-                stderrText: stderr,
-                exitCode: outcome.exitCode,
-                signal: outcome.signal,
-              })
-              fail(new AntigravityWebSearchBackendError(
-                'WEB_SEARCH_PROVIDER_ERROR',
-                `Antigravity web_search exited before a result event. ${failure.message}`,
-                { cause: failure },
-              ))
-            }).catch(fail)
-          })
-        })
-        resultPromise.catch(() => {})
-
-        stdin.write(`${JSON.stringify({ event: 'user', message: { content: promptFor(request.query) } })}\n`)
-        const result = await resultPromise
-        try { stdin.end() } catch {}
-
+        child = await AgyTurnProcess.start(this.ctx, {
+          argv: invocation.argv,
+          env: invocation.env,
+          cwd: root,
+          graceMs: this.config.disposeGraceMs,
+          stderrMaxBytes: this.config.stderrMaxBytes,
+          build: () => undefined,
+          stage: 'web-search-exit',
+        }, signal)
+        const payload = `${JSON.stringify({ event: 'user', message: { content: promptFor(request.query) } })}\n`
+        const { result, events } = await child.turn(payload, signal)
         if (result.status !== 'SUCCESS') {
           // result.error is a structured, vendor-authored application-error field (not
           // process stderr), but it is still arbitrary text supplied by the vendor
@@ -243,18 +210,18 @@ export class AntigravitySearchBackend {
             { cause: failure },
           )
         }
-        const tools = nativeToolNames(events)
-        if (!tools.includes('search_web')) {
+        if (!nativeToolNames(events).includes('search_web')) {
           throw new AntigravityWebSearchBackendError('WEB_SEARCH_PROTOCOL', `Antigravity model ${JSON.stringify(route.model)} completed the hidden search turn without search_web`)
         }
-        const unexpected = tools.filter(name => name !== 'search_web' && name !== 'finish')
+        const unexpected = unexpectedNativeTools(events, SEARCH_NATIVE_ALLOWLIST)
         if (unexpected.length > 0) {
           throw new AntigravityWebSearchBackendError('WEB_SEARCH_PROTOCOL', `Antigravity hidden search turn invoked unexpected native tool(s): ${unexpected.join(', ')}`)
         }
         return structuredResult(result)
+      } catch (error: unknown) {
+        throw searchFailure(error, parentSignal, timeoutSignal, this.config.timeoutMs)
       } finally {
-        child.terminate()
-        await child.waitForExit(AbortSignal.timeout(this.config.disposeGraceMs)).catch(() => false)
+        if (child !== undefined) await child.close()
       }
     } finally {
       await workspace.dispose()

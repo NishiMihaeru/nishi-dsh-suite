@@ -1,49 +1,29 @@
 /**
- * Compatibility bridge for the Codex App Server primary provider.
+ * Project a Codex primary request into the subset App Server history can import.
  *
- * The App Server adapter can import foreign assistant text and tool calls, but
- * its Responses history format is stricter than DSH's durable provider-neutral
- * history: foreign reasoning is not importable, Responses limits function-call
- * ids to 64 characters, and user/system input carries only text and images
- * while producer-supplied context may quote any block a plugin emitted. DSH
- * keeps the original messages unchanged; this bridge projects only the
- * transient request handed to Codex.
- *
- * Runtime selection is intentionally not handled here. RC2 uses the external
- * Codex CLI boundary configured by the provider itself.
+ * The adapter can import foreign assistant text and tool calls, but Responses
+ * history is stricter than DSH's durable provider-neutral log: foreign
+ * reasoning is not importable, function-call ids are capped at 64 characters,
+ * and user/system input carries only text and images while producer-supplied
+ * context may quote any block a plugin emitted. DSH keeps the original
+ * messages unchanged; this rewrite applies only to the transient request.
  */
 
 import { createHash } from 'node:crypto'
-import type { Context } from '@deepseek-ai/cordis'
 import {
   deepFreeze,
   freezeMessage,
   type GenerateOptions,
-  type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { projectedContentText } from './codex-plugin-dsh/content-projection.js'
-import {
-  CODEX_APP_SERVER_PROVIDER,
-  CodexAppServerAdapter,
-} from './codex-plugin-dsh/index.js'
 
-export { CODEX_APP_SERVER_PROVIDER }
+/**
+ * Same route id as `CODEX_APP_SERVER_PROVIDER`. This module must not import
+ * the adapter: `stream()` calls the projection, and importing the adapter
+ * here would cycle.
+ */
+const CODEX_APP_SERVER_PROVIDER = 'codex-app-server'
 const CODEX_CALL_ID_MAX_LENGTH = 64
-const BRIDGE_STATE = Symbol.for('dsh-plugin.codex-primary.history-bridge.v2')
-
-type AdapterStream = (options: GenerateOptions) => AsyncIterable<StreamChunk>
-
-interface BridgeState {
-  originalStream: AdapterStream
-  patchedStream: AdapterStream
-  owners: number
-}
-
-interface CodexAdapterPrototype {
-  stream: AdapterStream
-  [key: symbol]: unknown
-  [key: string]: unknown
-}
 
 /**
  * Responses rejects call ids above 64 characters. Keep short provider ids
@@ -144,61 +124,4 @@ export function projectCodexPrimaryHistory(options: GenerateOptions): GenerateOp
 
   if (!changed) return options
   return deepFreeze({ ...options, messages })
-}
-
-function releaseBridge(prototype: CodexAdapterPrototype, state: BridgeState): void {
-  state.owners = Math.max(0, state.owners - 1)
-  if (state.owners !== 0) return
-  if (prototype.stream === state.patchedStream) prototype.stream = state.originalStream
-  if (prototype[BRIDGE_STATE] === state) delete prototype[BRIDGE_STATE]
-}
-
-/** Patch the exact mounted Codex adapter prototype with history projection only. */
-export async function installCodexPrimaryHistoryBridge(
-  ctx: Context,
-  customPrototype?: CodexAdapterPrototype,
-): Promise<boolean> {
-  const prototype: CodexAdapterPrototype | undefined =
-    customPrototype ?? (CodexAppServerAdapter?.prototype as unknown as CodexAdapterPrototype | undefined)
-  if (!prototype || typeof prototype.stream !== 'function') {
-    throw new Error(
-      'codex: installed codex-plugin-dsh does not expose the expected CodexAppServerAdapter.stream API',
-    )
-  }
-
-  const existing = prototype[BRIDGE_STATE]
-  let state: BridgeState
-  if (
-    existing !== null
-    && typeof existing === 'object'
-    && typeof (existing as BridgeState).originalStream === 'function'
-    && typeof (existing as BridgeState).patchedStream === 'function'
-    && typeof (existing as BridgeState).owners === 'number'
-  ) {
-    state = existing as BridgeState
-  } else {
-    const originalStream = prototype.stream
-    const patchedStream: AdapterStream = function patchedCodexPrimaryStream(
-      this: unknown,
-      options: GenerateOptions,
-    ): AsyncIterable<StreamChunk> {
-      return originalStream.call(this, projectCodexPrimaryHistory(options))
-    }
-
-    state = { originalStream, patchedStream, owners: 0 }
-    prototype.stream = patchedStream
-    Object.defineProperty(prototype, BRIDGE_STATE, {
-      value: state,
-      configurable: true,
-      enumerable: false,
-      writable: false,
-    })
-  }
-
-  ctx.effect(() => {
-    state.owners += 1
-    return () => releaseBridge(prototype, state)
-  }, 'codex: project foreign history before Codex primary import')
-
-  return true
 }

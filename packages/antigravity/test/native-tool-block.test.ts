@@ -3,19 +3,17 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
+import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.ts'
 import { stampedLine } from './turn-stamp.ts'
 import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
- * Regression net for `BLOCKED_NATIVE_TOOLS` (antigravity-primary.ts:58),
- * checked in `stream()` right after `runTurn()` resolves
- * (antigravity-primary.ts:499). This check is a backstop, not prevention: it
- * inspects the turn's already-collected event stream for a blocked native
- * tool invocation after the vendor CLI has already run it. It sits behind
- * two preventive layers -- the `finish`-only tool allowlist declared in the
- * bridge agent markdown, and the vendor's own `--sandbox` terminal
- * restrictions passed to every turn invocation -- and exists in case either
- * of those is bypassed or the vendor CLI changes behaviour.
+ * Regression net for the primary native-tool allowlist (`finish` only).
+ * Checked in `stream()` after `runTurn()` resolves. This is a backstop, not
+ * prevention: it inspects an already-collected event stream after the vendor
+ * CLI has already run the tool. It sits behind the `finish`-only agent
+ * markdown and `--sandbox`. A name that is not `finish` fails the step,
+ * including one the vendor has not used before.
  */
 
 const config = {
@@ -99,7 +97,7 @@ test('a turn whose event stream reports a blocked native tool raises ANTIGRAVITY
     successResultLine(),
   ]
   const ctx = turnCtx({ lines })
-  const adapter = new AntigravityCliAdapter(ctx, config)
+  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
@@ -117,7 +115,7 @@ test('a turn whose event stream reports multiple blocked native tools names all 
     successResultLine(),
   ]
   const ctx = turnCtx({ lines })
-  const adapter = new AntigravityCliAdapter(ctx, config)
+  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
@@ -135,7 +133,7 @@ test('a turn using only allowed tools does not raise ANTIGRAVITY_NATIVE_TOOL', a
     successResultLine(),
   ]
   const ctx = turnCtx({ lines })
-  const adapter = new AntigravityCliAdapter(ctx, config)
+  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   const chunks = await drain(adapter.stream(options))
@@ -148,7 +146,7 @@ test('a turn using only allowed tools does not raise ANTIGRAVITY_NATIVE_TOOL', a
 
 test('a turn with no tool activity at all does not raise ANTIGRAVITY_NATIVE_TOOL', async () => {
   const ctx = turnCtx({ lines: [successResultLine()] })
-  const adapter = new AntigravityCliAdapter(ctx, config)
+  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   const chunks = await drain(adapter.stream(options))
@@ -156,21 +154,19 @@ test('a turn with no tool activity at all does not raise ANTIGRAVITY_NATIVE_TOOL
   assert.ok(chunks.some((chunk: any) => chunk.type === 'finish' && chunk.reason?.kind === 'stop'))
 })
 
-test('a turn invoking newly denylisted native tools (replace_file_content, find_by_name, list_dir) raises ANTIGRAVITY_NATIVE_TOOL', async () => {
-  for (const toolName of ['replace_file_content', 'find_by_name', 'list_dir']) {
-    const lines = [
-      JSON.stringify({ step_update: { step_type: 'tool', tool_name: toolName } }),
-      successResultLine(),
-    ]
-    const ctx = turnCtx({ lines })
-    const adapter = new AntigravityCliAdapter(ctx, config)
-    const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
+test('a native tool the denylist never named still fails the turn', async () => {
+  const lines = [
+    JSON.stringify({ step_update: { step_type: 'tool', tool_name: 'brand_new_vendor_tool' } }),
+    successResultLine(),
+  ]
+  const ctx = turnCtx({ lines })
+  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
-    await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
-      assert.ok(error instanceof LlmError)
-      assert.equal(error.code, 'ANTIGRAVITY_NATIVE_TOOL')
-      assert.match(error.message, new RegExp(toolName))
-      return true
-    })
-  }
+  await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_NATIVE_TOOL')
+    assert.match(error.message, /brand_new_vendor_tool/)
+    return true
+  })
 })

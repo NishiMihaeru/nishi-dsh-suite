@@ -186,6 +186,13 @@
     # plane, which the official web-app bundle does. It is a service singleton,
     # so the Suite must not mount a second copy from `cordis.patch.yml`. Without
     # it this row fails loud at mount time rather than silently ignoring the flag.
+    # Children keep this same Orchestrator catalog, including `subagent`.
+    # `maxDepth: 1` is what stops them delegating again: the parent (depth 0)
+    # may spawn, a child (depth 1) is refused. Default is 3, which is how a
+    # live Codex session grew a 9-child tree and burned a 5h pool.
+    # `toolFilter.deny: [subagent]` cannot do this job — those names are
+    # scoped to the preset, and restrict() fails spawn on unknown *global*
+    # tools rather than hiding the child's own mount.
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
@@ -193,6 +200,7 @@
         toolName: subagent
         modelSelectionSettings: true
         backgroundMode: continuable
+        maxDepth: 1
 
     # Fork deliberately omits model selection: a forked child is seeded with the
     # parent's completed-turn prefix, and keeping provider/model equal to the
@@ -203,6 +211,7 @@
         provider: fork
         toolName: subagent_fork
         backgroundMode: continuable
+        maxDepth: 1
 
     # Vendor delegation tools were removed in 0.1.0-rc.3. `subagent_codex` and
     # `subagent_antigravity` spawned a vendor CLI agent that brought its own

@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
+import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.ts'
 import { stamped, TURN_PLACEHOLDER } from './turn-stamp.ts'
 import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
@@ -224,7 +225,7 @@ test('a second step on one session continues the live child instead of spawning 
     toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
     messageReply('done'),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a.ts')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -247,7 +248,7 @@ test('every envelope carries a turn stamp, and no two turns of one conversation 
     toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
     messageReply('done'),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a.ts')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -282,10 +283,9 @@ test('a reply stamped for an earlier turn is refused instead of executed again',
     structured_output: { kind: 'tool_calls', text: '', turn: 'stale-01', tool_calls: [{ id: 'call_1', name: 'read_file', arguments: { path: 'a.ts' } }] },
   }
   const { ctx, children, spawns } = multiHarness([
-    [toolCallReply('call_1', 'read_file', { path: 'a.ts' }), stale],
-    [messageReply('rebuilt')],
+    [toolCallReply('call_1', 'read_file', { path: 'a.ts' }), stale, messageReply('kept')],
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a.ts')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -299,11 +299,13 @@ test('a reply stamped for an earlier turn is refused instead of executed again',
       return true
     })
 
-    // And the conversation is abandoned rather than continued: the vendor is
-    // holding a turn DSH rejected, so the next request reopens from history.
+    // The child finished SUCCESS and still agrees with the prefix. Failing
+    // the step is enough; abandoning it is what killed the live session.
     await collect(adapter.stream(request({ messages: [...continued, userText('again')] })))
-    assert.equal(spawns.length, 2, 'a refused turn must leave no conversation to continue')
-    assert.equal(children[1].envelopes()[0].kind, 'full')
+    assert.equal(spawns.length, 1, 'a stale decision must not kill a healthy child')
+    const envelopes = children[0].envelopes()
+    assert.equal(envelopes.length, 3)
+    assert.equal(envelopes[2].kind, 'delta')
   } finally { await adapter.dispose() }
 })
 
@@ -322,7 +324,7 @@ test('a fresh decision in the turn response wins over a stale structured_output'
       structured_output: { kind: 'message', text: 'first', turn: 'stale-02', tool_calls: [] },
     },
   ]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('one')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -340,7 +342,7 @@ test('the delta carries only the messages appended since the previous reply, and
     toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
     messageReply('done'),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a.ts')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -363,7 +365,7 @@ test('a tool result reaches the vendor under the id the vendor itself minted', a
     toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
     messageReply('done'),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a.ts')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -385,7 +387,7 @@ test('a vendor that reuses one id across steps still produces distinct DSH tool-
     toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
     toolCallReply('call_1', 'read_file', { path: 'b.ts' }),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read both')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -401,7 +403,7 @@ test('a vendor that reuses one id across steps still produces distinct DSH tool-
 
 test('history that no longer extends what the conversation was told rebuilds instead of sending a delta', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -415,7 +417,7 @@ test('history that no longer extends what the conversation was told rebuilds ins
 
 test('a changed tool catalog rebuilds, because the catalog is prefix a delta cannot revise', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -430,7 +432,7 @@ test('a changed tool catalog rebuilds, because the catalog is prefix a delta can
 
 test('a changed system prompt rebuilds for the same reason', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -442,7 +444,7 @@ test('a changed system prompt rebuilds for the same reason', async () => {
 
 test('an auxiliary call runs in its own child and leaves the session conversation intact', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('summary')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -461,7 +463,7 @@ test('an auxiliary call runs in its own child and leaves the session conversatio
 
 test('a request with no session id keeps the one-shot child it always had', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({ messages: [userText('a')], sessionId: undefined })))
     await collect(adapter.stream(request({ messages: [userText('b')], sessionId: undefined })))
@@ -472,7 +474,7 @@ test('a request with no session id keeps the one-shot child it always had', asyn
 
 test('two DSH sessions get one live child each, not one shared conversation', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({ messages: [userText('a')], sessionId: 'session-a' })))
     await collect(adapter.stream(request({ messages: [userText('b')], sessionId: 'session-b' })))
@@ -483,7 +485,7 @@ test('two DSH sessions get one live child each, not one shared conversation', as
 
 test('resolveModel advertises a context capacity, without which compaction never runs', async () => {
   const { ctx } = harness([messageReply('unused')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const resolved = await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash-low')
     assert.deepEqual(resolved.context, { contextWindow: primaryConfig.contextWindowTokens })
@@ -492,7 +494,7 @@ test('resolveModel advertises a context capacity, without which compaction never
 
 test('dispose closes a live conversation, so a later request cannot reach a dead child', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   const first = userText('first')
   await collect(adapter.stream(request({ messages: [first] })))
   await adapter.dispose()
@@ -514,7 +516,7 @@ test('a live conversation reports each turn\'s own tokens, not the vendor\'s run
       input_tokens: 8606, output_tokens: 72, cache_read_tokens: 4000, thinking_tokens: 25,
     }),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a.ts')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -535,7 +537,7 @@ test('a rebuilt conversation restarts the subtraction, because the new child res
     [messageReply('one', { input_tokens: 5000, output_tokens: 40 })],
     [messageReply('two', { input_tokens: 5200, output_tokens: 45 })],
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({ messages: [userText('a')] })))
     // Divergent history: a different child, whose counter starts at zero.
@@ -562,7 +564,7 @@ function schemaArgv(spawns: readonly string[][]): Record<string, unknown> {
 
 test('the forced output schema pins each tool by name and carries its own argument schema', async () => {
   const { ctx, spawns } = harness([messageReply('ok')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({
       messages: [userText('hi')],
@@ -597,7 +599,7 @@ test('the forced output schema pins each tool by name and carries its own argume
 
 test('a single tool skips the anyOf wrapper it does not need', async () => {
   const { ctx, spawns } = harness([messageReply('ok')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({ messages: [userText('hi')] })))
     const schema = schemaArgv(spawns) as any
@@ -607,7 +609,7 @@ test('a single tool skips the anyOf wrapper it does not need', async () => {
 
 test('a tool schema the vendor subset cannot express falls back alone, not for the whole catalog', async () => {
   const { ctx, spawns } = harness([messageReply('ok')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({
       messages: [userText('hi')],
@@ -634,7 +636,7 @@ test('a tool schema the vendor subset cannot express falls back alone, not for t
 
 test('annotation-only keywords are dropped rather than abandoning the tool', async () => {
   const { ctx, spawns } = harness([messageReply('ok')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({
       messages: [userText('hi')],
@@ -662,7 +664,7 @@ test('annotation-only keywords are dropped rather than abandoning the tool', asy
 
 test('a request with no tools keeps the generic schema, so nothing forces a tool call', async () => {
   const { ctx, spawns } = harness([messageReply('ok')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({ messages: [userText('hi')], tools: [] })))
     const schema = schemaArgv(spawns) as any
@@ -675,7 +677,7 @@ test("a delta never echoes the model's own reply back at it", async () => {
     toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
     messageReply('done'),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a.ts')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))
@@ -691,7 +693,7 @@ test("a delta never echoes the model's own reply back at it", async () => {
 
 test('an assistant message from another route is news, so a delta still carries it', async () => {
   const { ctx, child } = harness([messageReply('one'), messageReply('two')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -710,7 +712,7 @@ test('an assistant message from another route is news, so a delta still carries 
 
 test('a rewritten message keeping its id still rebuilds, because the vendor heard the original', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     const bulky = toolResult('c1', 'x'.repeat(200))
@@ -726,7 +728,7 @@ test('a rewritten message keeping its id still rebuilds, because the vendor hear
 
 test('maxTokens is refused on an ordinary turn but accepted as an auxiliary budget hint', async () => {
   const { ctx } = multiHarness([[messageReply('one')], [messageReply('summary')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await assert.rejects(
       collect(adapter.stream(request({ messages: [userText('a')], maxTokens: 8192 }))),
@@ -745,7 +747,7 @@ test('maxTokens is refused on an ordinary turn but accepted as an auxiliary budg
 
 test('an auxiliary call gets a schema that cannot express a tool call at all', async () => {
   const { ctx, spawns } = harness([messageReply('a summary')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     // Compaction replays the conversation's own tools on purpose, to stay
     // cache-aligned with the last routed request. Offered them alongside an
@@ -770,7 +772,7 @@ test('an auxiliary reply omitting tool_calls entirely is read as a plain message
     // Exactly what the message-only schema produces: no `tool_calls` key.
     structured_output: { kind: 'message', text: '## Primary Request and Intent\n- do the thing' },
   }])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const chunks = await collect(adapter.stream(request({
       messages: [userText('summarize')],
@@ -784,7 +786,7 @@ test('an auxiliary reply omitting tool_calls entirely is read as a plain message
 
 test('an ordinary turn still gets the tool-typed schema', async () => {
   const { ctx, spawns } = harness([messageReply('ok')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await collect(adapter.stream(request({ messages: [userText('hi')] })))
     const schema = schemaArgv(spawns) as any
@@ -805,7 +807,7 @@ test('an optional usage field omitted on one turn preserves its baseline for sub
       input_tokens: 1500, output_tokens: 100, cache_read_tokens: 600, thinking_tokens: 150,
     }),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     // The same message objects every step: a fresh `userText('two')` would
     // carry a new id, diverge from the delivered prefix, and rebuild -- which
@@ -831,11 +833,11 @@ test('tool-call ids minted across adapter restarts never collide', async () => {
   const { ctx: ctx1 } = harness([
     toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
   ])
-  const adapter1 = new AntigravityCliAdapter(ctx1, primaryConfig)
+  const adapter1 = new AntigravityCliAdapter(ctx1, primaryConfig, noopQuotaHarvestCache())
   const { ctx: ctx2 } = harness([
     toolCallReply('call_1', 'read_file', { path: 'b.ts' }),
   ])
-  const adapter2 = new AntigravityCliAdapter(ctx2, primaryConfig)
+  const adapter2 = new AntigravityCliAdapter(ctx2, primaryConfig, noopQuotaHarvestCache())
   try {
     const step1 = await collect(adapter1.stream(request({ messages: [userText('read a')] })))
     const step2 = await collect(adapter2.stream(request({ messages: [userText('read b')] })))
@@ -864,7 +866,7 @@ test('response fall-through skips a prose prefix before the structured JSON payl
       structured_output: { kind: 'message', text: 'first', turn: 'stale-prefix-01', tool_calls: [] },
     },
   ]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('one')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -882,7 +884,7 @@ test('a turn rejected for unknown DSH tool abandons the conversation so the next
     [toolCallReply('call_1', 'unregistered_tool', {})],
     [messageReply('rebuilt')],
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('call unregistered')
     await assert.rejects(collect(adapter.stream(request({ messages: [first] }))), (error: unknown) => {
@@ -908,7 +910,7 @@ test('a non-SUCCESS turn result abandons the conversation so the next request re
     [messageReply('first'), failure],
     [messageReply('rebuilt')],
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('one')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -933,7 +935,7 @@ test('a non-SUCCESS turn result abandons the conversation so the next request re
  */
 test('a source-only rewrite rebuilds, because the vendor was told the old source', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -953,7 +955,7 @@ test('a source-only rewrite rebuilds, because the vendor was told the old source
  */
 test('a second concurrent request for one session is refused without a second child', async () => {
   const { ctx, spawns } = multiHarness([[messageReply('one')], [messageReply('two')]])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     const one = collect(adapter.stream(request({ messages: [first] })))
@@ -974,7 +976,7 @@ test('a second concurrent request for one session is refused without a second ch
 
 test('a session that finished a turn still accepts the next one', async () => {
   const { ctx, spawns } = harness([messageReply('one'), messageReply('two')])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('first')
     await collect(adapter.stream(request({ messages: [first] })))
@@ -1017,7 +1019,7 @@ test('a reply whose later call names an unknown tool yields none of its earlier 
     [multiCallReply([{ id: 'call_1', name: 'read_file' }, { id: 'call_2', name: 'not_a_tool' }])],
     [messageReply('rebuilt')],
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('do two things')
     const { chunks, error } = await collectUntilThrow(adapter.stream(request({ messages: [first] })))
@@ -1043,7 +1045,7 @@ test('a reply reusing one vendor call id twice is refused whole', async () => {
     [multiCallReply([{ id: 'call_1', name: 'read_file' }, { id: 'call_1', name: 'read_file', args: { path: 'b.ts' } }])],
     [messageReply('rebuilt')],
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read both')
     const { chunks, error } = await collectUntilThrow(adapter.stream(request({ messages: [first] })))
@@ -1069,7 +1071,7 @@ test('a vendor id reused across turns is not restored a second time on the wire'
     toolCallReply('call_1', 'read_file', { path: 'b.ts' }),
     messageReply('done'),
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = userText('read a')
     const step1 = await collect(adapter.stream(request({ messages: [first] })))

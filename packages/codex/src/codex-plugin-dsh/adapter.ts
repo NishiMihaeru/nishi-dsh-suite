@@ -51,7 +51,8 @@ import {
   codexOutputSchema,
   type CodexDecision,
 } from './stepped-schema.js'
-import { object, string, thrown } from './validation.js'
+import { projectCodexPrimaryHistory } from '../primary-history.js'
+import { object, optionalObject, string, thrown } from './validation.js'
 
 /** Provider route registered in the existing DSH model catalog. */
 export const CODEX_APP_SERVER_PROVIDER = 'codex-app-server'
@@ -146,6 +147,7 @@ interface ActiveCodexTurn {
   readonly connection: CodexAppServerConnection
   readonly events: ActiveTurnQueue
   readonly signal: AbortSignal
+  readonly step: AbortController
   readonly threadId: string
   readonly turnId: string
   /**
@@ -168,9 +170,19 @@ interface ActiveCodexTurn {
   readonly completedImages: Set<string>
   nextBlockIndex: number
   finalOutput: boolean
+  /**
+   * How many `error` notifications with `willRetry: true` this turn has
+   * already ignored. The App Server uses that flag for a transient fault it
+   * intends to recover from; without a cap the turn sits until
+   * `turnTimeoutMs` (ten minutes) and still bills.
+   */
+  ignoredRetryingErrors: number
   usage?: TokenUsage
   closing?: Promise<void>
 }
+
+/** Ignore this many retrying App Server errors; the next one fails the turn. */
+const MAX_IGNORED_RETRYING_ERRORS = 2
 
 /** Process invocation for one resolved Codex executable. */
 export interface CodexAppServerInvocation {
@@ -263,9 +275,28 @@ export function codexAppServerInvocation(
   ])
 }
 
-function combinedSignal(parent: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const timeout = AbortSignal.timeout(timeoutMs)
-  return parent === undefined ? timeout : AbortSignal.any([parent, timeout])
+function combinedSignal(parent: AbortSignal | undefined, timeoutMs: number): AbortController {
+  // AbortSignal.timeout unrefs its timer, so a wait whose only handle is that
+  // signal never fires in a quiet event loop. The turn timeout is the bound
+  // on waiting for the vendor; it has to keep the wait alive. Closing the
+  // turn aborts this controller so the timer does not outlive the step.
+  const controller = new AbortController()
+  const timer = setTimeout(() => {
+    controller.abort(new Error(`codex-plugin-dsh: operation timed out after ${timeoutMs}ms`))
+  }, timeoutMs)
+  const stop = (): void => { clearTimeout(timer) }
+  controller.signal.addEventListener('abort', stop, { once: true })
+  if (parent !== undefined) {
+    const onParentAbort = (): void => { controller.abort(abortError(parent)) }
+    if (parent.aborted) onParentAbort()
+    else {
+      parent.addEventListener('abort', onParentAbort, { once: true })
+      controller.signal.addEventListener('abort', () => {
+        parent.removeEventListener('abort', onParentAbort)
+      }, { once: true })
+    }
+  }
+  return controller
 }
 
 function abortError(signal: AbortSignal): Error {
@@ -301,12 +332,6 @@ function messageText(value: unknown): string {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return String(value)
   const message = (value as Record<string, unknown>).message
   return typeof message === 'string' ? message : JSON.stringify(value)
-}
-
-function recordValue(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
 }
 
 /**
@@ -622,6 +647,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
     if (options.provider !== CODEX_APP_SERVER_PROVIDER) {
       throw new Error(`codex-plugin-dsh: unexpected provider ${JSON.stringify(options.provider)}`)
     }
+    options = projectCodexPrimaryHistory(options)
     if (options.sessionId === undefined) {
       throw new Error('codex-plugin-dsh: Codex App Server calls require a live DSH session')
     }
@@ -668,8 +694,11 @@ export class CodexAppServerAdapter extends LlmAdapter {
             // belonging to someone else's thread; anything else is ours.
             const errorThreadId = typeof params.threadId === 'string' ? params.threadId : undefined
             if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== turn.threadId) continue
-            if (params.willRetry !== true) throw notificationFailure(params.error)
-            continue
+            if (params.willRetry === true && turn.ignoredRetryingErrors < MAX_IGNORED_RETRYING_ERRORS) {
+              turn.ignoredRetryingErrors += 1
+              continue
+            }
+            throw notificationFailure(params.error)
           }
           if (params.threadId !== turn.threadId) continue
           const notificationTurnId = method === 'turn/completed'
@@ -732,7 +761,10 @@ export class CodexAppServerAdapter extends LlmAdapter {
               turn.blocks.set(itemId, block)
             }
             if (block.ended) throw new Error('codex-plugin-dsh: App Server emitted a delta after item/completed')
-            const delta = typeof params.delta === 'string' ? params.delta : ''
+            if (typeof params.delta !== 'string') {
+              throw new Error('codex-plugin-dsh: App Server emitted a non-string agent message delta')
+            }
+            const delta = params.delta
             block.text += delta
             if (block.phase === 'commentary') {
               // -1 is a sentinel meaning no block index has been assigned yet.
@@ -913,7 +945,8 @@ export class CodexAppServerAdapter extends LlmAdapter {
   ): Promise<ActiveCodexTurn> {
     const isAuxiliary = options.purpose !== undefined
     const registryKey = isAuxiliary ? `${sessionId}#aux-${randomUUID()}` : sessionId
-    const signal = this.#armStep(options)
+    const step = this.#armStep(options)
+    const signal = step.signal
     const imageUrls = new Map<string, Promise<string>>()
     const resolveImageUrl = (attachment: ImageAttachmentRef): Promise<string> => {
       const key = String(attachment.attachmentId)
@@ -1073,6 +1106,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
         connection,
         events,
         signal,
+        step,
         threadId,
         turnId,
         replayState: {
@@ -1093,11 +1127,13 @@ export class CodexAppServerAdapter extends LlmAdapter {
         completedImages: new Set(),
         nextBlockIndex: 0,
         finalOutput: false,
+        ignoredRetryingErrors: 0,
       }
       active.signal.addEventListener('abort', active.onAbort, { once: true })
       this.activeTurns.set(active.registryKey, active)
       return active
     } catch (error) {
+      step.abort()
       events.fail(thrown(error))
       await connection?.close()
       throw error
@@ -1108,7 +1144,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
    * The vendor turn no longer spans DSH steps, so the step's own signal and
    * timeout bound the whole thing.
    */
-  #armStep(options: GenerateOptions): AbortSignal {
+  #armStep(options: GenerateOptions): AbortController {
     return combinedSignal(options.signal, this.config.turnTimeoutMs)
   }
 
@@ -1122,6 +1158,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
   private async finishCloseTurn(active: ActiveCodexTurn): Promise<void> {
     if (this.activeTurns.get(active.registryKey) === active) this.activeTurns.delete(active.registryKey)
     active.signal.removeEventListener('abort', active.onAbort)
+    active.step.abort()
     active.events.fail(new Error('codex-plugin-dsh: App Server turn closed'))
     await active.connection.close()
   }
@@ -1185,13 +1222,16 @@ export class CodexAppServerAdapter extends LlmAdapter {
     signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const result = await connection.request('config/read', { includeLayers: false, cwd }, signal)
-    const current = recordValue(result.config)
+    const current = object(result.config, 'config/read config')
+    // Shape-check the maps we already have before a second vendor round trip.
+    const mcpServers = optionalObject(current.mcp_servers, 'config/read mcp_servers')
+    const apps = optionalObject(current.apps, 'config/read apps')
     const skills = disabledCodexSkills(await connection.request('skills/list', { cwds: [cwd], forceReload: true }, signal))
     const disabledMcpServers = Object.fromEntries(
-      Object.keys(recordValue(current.mcp_servers)).map(name => [name, { enabled: false }]),
+      Object.keys(mcpServers).map(name => [name, { enabled: false }]),
     )
     const disabledApps = Object.fromEntries(
-      Object.keys(recordValue(current.apps))
+      Object.keys(apps)
         .filter(name => name !== '_default')
         .map(name => [name, { enabled: false }]),
     )

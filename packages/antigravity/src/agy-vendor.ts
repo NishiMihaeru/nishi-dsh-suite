@@ -40,6 +40,20 @@ export function nativeToolNames(events: readonly Record<string, unknown>[]): str
   return names
 }
 
+/** Native tools a primary turn may run. Anything else fails the step. */
+export const PRIMARY_NATIVE_ALLOWLIST: ReadonlySet<string> = new Set(['finish'])
+
+/** Native tools a hidden search turn may run. */
+export const SEARCH_NATIVE_ALLOWLIST: ReadonlySet<string> = new Set(['search_web', 'finish'])
+
+/** Names `agy` reported that are not in `allowed`, in emission order. */
+export function unexpectedNativeTools(
+  events: readonly Record<string, unknown>[],
+  allowed: ReadonlySet<string>,
+): string[] {
+  return nativeToolNames(events).filter(name => !allowed.has(name))
+}
+
 /** One resolved child-process invocation: argv plus the environment to run it in. */
 export interface VendorInvocation {
   readonly argv: readonly string[]

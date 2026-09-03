@@ -6,7 +6,7 @@ Codex primary-provider plugin for Nishi DSH Suite.
 
 - canonical provider id: `codex`;
 - primary model route: `codex-app-server`;
-- external Codex App Server adapter and primary-history bridge;
+- external Codex App Server adapter and primary-history projection;
 - Codex-native web-search backend;
 - official rate-limits usage source.
 

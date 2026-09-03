@@ -16,6 +16,7 @@ import {
   ANTIGRAVITY_PRIMARY_PROVIDER,
   createAntigravityPrimaryAdapter,
 } from '../src/antigravity-primary.js'
+import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.js'
 
 function findOnPath(name: string): string | null {
   const pathEnv = process.env.PATH || ''
@@ -131,7 +132,7 @@ const EFFORT = 'low'
 
 test('GEMINI-3.8-FLASH-LOW: 1. Tool Call Schema Compliance (types, enums, required fields)', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
   const sessionId = `test-gemini-schema-${Date.now()}`
 
   const tools = [{
@@ -188,7 +189,7 @@ test('GEMINI-3.8-FLASH-LOW: 1. Tool Call Schema Compliance (types, enums, requir
 
 test('GEMINI-3.8-FLASH-LOW: 2. Agent Loop Multi-Turn (Tool Result -> Answer & Clean Stop)', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
   const sessionId = `test-gemini-loop-${Date.now()}`
 
   const tools = [{
@@ -251,7 +252,7 @@ test('GEMINI-3.8-FLASH-LOW: 2. Agent Loop Multi-Turn (Tool Result -> Answer & Cl
 
 test('GEMINI-3.8-FLASH-LOW: 3. Anti-Looping: Terminate Cleanly on Completion (Zero Repetition)', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
   const sessionId = `test-gemini-antiloop-${Date.now()}`
 
   const tools = [{
@@ -310,7 +311,7 @@ test('GEMINI-3.8-FLASH-LOW: 3. Anti-Looping: Terminate Cleanly on Completion (Ze
 
 test('GEMINI-3.8-FLASH-LOW: 4. Anti-Looping: Error Handling (No Blind Retry Loop)', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
   const sessionId = `test-gemini-errorloop-${Date.now()}`
 
   const tools = [{

@@ -34,6 +34,7 @@ Not canonical: each is a durable read of something outside this tree, kept becau
 |---|---|
 | `verification/agy-cli-contract.md` | what `agy` publishes, what this suite depends on, and the findings each pass produced |
 | `verification/claude-code-cli-contract.md` | the Claude Code CLI surface a primary route would rest on, and the published terms that bound it. Pre-implementation: nothing in it ships |
+| `verification/rc3-review.md` | maintainability review of `feat/core-provider-plugins-rc3` (the review is the file; session forensics and the bugfix queue are addenda). Not evidence, not architecture |
 | `prior-art.md` | how other tools drive vendor CLIs, the three tiers, and which items were taken into `ROADMAP.md` |
 
 A vendor-contract document describes a vendor at a named version. When the installed vendor version changes, treat its classifications as unverified until re-read, the same way a live PASS validates only the checkpoint it ran against.

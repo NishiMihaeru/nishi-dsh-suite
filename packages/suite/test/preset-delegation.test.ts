@@ -44,6 +44,8 @@ test('spawned delegation may select any registered primary route', async () => {
   // Without this flag a child is pinned to the parent's route, so no Suite
   // provider — and no DSH provider either — is reachable as a subagent model.
   assert.equal(subagent.modelSelectionSettings, true)
+  // Parent (depth 0) may spawn; a child (depth 1) must not. Default is 3.
+  assert.equal(subagent.maxDepth, 1)
 })
 
 test('forked delegation stays on the parent route', async () => {
@@ -55,6 +57,7 @@ test('forked delegation stays on the parent route', async () => {
   // A forked child inherits the parent's completed-turn prefix; changing the
   // route would make that prefix ineligible for KV Cache reuse.
   assert.equal(fork.modelSelectionSettings, undefined)
+  assert.equal(fork.maxDepth, 1)
 })
 
 test('the preset contributes no subagent provider of its own', async () => {

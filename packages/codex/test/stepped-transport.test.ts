@@ -1020,3 +1020,29 @@ test('15. a primary request with no tools is unconstrained: prose comes back as 
   assert.equal(finish.reason.kind, 'stop')
   assert.ok(finish.replayState, 'a toolless PRIMARY turn still checkpoints, unlike an auxiliary one')
 })
+
+test('16. a non-string agent-message delta fails the turn instead of becoming empty text', async () => {
+  const { adapter, options } = createFixture({ tools: DECISION_TOOLS })
+  await assert.rejects(
+    collectChunks(adapter, options, active => {
+      active.events.push({
+        method: 'item/started',
+        params: {
+          threadId: 'thread-test',
+          turnId: 'turn-test',
+          item: { id: 'msg-1', type: 'agentMessage', phase: 'commentary' },
+        },
+      })
+      active.events.push({
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'thread-test',
+          turnId: 'turn-test',
+          itemId: 'msg-1',
+          delta: { text: 'not a string' },
+        },
+      })
+    }),
+    /non-string agent message delta/,
+  )
+})

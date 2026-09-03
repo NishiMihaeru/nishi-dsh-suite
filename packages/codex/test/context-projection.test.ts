@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import test from 'node:test'
+import { CodexAppServerAdapter } from '../src/codex-plugin-dsh/adapter.ts'
 import { projectedContentText } from '../src/codex-plugin-dsh/content-projection.ts'
 import { codexHistoryDigest, prepareCodexHistory, responseItems } from '../src/codex-plugin-dsh/history.ts'
 import { projectCodexPrimaryHistory } from '../src/primary-history.ts'
@@ -230,6 +232,33 @@ test('the primary bridge leaves a text-and-image context request untouched', () 
   } as any
 
   assert.equal(projectCodexPrimaryHistory(options), options)
+})
+
+test('the primary projection aliases oversized foreign tool-call ids to 64 characters', () => {
+  const longId = 'x'.repeat(80)
+  const alias = `dsh_${createHash('sha256').update(longId).digest('hex').slice(0, 60)}`
+  assert.equal(alias.length, 64)
+
+  const projected = projectCodexPrimaryHistory({
+    provider,
+    model: 'gpt-5',
+    messages: [
+      {
+        role: 'assistant',
+        source: { kind: 'model', provider: 'antigravity-cli' },
+        content: [{ type: 'tool-call', id: longId, name: 'read', arguments: '{}' }],
+      },
+      {
+        role: 'user',
+        source: { kind: 'tool', callId: longId },
+        content: [{ type: 'tool-result', toolCallId: longId, content: [{ type: 'text', text: 'ok' }] }],
+      },
+    ],
+  } as any)
+
+  assert.equal((projected.messages[0]?.content[0] as { id: string }).id, alias)
+  assert.equal((projected.messages[1]?.content[0] as { toolCallId: string }).toolCallId, alias)
+  assert.equal((projected.messages[1]?.source as { callId: string }).callId, alias)
 })
 
 /** One assistant tool call and its result, as another primary route left them. */
@@ -466,4 +495,101 @@ test('a response holding only tool calls without a checkpoint is counted as a lo
     'session-a',
   )
   assert.equal(history.skippedCheckpoints, 1)
+})
+
+test('stream() projects foreign history before the App Server turn starts', async () => {
+  const longId = 'x'.repeat(80)
+  const alias = `dsh_${createHash('sha256').update(longId).digest('hex').slice(0, 60)}`
+  const requests: Array<{ method: string; params: any }> = []
+  const connection = {
+    async initialize() {},
+    async request(method: string, params: any) {
+      requests.push({ method, params })
+      if (method === 'thread/start') return { thread: { id: 'thread-test' } }
+      if (method === 'thread/inject_items') return {}
+      if (method === 'turn/start') return { turn: { id: 'turn-test' } }
+      throw new Error(`unexpected request ${method}`)
+    },
+    interrupt() {},
+    async close() {},
+  }
+
+  const adapter = new CodexAppServerAdapter({
+    attachments: {},
+    sessions: {
+      get: (id: string) => (id === 'session-test' ? { header: { cwd: '/workspace' } } : undefined),
+    },
+  } as any, {
+    executable: 'codex',
+    env: {},
+    modelCacheMs: 30_000,
+    catalogTimeoutMs: 10_000,
+    turnTimeoutMs: 600_000,
+    disposeGraceMs: 3_000,
+    stderrMaxBytes: 16_384,
+    modelPageSize: 100,
+  })
+  ;(adapter as any).openConnection = async () => connection
+  ;(adapter as any).isolationConfig = async () => ({})
+
+  const iterator = adapter.stream({
+    provider,
+    model: 'gpt-5.6-sol',
+    sessionId: 'session-test',
+    messages: [
+      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] },
+      {
+        role: 'assistant',
+        source: { kind: 'model', provider: 'antigravity-cli' },
+        content: [{ type: 'tool-call', id: longId, name: 'read', arguments: '{}' }],
+      },
+      {
+        role: 'user',
+        source: { kind: 'tool', callId: longId },
+        content: [{ type: 'tool-result', toolCallId: longId, content: [{ type: 'text', text: 'ok' }] }],
+      },
+      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'continue' }] },
+    ],
+  } as any)[Symbol.asyncIterator]()
+  const pending = iterator.next()
+
+  let active: any
+  for (let attempt = 0; attempt < 1_000; attempt += 1) {
+    active = (adapter as any).activeTurns.get('session-test')
+    if (active !== undefined) break
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  assert.ok(active, 'test: active turn was never registered')
+
+  active.events.push({
+    method: 'item/completed',
+    params: {
+      threadId: 'thread-test',
+      turnId: 'turn-test',
+      item: {
+        id: 'msg-1',
+        type: 'agentMessage',
+        phase: 'final_answer',
+        text: 'done',
+      },
+    },
+  })
+  active.events.push({
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-test',
+      turn: { id: 'turn-test', status: 'completed' },
+    },
+  })
+
+  let result = await pending
+  while (!result.done) result = await iterator.next()
+
+  const injected = requests.find(request => request.method === 'thread/inject_items')
+  assert.ok(injected, 'thread/inject_items must carry the projected foreign history')
+  const call = injected.params.items.find((item: { type: string }) => item.type === 'function_call')
+  const output = injected.params.items.find((item: { type: string }) => item.type === 'function_call_output')
+  assert.equal(call?.call_id, alias)
+  assert.equal(output?.call_id, alias)
+  assert.notEqual(call?.call_id, longId)
 })

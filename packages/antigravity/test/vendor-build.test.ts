@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
+import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.ts'
 import { FAKE_VENDOR_BUILD, isVersionSpawn, versionChild } from './fake-vendor.ts'
 import { stamped } from './turn-stamp.ts'
 
@@ -188,7 +189,7 @@ async function failedTurn(adapter: AntigravityCliAdapter, sessionId: string): Pr
 
 test('a failed turn names the build it ran against', async () => {
   const { ctx } = ctxWith(() => versionChild())
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     // Two turns rather than one: the read is deliberately not awaited, so
     // asserting on the FIRST turn's message would be asserting on a race.
@@ -205,7 +206,7 @@ test('a child that dies before a result names the build it died on', async () =>
   // diagnostic is authored inside the child wrapper rather than by the
   // adapter, which is why it is asserted separately.
   const { ctx } = ctxWith(() => versionChild(), dyingChild)
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await failedTurn(adapter, 'session-1')
     const second = await failedTurn(adapter, 'session-2')
@@ -216,7 +217,7 @@ test('a child that dies before a result names the build it died on', async () =>
 
 test('the version read is attempted once per adapter, not once per turn', async () => {
   const { ctx, versionSpawns } = ctxWith(() => versionChild())
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await failedTurn(adapter, 'session-1')
     await failedTurn(adapter, 'session-2')
@@ -227,7 +228,7 @@ test('the version read is attempted once per adapter, not once per turn', async 
 
 test('a version read that never answers does not delay or fail a turn', async () => {
   const { ctx } = ctxWith(hangingVersionChild)
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     const first = await failedTurn(adapter, 'session-1')
     const second = await failedTurn(adapter, 'session-2')
@@ -254,7 +255,7 @@ const REJECTED: ReadonlyArray<{ readonly label: string; readonly stdout: string;
 for (const rejected of REJECTED) {
   test(`${rejected.label} leaves the diagnostic without a build`, async () => {
     const { ctx } = ctxWith(() => versionChild(rejected.stdout, rejected.exitCode))
-    const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+    const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
     try {
       await failedTurn(adapter, 'session-1')
       const second = await failedTurn(adapter, 'session-2')
@@ -265,7 +266,7 @@ for (const rejected of REJECTED) {
 
 test('a version buried in a sentence yields the token alone, not the sentence', async () => {
   const { ctx } = ctxWith(() => versionChild('agy version 2.0.1-rc.4 (build deadbeef)\n', 0))
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
     await failedTurn(adapter, 'session-1')
     const second = await failedTurn(adapter, 'session-2')

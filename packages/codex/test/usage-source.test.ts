@@ -3,10 +3,10 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { CodexRateLimitsSourceError, CodexUsageCollector } from '../src/usage.ts'
 import {
-  codexAppServerArgv,
   DEFAULT_REQUEST_TIMEOUT_MS,
   OfficialCodexRateLimitsSource,
 } from '../src/usage-source.ts'
+import { codexAppServerInvocation } from '../src/codex-plugin-dsh/adapter.ts'
 
 interface FakeAppServerOptions {
   readonly loggedIn?: boolean
@@ -91,12 +91,21 @@ function fakeAppServerChild(options: FakeAppServerOptions = {}) {
   } as any
 }
 
-test('external executable uses only the official app-server stdio command', () => {
-  assert.deepEqual(codexAppServerArgv('/vendor/codex'), [
-    '/vendor/codex',
-    'app-server',
-    '--stdio',
-  ])
+test('external executable uses the same App Server invocation as the primary adapter', () => {
+  assert.deepEqual(
+    [...codexAppServerInvocation('/vendor/codex', {}).argv],
+    [
+      '/vendor/codex',
+      '-c',
+      'memories.use_memories=false',
+      '-c',
+      'memories.generate_memories=false',
+      '-c',
+      'project_doc_max_bytes=0',
+      'app-server',
+      '--stdio',
+    ],
+  )
   assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 30_000)
 })
 
@@ -132,8 +141,9 @@ test('usage source resolves and launches Codex in the DSH subprocess execution w
   assert.ok(resolved[0]?.signal instanceof AbortSignal)
 
   assert.equal(spawned.length, 1)
-  assert.deepEqual(spawned[0].argv, ['/provider/runtime/codex', 'app-server', '--stdio'])
-  assert.deepEqual(spawned[0].env, env, 'the subprocess provider, not Codex usage, owns parent-env construction')
+  const invocation = codexAppServerInvocation('/provider/runtime/codex', env)
+  assert.deepEqual(spawned[0].argv, [...invocation.argv])
+  assert.deepEqual(spawned[0].env, invocation.env, 'the subprocess provider, not Codex usage, owns parent-env construction')
   assert.equal(spawned[0].cwd, '/provider/workspace')
   assert.equal(observations.terminateCalls, 1)
   assert.deepEqual(observations.waitSignals, [undefined], 'cleanup must wait for whole-tree exit without a grace-bound abort')

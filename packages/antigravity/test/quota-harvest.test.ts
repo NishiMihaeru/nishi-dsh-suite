@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   AntigravityOwnChildQuotaSource,
   AntigravityQuotaHarvestCache,
+  noopQuotaHarvestCache,
 } from '../src/quota-harvest-cache.ts'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { stampedLine } from './turn-stamp.ts'
@@ -372,9 +373,9 @@ test('a turn that itself fails is unaffected by the harvest cache being present'
   await assert.rejects(drain(adapter.stream(options)))
 })
 
-test('an adapter constructed with no harvest cache at all runs turns normally', async () => {
+test('an adapter constructed with a no-op harvest cache runs turns normally', async () => {
   const ctx = turnCtx({ lines: [SUCCESS_RESULT_LINE] })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   const chunks = await drain(adapter.stream(options))

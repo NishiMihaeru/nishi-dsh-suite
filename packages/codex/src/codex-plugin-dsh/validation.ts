@@ -25,3 +25,13 @@ export function thrown(value: unknown): Error {
 export function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
+
+/**
+ * Absent means empty. Present-but-not-an-object is a protocol error.
+ * Isolation uses this so a shapeless `mcp_servers`/`apps` cannot silently
+ * disable nothing and leave vendor tools on.
+ */
+export function optionalObject(value: unknown, label: string): Record<string, unknown> {
+  if (value === undefined) return {}
+  return object(value, label)
+}

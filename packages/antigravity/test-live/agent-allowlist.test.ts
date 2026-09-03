@@ -11,7 +11,7 @@ import { bridgeAgentMarkdown } from '../src/antigravity-primary.js'
  *
  * The one transport on this route depends on the answer. It ships an agent
  * definition allowing `finish` and nothing else, and `ARCHITECTURE.md` calls
- * that prevention, with the post-hoc `BLOCKED_NATIVE_TOOLS` check as a
+ * that prevention, with the post-hoc native-tool allowlist as a
  * backstop. Nothing had ever observed the prevention half. It used to run the
  * MCP transport's agent definition, which was byte-for-byte this one; that
  * transport is gone and the suite now names the definition that ships.

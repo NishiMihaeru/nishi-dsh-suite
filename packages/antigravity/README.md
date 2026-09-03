@@ -81,7 +81,7 @@ DSH tool schemas are rewritten into the vendor's accepted subset first. Annotati
 
 Every envelope carries a `turn` field the reply must echo, and a decision stamped for any other turn is discarded. It exists because `structured_output` is not cleared between turns: measured on real `agy 1.1.24`, a turn that produced none of its own resolved with the **previous** turn's object, verbatim and schema-valid, while its `response` held plain prose. Read without the stamp that is indistinguishable from a fresh decision, so a stale `tool_calls` runs the same tool a second time and the model, handed a duplicate result, has every reason to answer in prose again — a repeated-identical-call loop generated inside the transport. The vendor documents the schema as binding "the terminal `result` event" while `--help` says "only applicable to the final result", so per-turn enforcement is treated as best-effort and its absence detected rather than relied on.
 
-A stamp that does not match falls through to the turn's own `response` before failing, since the vendor's parse can miss a payload that is plainly there. When neither source answers this turn the conversation is abandoned rather than continued: the vendor is holding a turn DSH rejected, and the next request reopens from DSH's history.
+A stamp that does not match falls through to the turn's own `response` before failing, since the vendor's parse can miss a payload that is plainly there. When neither source answers this turn the step fails and the live child is kept: it finished SUCCESS and still agrees with the prefix. Rebuild only when the child is dead or the prefix no longer matches.
 
 ### A turn settles with a reason, not a boolean
 

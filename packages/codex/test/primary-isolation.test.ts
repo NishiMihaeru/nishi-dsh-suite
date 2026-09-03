@@ -187,6 +187,72 @@ test('primary thread parameters always own base instructions and do not fall bac
   assert.equal(withSystem.baseInstructions, 'DSH system instructions')
 })
 
+test('primary App Server isolation fails closed when config/read omits config', async () => {
+  const signal = AbortSignal.timeout(5_000)
+  const connection = {
+    async request(method: string) {
+      if (method === 'config/read') return {}
+      throw new Error(`unexpected method ${method}`)
+    },
+  }
+
+  const adapter = new CodexAppServerAdapter({} as any, config)
+  await assert.rejects(
+    (adapter as any).isolationConfig(connection, '/workspace', signal),
+    /invalid config\/read config/,
+  )
+})
+
+test('primary App Server isolation fails closed when mcp_servers is not an object', async () => {
+  const signal = AbortSignal.timeout(5_000)
+  const connection = {
+    async request(method: string) {
+      if (method === 'config/read') return { config: { mcp_servers: ['local'] } }
+      throw new Error(`unexpected method ${method}`)
+    },
+  }
+
+  const adapter = new CodexAppServerAdapter({} as any, config)
+  await assert.rejects(
+    (adapter as any).isolationConfig(connection, '/workspace', signal),
+    /invalid config\/read mcp_servers/,
+  )
+})
+
+test('primary App Server isolation fails closed when apps is not an object', async () => {
+  const signal = AbortSignal.timeout(5_000)
+  const connection = {
+    async request(method: string) {
+      if (method === 'config/read') return { config: { apps: 'calendar' } }
+      throw new Error(`unexpected method ${method}`)
+    },
+  }
+
+  const adapter = new CodexAppServerAdapter({} as any, config)
+  await assert.rejects(
+    (adapter as any).isolationConfig(connection, '/workspace', signal),
+    /invalid config\/read apps/,
+  )
+})
+
+test('primary App Server isolation treats absent mcp_servers and apps as empty', async () => {
+  const signal = AbortSignal.timeout(5_000)
+  const connection = {
+    async request(method: string) {
+      if (method === 'config/read') return { config: {} }
+      if (method === 'skills/list') {
+        return { data: [{ cwd: '/workspace', skills: [], errors: [] }] }
+      }
+      throw new Error(`unexpected method ${method}`)
+    },
+  }
+
+  const adapter = new CodexAppServerAdapter({} as any, config)
+  const isolation = await (adapter as any).isolationConfig(connection, '/workspace', signal)
+  assert.deepEqual(isolation.mcp_servers, {})
+  assert.deepEqual(isolation.apps, { _default: { enabled: false } })
+})
+
 test('primary App Server isolation fails closed when Codex skill discovery reports an error', async () => {
   const signal = AbortSignal.timeout(5_000)
   const connection = {

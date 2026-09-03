@@ -168,3 +168,57 @@ test('a failed turn reports the status without copying the vendor error text', a
     },
   )
 })
+
+test('a retrying error is ignored twice and fails the turn on the third', async () => {
+  const { adapter, options } = fixture()
+  const iterator = adapter.stream(options)[Symbol.asyncIterator]()
+  const first = iterator.next()
+  const active = await waitForActiveTurn(adapter, 'session-a')
+
+  const retrying = { method: 'error', params: { willRetry: true, error: { message: 'transient' } } }
+  active.events.push(retrying)
+  active.events.push(retrying)
+  active.events.push(retrying)
+
+  await assert.rejects(
+    drainWithGuard(first, 2_000, 'the retry-capped turn'),
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.equal((error as { code?: unknown }).code, 'CODEX_APP_SERVER')
+      assert.doesNotMatch(error.message, /transient/)
+      return true
+    },
+  )
+})
+
+test('two retrying errors still let a later successful turn complete', async () => {
+  const { adapter, options } = fixture()
+  const iterator = adapter.stream(options)[Symbol.asyncIterator]()
+  const chunks: unknown[] = []
+  let pending = iterator.next()
+  const active = await waitForActiveTurn(adapter, 'session-a')
+
+  active.events.push({ method: 'error', params: { willRetry: true, error: { message: 'blip-1' } } })
+  active.events.push({ method: 'error', params: { willRetry: true, error: { message: 'blip-2' } } })
+  active.events.push({
+    method: 'item/completed',
+    params: {
+      threadId: 'thread-a',
+      turnId: 'turn-a',
+      item: { type: 'agentMessage', id: 'msg-1', phase: null, text: JSON.stringify({ decision: { kind: 'final', message: 'recovered' } }) },
+    },
+  })
+  active.events.push({ method: 'turn/completed', params: { threadId: 'thread-a', turn: { id: 'turn-a', status: 'completed' } } })
+
+  for (;;) {
+    const { value, done } = await drainWithGuard(pending, 2_000, 'the recovered turn')
+    if (done) break
+    chunks.push(value)
+    pending = iterator.next()
+  }
+
+  assert.ok(
+    chunks.some(chunk => (chunk as any).type === 'finish' && (chunk as any).reason?.kind === 'stop'),
+    'two ignored retries must not prevent a later successful completion',
+  )
+})

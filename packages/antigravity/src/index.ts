@@ -119,7 +119,7 @@ interface ResolvedAntigravityConfig extends SharedProviderDefaults {
  * route, native `agy search_web`, and the local usage-visibility source.
  *
  * The primary adapter has a clean `create(): LlmAdapter` — it is built by
- * `createAntigravityPrimaryAdapter(ctx, config)` — while the shared core
+ * `createAntigravityPrimaryAdapter(ctx, config, quotaHarvestCache)` — while the shared core
  * registration path owns route registration and rollback. Search and usage
  * are likewise constructed from this provider's context, so their subprocess
  * lifetimes remain provider-owned.

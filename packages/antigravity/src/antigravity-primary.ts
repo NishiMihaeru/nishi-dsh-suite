@@ -21,7 +21,13 @@ import {
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
 import { ephemeralAgentWorkspace, type EphemeralAgentWorkspace } from 'nishi-dsh-core/runtime'
 import { AgyTurnProcess, type AgyTurnOutcome, type AgyTurnResult } from './agy-session.js'
-import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
+import {
+  PRIMARY_NATIVE_ALLOWLIST,
+  record,
+  resolveVendorInvocation,
+  unexpectedNativeTools,
+  type VendorInvocation,
+} from './agy-vendor.js'
 import type { AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 import {
   assertExecutableDecision,
@@ -45,34 +51,6 @@ const AGENT_NAME = 'dsh-primary'
  */
 const BRIDGE_PROTOCOL = 'dsh-antigravity-primary-v3'
 const WINDOWS_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'
-
-/**
- * Backstop, not prevention: checked in `stream()` only after `runTurn()`
- * resolves, so it inspects an already-collected event stream for a blocked
- * native tool invocation after the vendor CLI has already run it. The two
- * preventive layers are the `finish`-only tool allowlist in
- * {@link bridgeAgentMarkdown} and the vendor's own `--sandbox` terminal
- * restrictions passed to every turn invocation; this set exists in case
- * either of those is bypassed or the vendor CLI changes behaviour. Because
- * this list is a finite denylist against an open vendor registry, a newly
- * named native tool passes until it is added here.
- */
-const BLOCKED_NATIVE_TOOLS = new Set([
-  'call_mcp_tool',
-  'find_by_name',
-  'grep_search',
-  'invoke_subagent',
-  'list_dir',
-  'read_url_content',
-  'replace_file_content',
-  'run_command',
-  'search_web',
-  'view_file',
-  'write_to_file',
-  'write_file',
-  'read_file',
-  'start_subagent',
-])
 
 export interface AntigravityPrimaryConfig {
   readonly executable: string
@@ -802,15 +780,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
   constructor(
     private readonly ctx: Context,
     private readonly config: AntigravityPrimaryConfig,
-    /**
-     * Optional: when provided, every primary turn opportunistically feeds
-     * this cache from its own `agy` child's loopback ports (see
-     * `runTurn()` and `quota-harvest-cache.ts`). Left undefined by default
-     * so every existing unit test that constructs this adapter directly
-     * keeps working unchanged; `createAntigravityPrimaryAdapter` is what
-     * actually wires a real cache in from `index.ts`.
-     */
-    private readonly quotaHarvestCache?: AntigravityQuotaHarvestCache,
+    private readonly quotaHarvestCache: AntigravityQuotaHarvestCache,
   ) {
     super()
   }
@@ -893,11 +863,11 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const requestedTools = new Set((options.tools ?? []).map(tool => tool.name))
 
     const { outcome: { result, events }, session, turn } = await this.runTurn(options)
-    const blocked = nativeToolNames(events).filter(name => BLOCKED_NATIVE_TOOLS.has(name))
-    if (blocked.length > 0) {
+    const unexpected = unexpectedNativeTools(events, PRIMARY_NATIVE_ALLOWLIST)
+    if (unexpected.length > 0) {
       await this.abandonSession(options)
       throw new LlmError(
-        `Antigravity bridge invoked blocked native tool(s): ${blocked.join(', ')}`,
+        `Antigravity bridge invoked unexpected native tool(s): ${unexpected.join(', ')}`,
         'ANTIGRAVITY_NATIVE_TOOL',
       )
     }
@@ -931,17 +901,21 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
 
     // Read the decision AND check it can be executed as a whole, under one
-    // try: an unreadable turn and an unexecutable one are the same kind of
-    // problem for the conversation, and both must abandon it before anything
-    // is yielded. Validating up front is what makes a step all-or-nothing --
-    // the unknown-tool check used to run inside the loop below, after earlier
-    // calls of the same reply had already been streamed to DSH.
+    // try, before anything is yielded: the unknown-tool check used to run
+    // inside the loop below, after earlier calls of the same reply had
+    // already been streamed to DSH.
     let output: ReturnType<typeof structuredResult>
     try {
       output = structuredResult(result, turn)
       assertExecutableDecision(output, requestedTools)
     } catch (error: unknown) {
-      await this.abandonSession(options)
+      // A stale stamp is leftover structured_output from an earlier turn.
+      // The child finished SUCCESS and still agrees with the prefix; killing
+      // it is what ended the live session after a stuck schema. Unknown
+      // tools and unexecutable replies still abandon.
+      if (!(error instanceof LlmError && error.code === 'ANTIGRAVITY_STALE_DECISION')) {
+        await this.abandonSession(options)
+      }
       throw error
     }
     let nextIndex = 0
@@ -1378,9 +1352,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
     // Nothing about this call may affect the turn itself. With a persistent
     // child this now runs once per conversation rather than once per step,
     // which is strictly more of what the cache wants: a longer-lived PID.
-    if (this.quotaHarvestCache) {
-      void this.quotaHarvestCache.harvest(child.pid).catch(() => {})
-    }
+    void this.quotaHarvestCache.harvest(child.pid).catch(() => {})
     return child
   }
 
@@ -1563,12 +1535,14 @@ export class AntigravityCliAdapter extends LlmAdapter {
    * Abandon this session's live vendor conversation, before throwing the error
    * that made this turn unusable.
    *
-   * A turn this adapter rejects (blocked native tool, non-SUCCESS turn result,
-   * unparseable or stale decision, or unknown DSH tool) leaves the vendor
-   * holding a turn DSH rejected, while `sentDigests` has already recorded it.
-   * A delta on top of it would ask the model to continue from an exchange
-   * only one side believes in. Abandoning the conversation forces the next
-   * request to reopen from DSH's authoritative history.
+   * A turn this adapter rejects (unexpected native tool, non-SUCCESS turn result,
+   * unparseable decision, or unknown DSH tool) leaves the vendor holding a
+   * turn DSH rejected, while `sentDigests` has already recorded it. A delta
+   * on top of it would ask the model to continue from an exchange only one
+   * side believes in. Abandoning the conversation forces the next request to
+   * reopen from DSH's authoritative history. A stale stamp is not this: the
+   * child is healthy and the prefix still matches, so the step fails and the
+   * conversation stays.
    *
    * It abandons and returns rather than throwing for the caller: a helper that
    * always throws is invisible to control-flow analysis, so every caller then
@@ -1597,7 +1571,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
 export function createAntigravityPrimaryAdapter(
   ctx: Context,
   config: AntigravityPrimaryConfig,
-  quotaHarvestCache?: AntigravityQuotaHarvestCache,
+  quotaHarvestCache: AntigravityQuotaHarvestCache,
 ): AntigravityCliAdapter {
   const adapter = new AntigravityCliAdapter(ctx, config, quotaHarvestCache)
   ctx.effect(

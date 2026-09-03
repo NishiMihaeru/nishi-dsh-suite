@@ -53,6 +53,11 @@ export interface AgyProcessSpec {
   readonly graceMs: number
   readonly stderrMaxBytes: number
   /**
+   * `VendorFailure.stage` when this child dies before a result. Search uses
+   * `web-search-exit`; the primary leaves the default `turn`.
+   */
+  readonly stage?: string
+  /**
    * The vendor build this child runs, asked for at diagnosis time.
    *
    * A provider rather than a value, and that is the point: the build is read
@@ -100,6 +105,7 @@ export class AgyTurnProcess {
     private readonly child: SubprocessHandle,
     private readonly graceMs: number,
     private readonly build: () => string | undefined,
+    private readonly stage: string,
   ) {
     const stdout = child.stdout
     /* v8 ignore next -- start() rejects before constructing when a pipe is missing. */
@@ -154,7 +160,7 @@ export class AgyTurnProcess {
         'ANTIGRAVITY_CLI',
       )
     }
-    return new AgyTurnProcess(child, spec.graceMs, () => spec.build())
+    return new AgyTurnProcess(child, spec.graceMs, () => spec.build(), spec.stage ?? 'turn')
   }
 
   /**
@@ -254,7 +260,7 @@ export class AgyTurnProcess {
     void this.child.done.then(outcome => {
       const stderr = this.child.collected.stderr?.readFrom(0).text ?? ''
       const failure = antigravityVendorFailure({
-        stage: 'turn',
+        stage: this.stage,
         stderrText: stderr,
         exitCode: outcome.exitCode,
         signal: outcome.signal,

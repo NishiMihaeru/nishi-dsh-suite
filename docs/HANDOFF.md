@@ -4,6 +4,10 @@ Rewritten for a fresh session at HEAD `28883af`, kept current through the MCP to
 
 This is the only session handoff file. Update it in place when the active task changes; do not create dated handoff/plan/session-summary files.
 
+## Immediate task
+
+The Codex-then-Antigravity bugfix queue in `docs/verification/rc3-review.md` addendum B is done on this tree (unit tests). Do not add a Codex rate-limit recognizer without a captured live App Server error string. Empty `subagent()` inherit is stock DSH and stays that way. Live Codex/Antigravity suites have not been re-run on this cut.
+
 ## Current branch/state
 
 ```text

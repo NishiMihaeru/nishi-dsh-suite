@@ -233,6 +233,14 @@ export class AntigravityQuotaHarvestCache {
   }
 }
 
+/** A harvest cache that never discovers listeners. Unit tests that do not care about quota use this. */
+export function noopQuotaHarvestCache(): AntigravityQuotaHarvestCache {
+  return new AntigravityQuotaHarvestCache({
+    discoverListeners: async () => [],
+    maxAttempts: 1,
+  })
+}
+
 /**
  * Wraps the live-discovery source (`HostAntigravityLocalUsageSource`) so the
  * usage collector falls back to this plugin's own harvested reading only

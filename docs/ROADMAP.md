@@ -411,6 +411,7 @@ Three rc.2 literals survive on purpose, all of them historical facts rather than
 Any registered primary route is usable as a subagent model, the Suite's own included, because a spawned child is an ordinary DSH agent reaching its model through `ctx.llm`. See *Subagent model routes* in `ARCHITECTURE.md`.
 
 - [x] Orchestrator preset mounts `subagent` with `modelSelectionSettings: true`, so a child may run on a route other than its parent's. `subagent_fork` deliberately keeps it off (KV Cache reuse of the inherited prefix). Covered by `packages/suite/test/preset-delegation.test.ts`; Suite 12 -> 16 tests;
+- [x] spawned and forked children cannot re-delegate: both tools set `maxDepth: 1` (DSH default is 3). Asserted by the same preset test;
 - [x] the Suite bundle patch continues to leave `@deepseek-ai/dsh-tool-subagent/model-selection-settings` to the surrounding profile — it is a host singleton and the official web-app bundle mounts it. Asserted by the same test;
 - [x] **live** (2026-08-31, real `web` profile): one delegation each way — parent `codex-app-server/gpt-5.6-sol` -> child `antigravity-cli/gemini-3.7-flash-medium`, and the reverse. Each child's route is evidenced by its own session `request/header`, and the parent's sampled `subagent/model-selection-policy` event is in its log;
 - [x] **live**: one parent turn with two concurrent background children on `codex-app-server`, both settled and reported. Six concurrent `codex app-server` processes at peak, no residue after the run;

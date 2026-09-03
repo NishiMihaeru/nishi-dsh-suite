@@ -29,7 +29,6 @@ import { CODEX_DESCRIPTOR } from './resolver.js'
 import { CodexSearchBackend } from './web-search-backend.js'
 import { CodexUsageCollector } from './usage.js'
 import { DEFAULT_REQUEST_TIMEOUT_MS, OfficialCodexRateLimitsSource } from './usage-source.js'
-import { installCodexPrimaryHistoryBridge } from './primary-history.js'
 
 export const name = 'codex'
 export const inject = [
@@ -90,8 +89,8 @@ function externalCodexCommand(env: Record<string, string>): string {
  * `model.create` builds the vendored `CodexAppServerAdapter` through
  * `createAdapter`, which binds the session and dispose lifecycles but
  * deliberately does not register the route — every provider reaches
- * `ctx.llm` through the single registration path. `install` then adds the
- * primary history bridge, which assumes the adapter already exists.
+ * `ctx.llm` through the single registration path. Foreign history is
+ * projected inside `stream()`, not by patching the adapter prototype.
  */
 const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
   id: 'codex',
@@ -139,9 +138,6 @@ const codexDescriptor: ProviderDescriptor<ResolvedCodexConfig> = {
       }).read(),
     }),
   },
-  async install(ctx) {
-    await installCodexPrimaryHistoryBridge(ctx)
-  },
 }
 
 /** Register the external Codex primary bridge. */
@@ -155,4 +151,4 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
   await registerProvider(ctx, codexDescriptor, config)
 }
 
-export { CODEX_APP_SERVER_PROVIDER, CodexAppServerAdapter, installCodexPrimaryHistoryBridge }
+export { CODEX_APP_SERVER_PROVIDER, CodexAppServerAdapter }

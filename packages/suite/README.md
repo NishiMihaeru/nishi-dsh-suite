@@ -71,11 +71,13 @@ Vendor-specific delegation tools were removed in rc.3. Delegated DSH child agent
 The preset grants no route by itself. Two things outside this package decide whether a child can change model:
 
 1. the surrounding profile must mount `@deepseek-ai/dsh-tool-subagent/model-selection-settings` on the host plane — the official web-app bundle does. It is a service singleton, so this bundle deliberately does not mount a second copy; without it in the profile, the `subagent` row fails at mount time;
-2. the user must enable *subagent model selection* and authorize exact provider/model pairs. The setting is off with an empty allowlist by default, it is sampled when a session's agent is published, and a route outside the allowlist is refused at delegation time.
+2. the user must enable *subagent model selection* and authorize exact provider/model pairs. The setting is off with an empty allowlist by default, it is sampled when a session's agent is published, and a route outside the allowlist is refused at delegation time. DSH still treats a spawn that names no `provider`/`model` as parent-route inheritance; that is not a Suite switch.
 
 With selection enabled the child agent also gets `list_subagent_models` for discovering the authorized routes, and `subagent` accepts `provider`, `model` and `reasoning_effort`.
 
 `subagent_fork` keeps model selection off on purpose: a forked child inherits the parent's completed-turn prefix, which stays eligible for KV Cache reuse only while the route is unchanged.
+
+Spawned and forked children cannot delegate. Both tools set `maxDepth: 1`, so only the top-level Orchestrator session may call `subagent` / `subagent_fork`. A child that tries is refused at start (`subagent depth 2 exceeds maxDepth 1`). The child's catalog still lists the tool — that is DSH's depth-cap contract, not a Suite omission. Do not replace this with `toolFilter.deny`: those names are scoped to the preset, and a deny of an unknown global tool fails the spawn instead of hiding the child's own mount.
 
 This has been run end to end, not only composed: on 2026-08-31 a Codex parent delegated to an Antigravity child, an Antigravity parent delegated to a Codex child, and one parent turn ran two concurrent background Codex children. `docs/verification/README.md` records the evidence, which is each child session's own recorded route rather than the parent model's report.
 

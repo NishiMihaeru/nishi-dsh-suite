@@ -3,6 +3,7 @@ lib/
 dist/
 coverage/
 .artifacts/
+dsh-session-*.zip
 *.tgz
 *.log
 .env

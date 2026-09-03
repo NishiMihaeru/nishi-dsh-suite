@@ -120,7 +120,7 @@ test('6. openai-codex is not a Nishi fallback', async () => {
   )
 })
 
-test('7. Nishi bridge patches exact CodexAppServerAdapter', async () => {
+test('7. CodexAppServerAdapter.stream is the class method, not a prototype patch', async () => {
   const fixture = fakeContext()
   await codex.apply(fixture.ctx, { env: {}, disposeGraceMs: 3000 })
   const adapterEntry = fixture.registeredAdapters.find((a) =>
@@ -129,15 +129,14 @@ test('7. Nishi bridge patches exact CodexAppServerAdapter', async () => {
   assert.ok(adapterEntry, 'codex-app-server adapter must be registered')
   const adapter = adapterEntry.adapter
   const proto = Object.getPrototypeOf(adapter)
+  assert.equal(proto.stream, codex.CodexAppServerAdapter.prototype.stream)
   assert.equal(
-    typeof proto.stream,
-    'function',
-    'adapter prototype must have stream method',
+    proto[Symbol.for('dsh-plugin.codex-primary.history-bridge.v2')],
+    undefined,
+    'history projection lives in stream(), not on a patched prototype',
   )
-  // Verify that the patched stream or openConnection exists on prototype
-  const bridgeSymbol = Symbol.for('dsh-plugin.codex-primary.history-bridge.v2')
-  assert.ok(
-    proto[bridgeSymbol],
-    'adapter prototype must be patched with Nishi primary history bridge state',
+  assert.equal(
+    (codex as Record<string, unknown>).installCodexPrimaryHistoryBridge,
+    undefined,
   )
 })
