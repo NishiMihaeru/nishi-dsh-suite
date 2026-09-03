@@ -348,13 +348,13 @@ The probes added a fifth advantage nobody predicted, and it is the largest: **us
 
 ## 6. Product-level live acceptance
 
-- [ ] Codex primary + Project Memory + routed search;
+- [x] **Codex primary + Project Memory + routed search** — one session in the real `web` profile, 2026-09-03. Turn 1 ran four DSH steps on `codex-app-server`/`gpt-5.6-sol`: `memory_write`, `memory_read` returning the planted `ACCEPT_MEM_...` marker verbatim, then `web_search`. The routed search is attributed by process rather than by output: `codex exec --ephemeral --ignore-user-config --sandbox read-only --cd /tmp/dsh-web-search-codex-*` was observed for the duration, and no `agy` ran at all, so the Codex backend served it while Antigravity was equally mounted. Every call id is DSH-minted (`codex-<uuid>`), which is what the stepped transport requires and had until now only been asserted in tests;
 - [ ] Antigravity primary + routed search;
 - [ ] Antigravity model switch in one conversation;
-- [ ] Codex -> Antigravity provider switch in one session;
+- [x] **Codex -> Antigravity provider switch in one session** — the same session, 2026-09-03. Turn 3 switched the route mid-conversation and the durable log records `antigravity-cli`/`gemini-3.7-flash` where turns 1-2 record `codex-app-server`/`gpt-5.6-sol`; an `agy` child came up with the production flags (`--agent dsh-primary --json-schema --sandbox --model gemini-3.7-flash`). History survived the switch rather than merely the turn: asked without searching again, the model named both earlier searches correctly;
 - [x] cross-route delegation: a child on the other vendor's primary route, both directions, plus two concurrent Codex children (see §7c);
-- [ ] memory written before the switch is readable after it;
-- [ ] Usage & Limits with all providers mounted;
+- [x] **memory written before the switch is readable after it** — same run. The marker written by `memory_write` on Codex in turn 1 came back from `memory_read` on Antigravity in turn 3, `ACCEPT_MEM_9FE8DA2D39D6`, under an `agy-`-prefixed call id. Evidence is the `tool/result` entry in the durable log, not the model's report;
+- [ ] Usage & Limits with all providers mounted — **observed, not passed**, during the 2026-09-03 run: with both providers mounted the header served Codex live (`5h: 2% used`, `Weekly: 51% used`) and Antigravity as *Provider usage is currently unavailable*, which is the documented pre-turn state rather than a fault. It stays unticked because half a surface reporting is not the row passing; the probe that would close it is the quota-without-a-prior-turn item in §3;
 - [ ] late/absent provider browser behavior;
 - [ ] vendor sign-in stays in each vendor's own CLI, with no Core surface reading or mutating a credential record. Model Accounts was removed outright in rc.3, so this is a check that nothing reintroduced it, not a check that it works.
 
