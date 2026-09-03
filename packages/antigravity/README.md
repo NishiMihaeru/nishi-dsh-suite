@@ -7,7 +7,27 @@ Antigravity primary-provider plugin for Nishi DSH Suite, backed by the user's in
 - canonical provider id: `antigravity`;
 - primary model route: `antigravity-cli`;
 - native web-search backend: `agy search_web`;
-- local usage visibility, with numeric quota remaining unsupported when no official machine-readable quota is available.
+- local usage visibility, harvested from this package's own `agy` child.
+
+### Where quota comes from, and what it cannot see
+
+The vendor publishes no machine-readable quota surface: not a command, not a
+flag, not a file. The only one that exists is a private RPC of its language
+server. This route reads that RPC on exactly one process — the `agy` child it
+spawned for a turn — resolving its loopback ports from that pid alone, and
+caches the reading for the usage collector. The call carries no credential:
+loopback, `Content-Type` and `Connect-Protocol-Version`, nothing else.
+
+It used to reach further: scanning every process on the machine for something
+Antigravity-shaped and lifting a `--csrf_token` out of its command line. That
+was removed on 2026-09-03. It contradicted this package's own posture that it
+reads no credential or token store, and both independent reviewers ranked
+removing it their second-highest simplification.
+
+The cost is stated rather than hidden. **There is no quota figure until this
+plugin has run a turn**, and the figure never reflects what the Antigravity IDE
+or desktop app consumed. When there is no reading the collector reports an
+honest unsupported row rather than an error or a fabricated number.
 
 The distinction between provider id and route is intentional: `antigravity` is the provider identity, while `antigravity-cli` is the DSH model route retained for saved-session compatibility.
 
@@ -25,7 +45,7 @@ A DSH step is no longer a whole `agy` process. The adapter keeps one live child 
 
 This exists for cost and for correctness. A fresh conversation per step could never hit the vendor's prefix cache — measured on real `agy 1.1.22`, a continuation inside one child read 20418 of a 23496-token prefix from cache — and it left the model reading its own past actions as JSON quoted back at it rather than as its own turns.
 
-A live conversation is continued only by a request that extends exactly what it was already told, compared by a digest of each delivered message's id **and content** — DSH rewrites content while preserving ids, and such a rewrite has to reach the vendor as a rebuild. Divergent history, a changed system prompt, catalog, model or effort, and any call carrying a `purpose` (compaction, session titles) all get a fresh child instead. A delta omits the conversation's own replies, which the vendor already has. Reported usage is the difference from the previous turn, because `agy` counts a conversation rather than a turn.
+A live conversation is continued only by a request that extends exactly what it was already told, compared by a digest of **everything sent for each delivered message** — its id, role, source and content. Id alone is not enough because DSH rewrites content while preserving ids, and content alone is not enough because `source` is on the wire too and decides whether an assistant message is withheld from a delta. Any such rewrite has to reach the vendor as a rebuild. Divergent history, a changed system prompt, catalog, model or effort, and any call carrying a `purpose` (compaction, session titles) all get a fresh child instead. A delta omits the conversation's own replies, which the vendor already has. Reported usage is the difference from the previous turn, because `agy` counts a conversation rather than a turn.
 
 `maxTokens` is accepted and ignored on a `purpose`-carrying auxiliary call, and still refused on an ordinary turn: `agy` has no output-cap flag, but refusing it everywhere left compaction — which always sends it — unable to run at all.
 

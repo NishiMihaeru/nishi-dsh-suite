@@ -24,7 +24,9 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:live:agent-allowlist": "tsx --test test-live/agent-allowlist.test.ts",
+    "test:live:agent-loop": "tsx --test test-live/gemini-flash-low-agent-loop.test.ts",
     "test:live:primary": "tsx --test test-live/primary.test.ts",
+    "test:live:quota": "tsx --test test-live/quota.test.ts",
     "test:live:session-continuation": "tsx --test test-live/session-continuation.test.ts",
     "test:live:web-search": "tsx --test test-live/web-search.test.ts",
     "test:live:web-search-routed": "tsx --test test-live/web-search-routed.test.ts"

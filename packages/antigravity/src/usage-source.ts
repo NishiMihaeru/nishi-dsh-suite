@@ -1,7 +1,18 @@
 /**
- * Cross-platform Antigravity local live quota adapter (attach-only).
- * Discovers an already-running official Antigravity/agy/IDE language server on
- * loopback and performs read-only quota RPCs without spawning or mutating it.
+ * The pieces the own-child quota harvest is built from: per-platform listener
+ * resolution for ONE given pid, a bounded loopback HTTP transport, and the
+ * parser for the vendor's quota payload.
+ *
+ * It used to be more than that -- a machine-wide source that scanned every
+ * process for something Antigravity-shaped, lifted a CSRF token out of each
+ * command line, and probed whatever it found. That was removed on 2026-09-03:
+ * it contradicted this package's own posture that it reads no credential or
+ * token store, and both independent reviewers ranked removing it their second
+ * simplification. What survives inspects only a pid this package spawned.
+ *
+ * Internal to this package.
+ *
+ * @module nishi-dsh-antigravity/usage-source
  */
 import http from 'node:http';
 import https from 'node:https';
@@ -9,29 +20,11 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readdir, readFile, readlink } from 'node:fs/promises';
 import {
-  AntigravityUsageSourceError,
-  type AntigravityUsageCapabilitySource,
-  type AntigravityObservation,
   type AntigravityNumericUsageObservation,
   type AntigravityNumericWindowObservation,
 } from './usage.js';
 
 const execFileAsync = promisify(execFile);
-export type AntigravitySourceKind = 'APP' | 'AGY' | 'IDE';
-export interface AntigravityLocalEndpoint {
-  readonly transport: 'https' | 'http';
-  readonly host: '127.0.0.1' | '::1';
-  readonly port: number;
-  readonly csrfToken?: string;
-  readonly sourceKind: AntigravitySourceKind;
-}
-export interface AntigravityCandidate {
-  readonly pid: number;
-  readonly sourceKind: AntigravitySourceKind;
-  readonly commandLine: string;
-  readonly csrfToken?: string;
-  readonly ports?: readonly number[];
-}
 export interface AntigravityListener { readonly host: '127.0.0.1' | '::1'; readonly port: number; }
 export interface ProcFsReader {
   readdir(path: string): Promise<string[]>;
@@ -39,9 +32,16 @@ export interface ProcFsReader {
   readlink(path: string): Promise<string>;
   getuid?(): number;
 }
+/**
+ * Resolves the loopback ports of ONE process, given its pid.
+ *
+ * It used to also enumerate every Antigravity-looking process on the machine
+ * and read a CSRF token out of each command line. That half is gone: the only
+ * pid this package resolves is one it spawned itself, so nothing here reads
+ * another process's arguments. See `quota-harvest-cache.ts`.
+ */
 export interface AntigravityPlatformDiscovery {
-  discoverCandidates(): Promise<AntigravityCandidate[]>;
-  discoverListeners?(pid: number): Promise<AntigravityListener[]>;
+  discoverListeners(pid: number): Promise<AntigravityListener[]>;
 }
 export interface AntigravityRequestOptions {
   method?: string;
@@ -52,89 +52,12 @@ export interface AntigravityRequestOptions {
 }
 export interface AntigravityHttpResponse { status: number; body: string; }
 export type AntigravityRequestTransport = (url: string, options?: AntigravityRequestOptions) => Promise<AntigravityHttpResponse>;
-export interface HostAntigravityLocalUsageSourceConfig {
-  platformDiscovery?: AntigravityPlatformDiscovery;
-  requestTransport?: AntigravityRequestTransport;
-  procReader?: ProcFsReader;
-  execCommand?: (cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
-  timeoutMs?: number;
-  maxResponseBytes?: number;
-}
-export interface AntigravityDiagnostics {
-  sourceKind: AntigravitySourceKind | 'UNKNOWN';
-  methodUsed: 'RetrieveUserQuotaSummary' | 'GetUserStatus' | 'GetCommandModelConfigs' | 'NONE';
-  summaryCallCount: number;
-  userStatusCallCount: number;
-  commandConfigsCallCount: number;
-  modelGenerationCalls: number;
-}
-
 export const DEFAULT_TIMEOUT_MS = 3000;
 export const DEFAULT_MAX_RESPONSE_BYTES = 1048576;
-export const MAX_CANDIDATES = 5;
 export const MAX_PORTS_PER_CANDIDATE = 5;
 export const ANTIGRAVITY_METADATA_BODY = JSON.stringify({
   metadata: { ideName: 'antigravity', extensionName: 'antigravity', ideVersion: 'unknown', locale: 'en' },
 });
-
-export interface ClassifiedProcess {
-  sourceKind: AntigravitySourceKind;
-  csrfToken?: string;
-  ports?: number[];
-}
-
-export function classifyAntigravityProcess(meta: { name?: string; path?: string; commandLine?: string }): ClassifiedProcess | null {
-  const name = String(meta.name ?? '').trim();
-  const path = String(meta.path ?? '').trim();
-  const cmd = String(meta.commandLine ?? '').trim();
-  const pathLower = path.toLowerCase();
-  const cmdLower = cmd.toLowerCase();
-  const csrfMatch = cmd.match(/--csrf_token\s+([^\s"']+)/) ?? cmd.match(/--extension_server_csrf_token\s+([^\s"']+)/);
-  const csrfToken = csrfMatch ? csrfMatch[1] : undefined;
-  const portMatch = cmd.match(/--extension_server_port\s+(\d+)/);
-  const ports = portMatch ? [Number(portMatch[1])] : undefined;
-  const lsPattern = /(?:^|[/\\])language(?:_|-)?server(?:[_-][a-z0-9]+)*(?:\.exe)?(?:\s|$)/i;
-  const isLs = lsPattern.test(name) || lsPattern.test(path) || lsPattern.test(cmd);
-  if (isLs) {
-    const hasAppDataDirMarker = /(?:--app_data_dir\s+["']?[^"']*(?:antigravity|google[\\/.]antigravity))/i.test(cmd);
-    const hasPathMarker =
-      pathLower.includes('/antigravity.app/') || pathLower.includes('\\antigravity\\') ||
-      pathLower.includes('/antigravity/') || pathLower.includes('/gemini.app/') ||
-      pathLower.includes('\\gemini\\') || cmdLower.includes('/antigravity.app/') ||
-      cmdLower.includes('\\antigravity\\') || cmdLower.includes('/gemini.app/');
-    const hasIdeMarker = pathLower.includes('antigravity-ide') || cmdLower.includes('antigravity-ide') || cmdLower.includes('google.antigravity');
-    if (!hasAppDataDirMarker && !hasPathMarker && !hasIdeMarker) return null;
-    if (!csrfToken) return null;
-    return { sourceKind: hasIdeMarker ? 'IDE' : 'APP', csrfToken, ports };
-  }
-  const agyPattern = /(?:^|[/\\])(?:agy|antigravity-cli|antigravity_cli)(?:\.exe)?(?:\s|$)/i;
-  const firstToken = cmd.split(/\s+/)[0] ?? '';
-  if (agyPattern.test(name) || agyPattern.test(path) || agyPattern.test(firstToken)) {
-    return { sourceKind: 'AGY', csrfToken, ports };
-  }
-  return null;
-}
-
-export function parseWindowsProcessCandidates(rawCimOutput: string, maxLimit = MAX_CANDIDATES, currentSid?: string): AntigravityCandidate[] {
-  let list: any[];
-  try { const parsed = JSON.parse(rawCimOutput); list = Array.isArray(parsed) ? parsed : [parsed]; } catch { return []; }
-  const candidates: AntigravityCandidate[] = [];
-  for (const item of list) {
-    if (!item || typeof item !== 'object') continue;
-    const pid = Number(item.ProcessId);
-    if (!Number.isFinite(pid) || pid <= 0) continue;
-    const ownerSid = typeof item.OwnerSid === 'string' ? item.OwnerSid.trim() : '';
-    const expectedSid = typeof currentSid === 'string' && currentSid.trim().length > 0
-      ? currentSid.trim()
-      : typeof item.CurrentSid === 'string' && item.CurrentSid.trim().length > 0 ? item.CurrentSid.trim() : undefined;
-    if (!ownerSid || !expectedSid || ownerSid !== expectedSid) continue;
-    const classification = classifyAntigravityProcess({ name: item.Name, path: item.ExecutablePath, commandLine: item.CommandLine });
-    if (!classification) continue;
-    candidates.push({ pid, sourceKind: classification.sourceKind, commandLine: String(item.CommandLine ?? ''), csrfToken: classification.csrfToken, ports: classification.ports });
-    if (candidates.length >= maxLimit) break;
-  }
-  return candidates;
-}
 
 export function parseWindowsListeners(rawNetTcp: string, targetPid: number, maxLimit = MAX_PORTS_PER_CANDIDATE): AntigravityListener[] {
   let list: any[];
@@ -154,34 +77,6 @@ export function parseWindowsListeners(rawNetTcp: string, targetPid: number, maxL
     if (listeners.length >= maxLimit) break;
   }
   return listeners;
-}
-
-export async function parseLinuxProcFsCandidates(procReader: ProcFsReader, maxLimit = MAX_CANDIDATES): Promise<AntigravityCandidate[]> {
-  if (typeof procReader.getuid !== 'function') return [];
-  let currentUid: number;
-  try { currentUid = procReader.getuid(); } catch { return []; }
-  if (!Number.isFinite(currentUid)) return [];
-  let entries: string[];
-  try { entries = await procReader.readdir('/proc'); } catch { return []; }
-  const candidates: AntigravityCandidate[] = [];
-  for (const entry of entries) {
-    if (!/^\d+$/.test(entry)) continue;
-    const pid = Number(entry);
-    let statusText = '';
-    try { statusText = await procReader.readFile(`/proc/${pid}/status`); } catch { continue; }
-    const uidMatch = statusText.match(/^Uid:\s+(\d+)/m);
-    if (!uidMatch || Number(uidMatch[1]) !== currentUid) continue;
-    let cmdlineRaw = '';
-    try { cmdlineRaw = await procReader.readFile(`/proc/${pid}/cmdline`); } catch { continue; }
-    const cmdline = cmdlineRaw.split('\x00').filter(Boolean).join(' ');
-    let exePath = '';
-    try { exePath = await procReader.readlink(`/proc/${pid}/exe`); } catch {}
-    const classification = classifyAntigravityProcess({ path: exePath, commandLine: cmdline });
-    if (!classification) continue;
-    candidates.push({ pid, sourceKind: classification.sourceKind, commandLine: cmdline, csrfToken: classification.csrfToken, ports: classification.ports });
-    if (candidates.length >= maxLimit) break;
-  }
-  return candidates;
 }
 
 export async function parseLinuxTcpListeners(procReader: ProcFsReader, pid: number, maxLimit = MAX_PORTS_PER_CANDIDATE): Promise<AntigravityListener[]> {
@@ -219,20 +114,6 @@ export async function parseLinuxTcpListeners(procReader: ProcFsReader, pid: numb
   await parseTcpFile('/proc/net/tcp', false);
   if (listeners.length < maxLimit) await parseTcpFile('/proc/net/tcp6', true);
   return listeners;
-}
-
-export function parseMacOsProcessCandidates(rawPsOutput: string, maxLimit = MAX_CANDIDATES, currentUid?: number): AntigravityCandidate[] {
-  if (typeof currentUid !== 'number' || !Number.isFinite(currentUid)) return [];
-  const candidates: AntigravityCandidate[] = [];
-  for (const line of rawPsOutput.split('\n')) {
-    const match = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
-    if (!match || Number(match[1]) !== currentUid) continue;
-    const classification = classifyAntigravityProcess({ commandLine: match[3] });
-    if (!classification) continue;
-    candidates.push({ pid: Number(match[2]), sourceKind: classification.sourceKind, commandLine: match[3], csrfToken: classification.csrfToken, ports: classification.ports });
-    if (candidates.length >= maxLimit) break;
-  }
-  return candidates;
 }
 
 export function parseMacOsListeners(rawLsofOutput: string, maxLimit = MAX_PORTS_PER_CANDIDATE): AntigravityListener[] {
@@ -307,38 +188,6 @@ export function parseRetrieveUserQuotaSummary(payload: any): AntigravityNumericU
   return { kind: 'NUMERIC_USAGE_AVAILABLE', windows };
 }
 
-export function parseLegacyModelConfigs(rawConfigs: any[]): AntigravityNumericUsageObservation {
-  if (!Array.isArray(rawConfigs) || rawConfigs.length === 0) throw new Error('Invalid legacy model configs structure');
-  let minGeminiFraction: number | undefined, minGeminiResetTime: number | undefined;
-  let minClaudeGptFraction: number | undefined, minClaudeGptResetTime: number | undefined;
-  for (const cfg of rawConfigs) {
-    if (!cfg || typeof cfg !== 'object') continue;
-    const combined = `${String(cfg.label ?? '').toLowerCase()} ${String(cfg.modelOrAlias?.model ?? '').toLowerCase()}`;
-    if (combined.includes('embedding') || combined.includes('image') || combined.includes('autocomplete') || combined.includes('lite')) continue;
-    const quotaInfo = cfg.quotaInfo;
-    if (!quotaInfo || typeof quotaInfo !== 'object') continue;
-    const fraction = quotaInfo.remainingFraction;
-    if (typeof fraction !== 'number' || !Number.isFinite(fraction) || fraction < 0 || fraction > 1) continue;
-    const resetTime = parseResetTimestampMs(quotaInfo.resetTime);
-    if (combined.includes('gemini')) {
-      if (minGeminiFraction === undefined || fraction < minGeminiFraction) { minGeminiFraction = fraction; minGeminiResetTime = resetTime; }
-    } else if (combined.includes('claude') || combined.includes('gpt') || combined.includes('sonnet') || combined.includes('opus')) {
-      if (minClaudeGptFraction === undefined || fraction < minClaudeGptFraction) { minClaudeGptFraction = fraction; minClaudeGptResetTime = resetTime; }
-    }
-  }
-  const windows: AntigravityNumericWindowObservation[] = [];
-  if (minGeminiFraction !== undefined) {
-    const rem = Math.round(minGeminiFraction * 100 * 100) / 100;
-    windows.push({ label: 'Gemini Session Limit', scope: 'BUCKET', scopeId: 'legacy-gemini-session', windowKind: 'SHORT', usedPercent: Math.max(0, Math.min(100, Math.round((100 - rem) * 100) / 100)), remainingPercent: rem, resetsAtMs: minGeminiResetTime });
-  }
-  if (minClaudeGptFraction !== undefined) {
-    const rem = Math.round(minClaudeGptFraction * 100 * 100) / 100;
-    windows.push({ label: 'Claude / GPT Session Limit', scope: 'BUCKET', scopeId: 'legacy-claude-gpt-session', windowKind: 'SHORT', usedPercent: Math.max(0, Math.min(100, Math.round((100 - rem) * 100) / 100)), remainingPercent: rem, resetsAtMs: minClaudeGptResetTime });
-  }
-  if (windows.length === 0) throw new Error('No eligible text model quotas identified in legacy config');
-  return { kind: 'NUMERIC_USAGE_AVAILABLE', windows };
-}
-
 export function createDefaultTransport(defaultTimeoutMs = DEFAULT_TIMEOUT_MS, defaultMaxResponseBytes = DEFAULT_MAX_RESPONSE_BYTES): AntigravityRequestTransport {
   return (urlStr, options) => new Promise((resolve, reject) => {
     let settled = false;
@@ -384,13 +233,6 @@ export function createDefaultTransport(defaultTimeoutMs = DEFAULT_TIMEOUT_MS, de
 function encodePowerShell(script: string): string { return Buffer.from(script, 'utf16le').toString('base64'); }
 class WindowsPlatformDiscovery implements AntigravityPlatformDiscovery {
   constructor(private readonly exec: (cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>) {}
-  async discoverCandidates(): Promise<AntigravityCandidate[]> {
-    try {
-      const script = "$currSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; $procs = Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'language[-_]server|agy|antigravity' -or $_.CommandLine -match 'language[-_]server|agy|antigravity' } | Select-Object -First 10; $res = @(); foreach ($p in $procs) { $owner = Invoke-CimMethod -InputObject $p -MethodName GetOwnerSid -ErrorAction SilentlyContinue; $sid = if ($owner -and $owner.Sid) { $owner.Sid } else { '' }; $res += [PSCustomObject]@{ ProcessId = $p.ProcessId; Name = $p.Name; ExecutablePath = $p.ExecutablePath; CommandLine = $p.CommandLine; OwnerSid = $sid; CurrentSid = $currSid }; }; ConvertTo-Json -Compress -InputObject $res";
-      const { stdout } = await this.exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encodePowerShell(script)]);
-      return parseWindowsProcessCandidates(stdout);
-    } catch { return []; }
-  }
   async discoverListeners(pid: number): Promise<AntigravityListener[]> {
     try {
       const script = `Get-NetTCPConnection -OwningProcess ${pid} -State Listen -ErrorAction SilentlyContinue | Select-Object OwningProcess, LocalAddress, LocalPort | ConvertTo-Json -Compress`;
@@ -401,18 +243,10 @@ class WindowsPlatformDiscovery implements AntigravityPlatformDiscovery {
 }
 class LinuxPlatformDiscovery implements AntigravityPlatformDiscovery {
   constructor(private readonly procReader: ProcFsReader) {}
-  discoverCandidates(): Promise<AntigravityCandidate[]> { return parseLinuxProcFsCandidates(this.procReader); }
   discoverListeners(pid: number): Promise<AntigravityListener[]> { return parseLinuxTcpListeners(this.procReader, pid); }
 }
 class MacOsPlatformDiscovery implements AntigravityPlatformDiscovery {
   constructor(private readonly exec: (cmd: string, args: string[]) => Promise<{ stdout: string; stderr: string }>, private readonly getuid?: () => number) {}
-  async discoverCandidates(): Promise<AntigravityCandidate[]> {
-    try {
-      const currentUid = typeof this.getuid === 'function' ? this.getuid() : process.getuid?.();
-      if (typeof currentUid !== 'number') return [];
-      return parseMacOsProcessCandidates((await this.exec('/bin/ps', ['-axww', '-o', 'uid=,pid=,command='])).stdout, MAX_CANDIDATES, currentUid);
-    } catch { return []; }
-  }
   async discoverListeners(pid: number): Promise<AntigravityListener[]> {
     try { return parseMacOsListeners((await this.exec('/usr/sbin/lsof', ['-nP', '-a', '-p', String(pid), '-iTCP', '-sTCP:LISTEN'])).stdout); }
     catch { return []; }
@@ -427,15 +261,14 @@ export interface AntigravityHostPlatformDiscoveryConfig {
 
 /**
  * Builds the platform-appropriate {@link AntigravityPlatformDiscovery} for
- * the current OS. Extracted out of {@link HostAntigravityLocalUsageSource}'s
- * constructor so a second caller (the opportunistic own-child quota harvest
- * in `quota-harvest-cache.ts`) can reuse the exact same, already-tested
- * per-platform listener resolution -- `discoverListeners(pid)`, which reads
- * only the sockets owned by one given pid -- without depending on
- * `HostAntigravityLocalUsageSource` itself or duplicating its per-OS
- * plumbing. `discoverCandidates()` (the part of this object that scans every
- * process on the machine) is untouched either way; the harvest caller only
- * ever invokes `discoverListeners`.
+ * the current OS: `/proc` on Linux, `lsof` on macOS, `Get-NetTCPConnection`
+ * on Windows, each asked only about the pid it is given.
+ *
+ * Its one caller is the own-child quota harvest in `quota-harvest-cache.ts`.
+ * The machine-wide half that used to live beside this -- scanning every
+ * process for something Antigravity-shaped and lifting a CSRF token out of
+ * its command line -- was removed on 2026-09-03; see `docs/ROADMAP.md`
+ * section 3.
  */
 export function createHostPlatformDiscovery(config?: AntigravityHostPlatformDiscoveryConfig): AntigravityPlatformDiscovery {
   const timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -449,117 +282,5 @@ export function createHostPlatformDiscovery(config?: AntigravityHostPlatformDisc
     return new LinuxPlatformDiscovery(procReader);
   }
   if (process.platform === 'darwin') return new MacOsPlatformDiscovery(execFn, typeof process.getuid === 'function' ? () => process.getuid!() : undefined);
-  return { discoverCandidates: async () => [] };
-}
-
-export class HostAntigravityLocalUsageSource implements AntigravityUsageCapabilitySource {
-  private readonly platformDiscovery: AntigravityPlatformDiscovery;
-  private readonly requestTransport: AntigravityRequestTransport;
-  private readonly timeoutMs: number;
-  private readonly maxResponseBytes: number;
-  private diagnostics: AntigravityDiagnostics = {
-    sourceKind: 'UNKNOWN', methodUsed: 'NONE', summaryCallCount: 0,
-    userStatusCallCount: 0, commandConfigsCallCount: 0, modelGenerationCalls: 0,
-  };
-
-  constructor(config?: HostAntigravityLocalUsageSourceConfig) {
-    this.timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    this.maxResponseBytes = config?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
-    this.requestTransport = config?.requestTransport ?? createDefaultTransport(this.timeoutMs, this.maxResponseBytes);
-    this.platformDiscovery = config?.platformDiscovery ?? createHostPlatformDiscovery({
-      procReader: config?.procReader,
-      execCommand: config?.execCommand,
-      timeoutMs: this.timeoutMs,
-    });
-  }
-
-  getDiagnostics(): AntigravityDiagnostics { return { ...this.diagnostics }; }
-
-  async read(): Promise<AntigravityObservation> {
-    this.diagnostics = { sourceKind: 'UNKNOWN', methodUsed: 'NONE', summaryCallCount: 0, userStatusCallCount: 0, commandConfigsCallCount: 0, modelGenerationCalls: 0 };
-    let candidates: AntigravityCandidate[];
-    try { candidates = await this.platformDiscovery.discoverCandidates(); }
-    catch { throw new AntigravityUsageSourceError('Process discovery failed', 'UNAVAILABLE'); }
-    if (!candidates?.length) throw new AntigravityUsageSourceError('No running Antigravity endpoint found', 'UNAVAILABLE');
-    const priorityOrder: Record<AntigravitySourceKind, number> = { APP: 1, AGY: 2, IDE: 3 };
-    candidates.sort((a, b) => priorityOrder[a.sourceKind] - priorityOrder[b.sourceKind]);
-    for (const candidate of candidates) {
-      for (const endpoint of await this.resolveCandidateEndpoints(candidate)) {
-        const observation = await this.probeAndFetchQuota(endpoint);
-        if (observation) { this.diagnostics.sourceKind = candidate.sourceKind; return observation; }
-      }
-    }
-    throw new AntigravityUsageSourceError('No supported Antigravity quota endpoint responded', 'UNSUPPORTED');
-  }
-
-  private async resolveCandidateEndpoints(candidate: AntigravityCandidate): Promise<AntigravityLocalEndpoint[]> {
-    const endpoints: AntigravityLocalEndpoint[] = [];
-    const ports: { host: '127.0.0.1' | '::1'; port: number }[] = [];
-    if (candidate.ports) for (const p of candidate.ports) ports.push({ host: '127.0.0.1', port: p });
-    if (this.platformDiscovery.discoverListeners) {
-      try {
-        for (const l of await this.platformDiscovery.discoverListeners(candidate.pid)) {
-          if (!ports.some((p) => p.port === l.port && p.host === l.host)) ports.push(l);
-        }
-      } catch {}
-    }
-    for (const { host, port } of ports) {
-      if (candidate.sourceKind === 'AGY') {
-        endpoints.push({ transport: 'http', host, port, csrfToken: candidate.csrfToken, sourceKind: 'AGY' });
-        endpoints.push({ transport: 'https', host, port, csrfToken: candidate.csrfToken, sourceKind: 'AGY' });
-      } else endpoints.push({ transport: 'https', host, port, csrfToken: candidate.csrfToken, sourceKind: candidate.sourceKind });
-    }
-    return endpoints;
-  }
-
-  private async probeAndFetchQuota(endpoint: AntigravityLocalEndpoint): Promise<AntigravityNumericUsageObservation | null> {
-    // An IPv6 literal needs brackets in an authority. Without them `new URL()`
-    // throws `Invalid URL` for every `::1` candidate -- verified -- so IPv6
-    // loopback endpoints were discovered correctly and then silently discarded,
-    // and usage reported unavailable while a live endpoint was listening.
-    const authority = endpoint.host.includes(':') ? `[${endpoint.host}]` : endpoint.host;
-    const baseUrl = `${endpoint.transport}://${authority}:${endpoint.port}/exa.language_server_pb.LanguageServerService`;
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1' };
-    if (endpoint.csrfToken) headers['x-codeium-csrf-token'] = endpoint.csrfToken;
-    try {
-      const probe = await this.requestTransport(`${baseUrl}/GetUnleashData`, { method: 'POST', headers, body: ANTIGRAVITY_METADATA_BODY, timeoutMs: this.timeoutMs, maxResponseBytes: this.maxResponseBytes });
-      if (probe.status !== 200) return null;
-    } catch { return null; }
-    try {
-      this.diagnostics.summaryCallCount++;
-      const res = await this.requestTransport(`${baseUrl}/RetrieveUserQuotaSummary`, { method: 'POST', headers, body: ANTIGRAVITY_METADATA_BODY, timeoutMs: this.timeoutMs, maxResponseBytes: this.maxResponseBytes });
-      if (res.status === 200) {
-        const obs = parseRetrieveUserQuotaSummary(JSON.parse(res.body));
-        this.diagnostics.methodUsed = 'RetrieveUserQuotaSummary';
-        return obs;
-      }
-    } catch {}
-    try {
-      this.diagnostics.userStatusCallCount++;
-      const res = await this.requestTransport(`${baseUrl}/GetUserStatus`, { method: 'POST', headers, body: ANTIGRAVITY_METADATA_BODY, timeoutMs: this.timeoutMs, maxResponseBytes: this.maxResponseBytes });
-      if (res.status === 200) {
-        const payload = JSON.parse(res.body);
-        const configs = payload?.userStatus?.cascadeModelConfigData?.clientModelConfigs ?? payload?.cascadeModelConfigData?.clientModelConfigs ?? payload?.clientModelConfigs;
-        if (Array.isArray(configs)) {
-          const obs = parseLegacyModelConfigs(configs);
-          this.diagnostics.methodUsed = 'GetUserStatus';
-          return obs;
-        }
-      }
-    } catch {}
-    try {
-      this.diagnostics.commandConfigsCallCount++;
-      const res = await this.requestTransport(`${baseUrl}/GetCommandModelConfigs`, { method: 'POST', headers, body: ANTIGRAVITY_METADATA_BODY, timeoutMs: this.timeoutMs, maxResponseBytes: this.maxResponseBytes });
-      if (res.status === 200) {
-        const payload = JSON.parse(res.body);
-        const configs = payload?.clientModelConfigs ?? payload?.configs;
-        if (Array.isArray(configs)) {
-          const obs = parseLegacyModelConfigs(configs);
-          this.diagnostics.methodUsed = 'GetCommandModelConfigs';
-          return obs;
-        }
-      }
-    } catch {}
-    return null;
-  }
+  return { discoverListeners: async () => [] };
 }

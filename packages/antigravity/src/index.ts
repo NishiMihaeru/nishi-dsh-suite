@@ -25,8 +25,8 @@ import {
 } from './antigravity-primary.js'
 import { AntigravitySearchBackend } from './web-search-backend.js'
 import { AntigravityUsageCollector } from './usage.js'
-import { createHostPlatformDiscovery, HostAntigravityLocalUsageSource } from './usage-source.js'
-import { AntigravityQuotaFallbackUsageSource, AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
+import { createHostPlatformDiscovery } from './usage-source.js'
+import { AntigravityOwnChildQuotaSource, AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 
 export const name = 'antigravity'
 export const inject = ['nishiProviders', 'subprocess', 'llm']
@@ -139,7 +139,7 @@ function buildAntigravityDescriptor(): ProviderDescriptor<ResolvedAntigravityCon
     // itself just spawned, never by scanning other processes' command
     // lines. See quota-harvest-cache.ts's module doc for the full trust
     // argument.
-    discoverListeners: (pid) => platformDiscovery.discoverListeners?.(pid) ?? Promise.resolve([]),
+    discoverListeners: (pid) => platformDiscovery.discoverListeners(pid),
   })
 
   return {
@@ -160,18 +160,15 @@ function buildAntigravityDescriptor(): ProviderDescriptor<ResolvedAntigravityCon
     },
     usage: {
       /**
-       * Antigravity exposes no official machine-readable usage, so the
-       * primary source reports an observation about what it could see
-       * locally and the normalizer turns that into an honest
-       * `UNSUPPORTED_NUMERIC_USAGE` row rather than an error or a
-       * fabricated number. `AntigravityQuotaFallbackUsageSource` only steps
-       * in when that primary source finds no running Antigravity surface at
-       * all (`UNAVAILABLE`): see quota-harvest-cache.ts for exactly when it
-       * does and does not override the primary result.
+       * Antigravity publishes no machine-readable quota surface at all -- the
+       * vendor documents none, and the only one that exists is a private RPC
+       * of its language server. This route therefore reads quota from the one
+       * process it is entitled to inspect: its own `agy` child, harvested
+       * opportunistically while a turn is already running. Before the first
+       * turn there is no number, and the normalizer turns that into an honest
+       * `UNSUPPORTED_NUMERIC_USAGE` row rather than an error or a fabrication.
        */
-      create: () => new AntigravityUsageCollector(
-        new AntigravityQuotaFallbackUsageSource(new HostAntigravityLocalUsageSource(), quotaHarvestCache),
-      ),
+      create: () => new AntigravityUsageCollector(new AntigravityOwnChildQuotaSource(quotaHarvestCache)),
     },
     webSearch: {
       create: (ctx, config) => new AntigravitySearchBackend(ctx, {

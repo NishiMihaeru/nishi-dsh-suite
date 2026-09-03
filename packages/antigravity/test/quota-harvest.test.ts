@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import {
-  AntigravityQuotaFallbackUsageSource,
+  AntigravityOwnChildQuotaSource,
   AntigravityQuotaHarvestCache,
 } from '../src/quota-harvest-cache.ts'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
@@ -260,10 +260,7 @@ test('a harvest failure carrying vendor-looking secret text never surfaces anywh
   await assert.doesNotReject(transportFailureCache.harvest(1))
   assert.equal(transportFailureCache.read(), undefined)
 
-  const source = new AntigravityQuotaFallbackUsageSource(
-    { async read() { throw new AntigravityUsageSourceError('unavailable', 'UNAVAILABLE') } },
-    transportFailureCache,
-  )
+  const source = new AntigravityOwnChildQuotaSource(transportFailureCache)
   const collector = new AntigravityUsageCollector(source)
   const snapshot = await collector.collect(1)
   assert.equal(snapshot.status, 'UNAVAILABLE')
@@ -271,10 +268,10 @@ test('a harvest failure carrying vendor-looking secret text never surfaces anywh
 })
 
 // ---------------------------------------------------------------------------
-// AntigravityQuotaFallbackUsageSource / collector wiring
+// AntigravityOwnChildQuotaSource / collector wiring
 // ---------------------------------------------------------------------------
 
-test('the collector serves the harvested cache when live discovery finds nothing (UNAVAILABLE)', async () => {
+test('the collector serves a harvested reading as numeric usage', async () => {
   const cache = new AntigravityQuotaHarvestCache({
     discoverListeners: async () => [{ host: '127.0.0.1', port: 1 }],
     requestTransport: async () => ({ status: 200, body: VALID_QUOTA_BODY }),
@@ -283,10 +280,7 @@ test('the collector serves the harvested cache when live discovery finds nothing
   await cache.harvest(1)
   assert.ok(cache.read())
 
-  const source = new AntigravityQuotaFallbackUsageSource(
-    { async read() { throw new AntigravityUsageSourceError('nothing running', 'UNAVAILABLE') } },
-    cache,
-  )
+  const source = new AntigravityOwnChildQuotaSource(cache)
   const collector = new AntigravityUsageCollector(source)
   const snapshot = await collector.collect(1234)
 
@@ -294,47 +288,9 @@ test('the collector serves the harvested cache when live discovery finds nothing
   assert.equal(snapshot.windows.length, 1)
 })
 
-test('the collector prefers live discovery over the harvest cache when live discovery succeeds', async () => {
-  const cache = new AntigravityQuotaHarvestCache({
-    discoverListeners: async () => [{ host: '127.0.0.1', port: 1 }],
-    requestTransport: async () => ({ status: 200, body: VALID_QUOTA_BODY }),
-    maxAttempts: 1,
-  })
-  await cache.harvest(1)
-  assert.ok(cache.read(), 'cache has a reading available, so we can prove it is NOT the one served')
 
-  const liveObservation = {
-    kind: 'NUMERIC_USAGE_AVAILABLE' as const,
-    windows: [{ windowKind: 'SHORT' as const, label: 'Live Reading', usedPercent: 7 }],
-  }
-  const source = new AntigravityQuotaFallbackUsageSource({ async read() { return liveObservation } }, cache)
-  const collector = new AntigravityUsageCollector(source)
-  const snapshot = await collector.collect(1)
 
-  assert.equal(snapshot.status, 'AVAILABLE')
-  assert.equal(snapshot.windows[0].label, 'Live Reading')
-  assert.equal(snapshot.windows[0].usedPercent, 7)
-})
-
-for (const code of ['UNSUPPORTED', 'LOGIN_REQUIRED', 'ERROR'] as const) {
-  test(`the fallback source does not override a live-discovery ${code} with a cached reading`, async () => {
-    const cache = new AntigravityQuotaHarvestCache({
-      discoverListeners: async () => [{ host: '127.0.0.1', port: 1 }],
-      requestTransport: async () => ({ status: 200, body: VALID_QUOTA_BODY }),
-      maxAttempts: 1,
-    })
-    await cache.harvest(1)
-    assert.ok(cache.read())
-
-    const source = new AntigravityQuotaFallbackUsageSource(
-      { async read() { throw new AntigravityUsageSourceError(`primary says ${code}`, code) } },
-      cache,
-    )
-    await assert.rejects(source.read(), AntigravityUsageSourceError)
-  })
-}
-
-test('a stale cached observation is not served by the fallback source either', async () => {
+test('a stale cached observation is not served by the quota source either', async () => {
   let now = 0
   const cache = new AntigravityQuotaHarvestCache({
     discoverListeners: async () => [{ host: '127.0.0.1', port: 1 }],
@@ -346,10 +302,7 @@ test('a stale cached observation is not served by the fallback source either', a
   await cache.harvest(1)
   now += 1_000
 
-  const source = new AntigravityQuotaFallbackUsageSource(
-    { async read() { throw new AntigravityUsageSourceError('nothing running', 'UNAVAILABLE') } },
-    cache,
-  )
+  const source = new AntigravityOwnChildQuotaSource(cache)
   await assert.rejects(source.read(), AntigravityUsageSourceError)
 })
 
@@ -373,10 +326,7 @@ test('a turn feeds the harvest cache from its own spawned child pid, and the col
   await drain(adapter.stream(options))
   await waitFor(() => cache.read() !== undefined)
 
-  const source = new AntigravityQuotaFallbackUsageSource(
-    { async read() { throw new AntigravityUsageSourceError('nothing running', 'UNAVAILABLE') } },
-    cache,
-  )
+  const source = new AntigravityOwnChildQuotaSource(cache)
   const snapshot = await new AntigravityUsageCollector(source).collect(1)
   assert.equal(snapshot.status, 'AVAILABLE')
 })

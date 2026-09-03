@@ -227,21 +227,32 @@ export class AntigravityQuotaHarvestCache {
  * needs no changes at all: this wrapper only ever engages after that whole
  * search has already come back completely empty.
  */
-export class AntigravityQuotaFallbackUsageSource implements AntigravityUsageCapabilitySource {
-  constructor(
-    private readonly primary: AntigravityUsageCapabilitySource,
-    private readonly cache: AntigravityQuotaHarvestCache,
-  ) {}
+/**
+ * The route's only quota source: whatever the last own-child harvest saw.
+ *
+ * It used to sit behind a live machine-wide source, stepping in only when
+ * that source found no running Antigravity surface at all. That source was
+ * removed on 2026-09-03 -- it scanned every process on the machine and lifted
+ * a CSRF token out of other processes' command lines, which contradicted this
+ * package's own stated posture that it reads no credential or token store,
+ * and both independent reviewers ranked removing it their second
+ * simplification. See `docs/ROADMAP.md` section 3.
+ *
+ * What is lost with it is real and is recorded rather than glossed: quota is
+ * now unavailable until this plugin has run a turn, and it never reflects
+ * usage by the IDE or the desktop app. What is kept is the only reading this
+ * package can take without inspecting a process it did not start.
+ */
+export class AntigravityOwnChildQuotaSource implements AntigravityUsageCapabilitySource {
+  constructor(private readonly cache: AntigravityQuotaHarvestCache) {}
 
   async read(): Promise<AntigravityObservation> {
-    try {
-      return await this.primary.read()
-    } catch (err) {
-      if (err instanceof AntigravityUsageSourceError && err.code === 'UNAVAILABLE') {
-        const cached = this.cache.read()
-        if (cached) return cached
-      }
-      throw err
-    }
+    const cached = this.cache.read()
+    if (cached) return cached
+    throw new AntigravityUsageSourceError(
+      'No Antigravity quota reading yet: this route harvests quota from its own `agy` child, so a turn '
+      + 'has to have run recently for a number to exist.',
+      'UNAVAILABLE',
+    )
   }
 }
