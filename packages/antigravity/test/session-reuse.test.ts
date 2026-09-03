@@ -980,3 +980,125 @@ test('a session that finished a turn still accepts the next one', async () => {
     assert.equal(spawns.length, 1, 'the in-flight guard must release when a turn ends')
   } finally { await adapter.dispose() }
 })
+
+/** A reply carrying several tool calls, for the all-or-nothing checks below. */
+function multiCallReply(calls: readonly { id: string; name: string; args?: Record<string, unknown> }[]) {
+  return {
+    conversation_id: 'c1',
+    status: 'SUCCESS',
+    structured_output: {
+      kind: 'tool_calls',
+      text: '',
+      tool_calls: calls.map(call => ({ id: call.id, name: call.name, arguments: call.args ?? { path: 'a.ts' } })),
+    },
+  }
+}
+
+/** Chunks yielded before the stream threw, which is the subject of these two. */
+async function collectUntilThrow(iterable: AsyncIterable<any>) {
+  const chunks: any[] = []
+  let error: unknown
+  try {
+    for await (const chunk of iterable) chunks.push(chunk)
+  } catch (thrown: unknown) { error = thrown }
+  return { chunks, error }
+}
+
+/**
+ * A step is all-or-nothing. The unknown-tool check used to run inside the loop
+ * that yields calls, so a reply whose LAST call named an undeclared tool had
+ * already streamed its earlier calls to DSH before the turn threw.
+ */
+test('a reply whose later call names an unknown tool yields none of its earlier ones', async () => {
+  const { ctx, spawns } = multiHarness([
+    [multiCallReply([{ id: 'call_1', name: 'read_file' }, { id: 'call_2', name: 'not_a_tool' }])],
+    [messageReply('rebuilt')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('do two things')
+    const { chunks, error } = await collectUntilThrow(adapter.stream(request({ messages: [first] })))
+
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_PROTOCOL')
+    assert.match(error.message, /unknown DSH tool "not_a_tool"/)
+    assert.equal(toolCallIds(chunks).length, 0, 'the valid call must not reach DSH from a refused reply')
+
+    await collect(adapter.stream(request({ messages: [first, userText('again')] })))
+    assert.equal(spawns.length, 2, 'a refused reply must abandon the conversation')
+  } finally { await adapter.dispose() }
+})
+
+/**
+ * DSH mints unique ids, but the wire restores the vendor's so the model
+ * recognises its own call. Two calls sharing one vendor id in one reply would
+ * put two results under one id -- the state this route already knows produces
+ * repeated identical calls.
+ */
+test('a reply reusing one vendor call id twice is refused whole', async () => {
+  const { ctx, spawns } = multiHarness([
+    [multiCallReply([{ id: 'call_1', name: 'read_file' }, { id: 'call_1', name: 'read_file', args: { path: 'b.ts' } }])],
+    [messageReply('rebuilt')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('read both')
+    const { chunks, error } = await collectUntilThrow(adapter.stream(request({ messages: [first] })))
+
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_PROTOCOL')
+    assert.match(error.message, /reused tool-call id "call_1"/)
+    assert.equal(toolCallIds(chunks).length, 0)
+
+    await collect(adapter.stream(request({ messages: [first, userText('again')] })))
+    assert.equal(spawns.length, 2)
+  } finally { await adapter.dispose() }
+})
+
+/**
+ * Reuse ACROSS turns is normal for this vendor -- `call_1` on every step -- so
+ * it cannot be refused. What must not happen is restoring one vendor id for two
+ * different calls, which would hand a rebuild two results under one id.
+ */
+test('a vendor id reused across turns is not restored a second time on the wire', async () => {
+  const { ctx, child } = harness([
+    toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
+    toolCallReply('call_1', 'read_file', { path: 'b.ts' }),
+    messageReply('done'),
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('read a')
+    const step1 = await collect(adapter.stream(request({ messages: [first] })))
+    const id1 = toolCallIds(step1)[0]
+    const after1 = [first, assistantToolCall(id1, 'read_file', '{"path":"a.ts"}'), toolResult(id1, 'a body')]
+
+    const step2 = await collect(adapter.stream(request({ messages: after1 })))
+    const id2 = toolCallIds(step2)[0]
+    assert.notEqual(id1, id2, 'DSH ids stay unique whatever the vendor reuses')
+
+    await collect(adapter.stream(request({
+      messages: [...after1, assistantToolCall(id2, 'read_file', '{"path":"b.ts"}'), toolResult(id2, 'b body')],
+    })))
+
+    // Assert on the BLOCK ids, not on the envelope text: `source.callId` is
+    // sent verbatim and still carries the DSH id, so a text search passes
+    // whether or not the restore is guarded, which is no test at all.
+    const delta = child.envelopes()[2] as any
+    const blockIds: string[] = []
+    for (const message of delta.messages) {
+      for (const block of message.content) {
+        // The envelope is the SERIALIZED shape: a result cites `tool_call_id`,
+        // not DSH's `toolCallId`. Reading the DSH spelling here collected
+        // `undefined` and made this test pass whatever the adapter did.
+        if (block.type === 'tool-call') blockIds.push(String(block.id))
+        if (block.type === 'tool-result') blockIds.push(String(block.tool_call_id))
+      }
+    }
+    assert.ok(blockIds.length > 0, 'the delta carried no call or result to check')
+    assert.ok(
+      !blockIds.includes('call_1'),
+      `the second call must not travel under an id the first already owns: ${JSON.stringify(blockIds)}`,
+    )
+  } finally { await adapter.dispose() }
+})

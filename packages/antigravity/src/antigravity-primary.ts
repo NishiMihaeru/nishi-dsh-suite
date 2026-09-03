@@ -24,6 +24,7 @@ import { AgyTurnProcess, type AgyTurnOutcome, type AgyTurnResult } from './agy-s
 import { nativeToolNames, record, resolveVendorInvocation, type VendorInvocation } from './agy-vendor.js'
 import type { AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 import {
+  assertExecutableDecision,
   BRIDGE_SCHEMA,
   BRIDGE_SCHEMA_FILE,
   BRIDGE_TURN_FIELD,
@@ -796,9 +797,16 @@ export class AntigravityCliAdapter extends LlmAdapter {
       throw resultFailure(result)
     }
 
+    // Read the decision AND check it can be executed as a whole, under one
+    // try: an unreadable turn and an unexecutable one are the same kind of
+    // problem for the conversation, and both must abandon it before anything
+    // is yielded. Validating up front is what makes a step all-or-nothing --
+    // the unknown-tool check used to run inside the loop below, after earlier
+    // calls of the same reply had already been streamed to DSH.
     let output: ReturnType<typeof structuredResult>
     try {
       output = structuredResult(result, turn)
+      assertExecutableDecision(output, requestedTools)
     } catch (error: unknown) {
       await this.abandonSession(options)
       throw error
@@ -813,18 +821,21 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }
 
     for (const call of output.tool_calls) {
-      if (!requestedTools.has(call.name)) {
-        await this.abandonSession(options)
-        throw new LlmError(
-          `Antigravity requested unknown DSH tool ${JSON.stringify(call.name)}`,
-          'ANTIGRAVITY_PROTOCOL',
-        )
-      }
       const index = nextIndex++
       const id = this.mintCallId(call.id)
       // Remember what the vendor called this, so a result handed back to a
-      // live conversation cites the id the model itself wrote.
-      session?.vendorCallIds.set(String(id), call.id)
+      // live conversation cites the id the model itself wrote -- unless that
+      // vendor id is already spoken for by an earlier call of this
+      // conversation. Reusing an id ACROSS turns is normal for this vendor
+      // (`call_1` on every step), so it cannot be refused the way a reuse
+      // within one reply is; but restoring it for two different calls would
+      // put two results under one id in the history a rebuild replays, which
+      // is the state that makes a model call again. Declining to map the
+      // second one leaves DSH's own id on the wire, which is unique and which
+      // the serializer already passes through untouched.
+      const alreadyMapped = session !== undefined
+        && [...session.vendorCallIds.values()].includes(call.id)
+      if (!alreadyMapped) session?.vendorCallIds.set(String(id), call.id)
       const argumentsText = JSON.stringify(call.arguments)
       yield { type: 'block-start', index, blockType: 'tool-call' }
       yield { type: 'tool-call-delta', index, id, name: call.name, argumentsDelta: argumentsText }

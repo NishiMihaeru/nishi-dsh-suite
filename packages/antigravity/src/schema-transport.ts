@@ -400,6 +400,60 @@ export function structuredResult(result: AgyTurnResult, expectedTurn: string | u
   )
 }
 
+/**
+ * Refuse a decision DSH cannot execute as a whole, BEFORE any of it is
+ * yielded.
+ *
+ * Two separate hazards, both of which only exist because one reply may carry
+ * several calls, and both of which used to be reachable:
+ *
+ * The unknown-tool check ran inside the loop that yields calls, so a reply
+ * whose third call named a tool DSH never declared had already had its first
+ * two streamed out when the turn threw. A step then ended as a half-delivered
+ * decision plus an error. Validating first makes a step all-or-nothing.
+ *
+ * Two calls sharing one vendor id in one reply is worse and was unguarded.
+ * DSH mints its own unique ids, but the wire restores the vendor's so the
+ * model recognises its own call -- and with one id behind two calls, the
+ * conversation is handed two results citing it. That is precisely the state
+ * this route already knows generates repeated identical calls: a history full
+ * of results the model cannot match to their calls. The model authors these
+ * ids freely, `id` is only `{"type": "string"}` in the forced schema, and the
+ * agent instruction not to reuse one is an instruction rather than a
+ * guarantee -- the same reason the per-turn stamp exists.
+ *
+ * Scope is deliberately ONE REPLY. Reusing an id across turns is normal for
+ * this vendor (`call_1` on every step), so rejecting that would refuse
+ * ordinary behaviour; the collision it can still cause is handled where the
+ * wire id is restored, by declining to restore an id that is already spoken
+ * for.
+ *
+ * @param output - The decision just read for this turn.
+ * @param requestedTools - Tool names this request actually declared.
+ */
+export function assertExecutableDecision(
+  output: BridgeOutput,
+  requestedTools: ReadonlySet<string>,
+): void {
+  const seen = new Set<string>()
+  for (const call of output.tool_calls) {
+    if (!requestedTools.has(call.name)) {
+      throw new LlmError(
+        `Antigravity requested unknown DSH tool ${JSON.stringify(call.name)}`,
+        'ANTIGRAVITY_PROTOCOL',
+      )
+    }
+    if (seen.has(call.id)) {
+      throw new LlmError(
+        `Antigravity reused tool-call id ${JSON.stringify(call.id)} twice in one reply, so its results `
+        + 'could not be told apart on the wire',
+        'ANTIGRAVITY_PROTOCOL',
+      )
+    }
+    seen.add(call.id)
+  }
+}
+
 function validateBridgeOutput(row: Record<string, unknown>, expectedTurn: string | undefined): BridgeOutput {
   if (!answersTurn(row, expectedTurn)) {
     throw new LlmError(

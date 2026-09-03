@@ -251,6 +251,10 @@ not counted as a loss.
 rebuild is correct but not free, and this package mounts no logger, so the count
 is returned rather than dropped.
 
+One reply may carry several tool calls, and the whole decision is validated before any of it is yielded: every name must be declared by the request, and no two calls may share a vendor id. Both checks used to be absent in a way that mattered. The unknown-tool check ran inside the loop that streams calls, so a reply whose third call named an undeclared tool had already delivered its first two; a step could end half-applied. And one vendor id behind two calls puts two results under that id on the wire, which is the state this route already knows produces repeated identical calls — the model authors these ids, the forced schema types `id` only as a string, and the agent instruction not to reuse one is an instruction, not a guarantee. Refusing the reply whole, under the same path that abandons the conversation on an unreadable turn, makes a step all-or-nothing.
+
+Forbidding parallel calls outright would close the same two hazards and open a smaller one: every extra step is another boundary at which DSH rewrites history behind the adapter, which is the class the digest check exists for, and costs a model request plus about 1.9 s of measured boundary latency. Reuse of an id across turns is normal for this vendor and is not refused; the wire simply declines to restore an id another call already owns.
+
 ## Antigravity tool transport — one, after the MCP bridge was removed
 
 This route had two transports behind a `transport` config key: the forced output schema described above, and an MCP bridge that handed DSH's catalog to the vendor's own harness as MCP tools so the model called them natively. The bridge was built, live-accepted and briefly the default. It has been **removed**, along with the config key; the schema transport is the only path. The decision and its evidence are in `ROADMAP.md` section 3, and the vendor-contract inventory it rests on is `verification/agy-cli-contract.md`. Three things carried it.

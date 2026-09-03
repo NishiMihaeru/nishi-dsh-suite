@@ -65,6 +65,21 @@ Every envelope carries a `turn` field the reply must echo, and a decision stampe
 
 A stamp that does not match falls through to the turn's own `response` before failing, since the vendor's parse can miss a payload that is plainly there. When neither source answers this turn the conversation is abandoned rather than continued: the vendor is holding a turn DSH rejected, and the next request reopens from DSH's history.
 
+### One decision, validated whole
+
+A reply may carry several tool calls, and DSH executes them all in one step. The
+decision is therefore checked before any of it is handed over: every name must
+be a tool this request declared, and no two calls may share a vendor id. A reply
+failing either is refused entire and the conversation abandoned, so a step is
+all-or-nothing rather than partly delivered and then failed.
+
+The id rule is not pedantry. DSH mints its own unique ids, but the wire restores
+the vendor's so the model recognises its own call — and two calls behind one id
+hand the conversation two results citing it, which is precisely the state that
+makes a model call again. Reuse *across* turns is normal for this vendor
+(`call_1` on every step) and is not refused; instead the wire declines to
+restore an id another call already owns, leaving DSH's unique id in its place.
+
 ### Context capacity
 
 The route advertises `contextWindowTokens` (default `200_000`). It is configured, not discovered: the vendor discloses no per-model window. Without any capacity `compaction-basic` refuses automatic pressure compaction and the refusal is swallowed as a single warning, so a session's history would grow with no bound and no visible symptom.
