@@ -42,6 +42,7 @@ import {
   type AntigravityListener,
   type AntigravityRequestTransport,
 } from './usage-source.js'
+import type { AntigravityColdQuotaHarvest } from './quota-cold-harvest.js'
 import {
   AntigravityUsageSourceError,
   type AntigravityNumericUsageObservation,
@@ -99,6 +100,17 @@ export interface AntigravityQuotaHarvestConfig {
   readonly now?: () => number
 }
 
+/**
+ * Per-call widening of the retry window, for a caller that awaits the harvest
+ * rather than firing it and forgetting it.
+ */
+export interface AntigravityHarvestOverrides {
+  readonly maxAttempts?: number
+  readonly retryDelayMs?: number
+  /** Cuts the loop between attempts when the caller's own deadline fires. */
+  readonly signal?: AbortSignal
+}
+
 interface CachedQuotaObservation {
   readonly observation: AntigravityNumericUsageObservation
   readonly capturedAtMs: number
@@ -147,11 +159,21 @@ export class AntigravityQuotaHarvestCache {
    * cancel, or fail a turn. The retry loop below exists only to widen the
    * chance of catching the child's listening window; it is bounded and
    * backgrounded, not something any caller waits on.
+   *
+   * `overrides` widens that window for the one caller who legitimately does
+   * wait: the cold harvest, which spawns a child for this reading alone and
+   * has to poll for the ~1.5 s the vendor's server answers before its login
+   * does (`quota-cold-harvest.ts`). It stays an override rather than a new
+   * default because the opportunistic caller must NOT start polling a turn's
+   * child for ten seconds.
    */
-  async harvest(pid: number): Promise<void> {
+  async harvest(pid: number, overrides?: AntigravityHarvestOverrides): Promise<void> {
+    const maxAttempts = Math.max(1, overrides?.maxAttempts ?? this.maxAttempts)
+    const retryDelayMs = overrides?.retryDelayMs ?? this.retryDelayMs
     try {
-      for (let attempt = 0; attempt < this.maxAttempts; attempt += 1) {
-        if (attempt > 0) await this.delay(this.retryDelayMs)
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (overrides?.signal?.aborted === true) return
+        if (attempt > 0) await this.delay(retryDelayMs)
         let listeners: readonly AntigravityListener[]
         try {
           listeners = await this.config.discoverListeners(pid)
@@ -238,20 +260,37 @@ export class AntigravityQuotaHarvestCache {
  * and both independent reviewers ranked removing it their second
  * simplification. See `docs/ROADMAP.md` section 3.
  *
- * What is lost with it is real and is recorded rather than glossed: quota is
- * now unavailable until this plugin has run a turn, and it never reflects
- * usage by the IDE or the desktop app. What is kept is the only reading this
- * package can take without inspecting a process it did not start.
+ * What that cost -- quota unavailable until this plugin had run a turn -- was
+ * recorded rather than glossed, and then paid off rather than left standing:
+ * `quota-cold-harvest.ts` spawns a child for the reading alone, so the
+ * pre-turn blind window is gone. Two limits remain, and both are the
+ * vendor's: the figure never reflects usage by the IDE or the desktop app,
+ * and the RPC's own content can come back with no remaining-fraction at all,
+ * which the parser turns into an honest absence. What is kept throughout is
+ * the boundary: this package reads only processes it started itself.
  */
 export class AntigravityOwnChildQuotaSource implements AntigravityUsageCapabilitySource {
-  constructor(private readonly cache: AntigravityQuotaHarvestCache) {}
+  /**
+   * @param cache - Readings harvested from turn children, opportunistically.
+   * @param coldHarvest - Spawns a child for this reading alone when there is
+   * no recent one, so quota does not have to wait for a turn. Optional
+   * because it needs a provider context the cache is built without; a source
+   * constructed without it behaves exactly as it did before -- no number
+   * until a turn has run.
+   */
+  constructor(
+    private readonly cache: AntigravityQuotaHarvestCache,
+    private readonly coldHarvest?: AntigravityColdQuotaHarvest,
+  ) {}
 
   async read(): Promise<AntigravityObservation> {
     const cached = this.cache.read()
     if (cached) return cached
+    const cold = await this.coldHarvest?.()
+    if (cold) return cold
     throw new AntigravityUsageSourceError(
-      'No Antigravity quota reading yet: this route harvests quota from its own `agy` child, so a turn '
-      + 'has to have run recently for a number to exist.',
+      'No Antigravity quota reading available: this route reads quota from its own `agy` child, and '
+      + 'neither a recent turn nor a cold read produced one.',
       'UNAVAILABLE',
     )
   }

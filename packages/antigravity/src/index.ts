@@ -26,6 +26,7 @@ import {
 import { AntigravitySearchBackend } from './web-search-backend.js'
 import { AntigravityUsageCollector } from './usage.js'
 import { createHostPlatformDiscovery } from './usage-source.js'
+import { createColdQuotaHarvest } from './quota-cold-harvest.js'
 import { AntigravityOwnChildQuotaSource, AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 
 export const name = 'antigravity'
@@ -168,7 +169,14 @@ function buildAntigravityDescriptor(): ProviderDescriptor<ResolvedAntigravityCon
        * turn there is no number, and the normalizer turns that into an honest
        * `UNSUPPORTED_NUMERIC_USAGE` row rather than an error or a fabrication.
        */
-      create: () => new AntigravityUsageCollector(new AntigravityOwnChildQuotaSource(quotaHarvestCache)),
+      create: (ctx, config) => new AntigravityUsageCollector(new AntigravityOwnChildQuotaSource(
+        quotaHarvestCache,
+        createColdQuotaHarvest(ctx, {
+          executable: config.executable,
+          env: config.env,
+          disposeGraceMs: config.disposeGraceMs,
+        }, quotaHarvestCache),
+      )),
     },
     webSearch: {
       create: (ctx, config) => new AntigravitySearchBackend(ctx, {

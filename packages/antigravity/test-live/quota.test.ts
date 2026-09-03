@@ -6,12 +6,14 @@ import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { createAntigravityPrimaryAdapter } from '../src/antigravity-primary.js'
+import { createColdQuotaHarvest } from '../src/quota-cold-harvest.js'
 import { AntigravityOwnChildQuotaSource, AntigravityQuotaHarvestCache } from '../src/quota-harvest-cache.js'
 import { createHostPlatformDiscovery } from '../src/usage-source.js'
 import { AntigravityUsageCollector } from '../src/usage.js'
 
 /**
- * Does the narrowed quota path produce a number at all?
+ * Does the narrowed quota path produce a number at all -- with a turn, and
+ * without one?
  *
  * This route used to find quota by scanning every process on the machine for
  * something Antigravity-shaped and lifting a CSRF token out of its command
@@ -30,7 +32,15 @@ import { AntigravityUsageCollector } from '../src/usage.js'
  * a consumer could render -- a labelled `usedPercent` in range, which is the
  * shape the collector converts the vendor's remaining fraction into.
  *
- * Run with: `pnpm test:live:quota`. One turn on the cheapest model.
+ * The second scenario is the cold path: quota used to be unavailable until a
+ * turn had run, and a child spawned for the reading alone closes that. It is
+ * the one that most needs a live check, because everything it rests on is
+ * vendor behaviour with no documented surface -- a listener that comes up
+ * before any stdin, a private RPC that answers before login finishes, and a
+ * child that must cost nothing.
+ *
+ * Run with: `pnpm test:live:quota`. One turn on the cheapest model, plus one
+ * turnless child.
  */
 
 function findOnPath(name: string): string | null {
@@ -151,4 +161,45 @@ test('ANTIGRAVITY QUOTA: a real turn harvests a quota reading from its own child
   } finally {
     await adapter.dispose()
   }
+})
+
+test('ANTIGRAVITY QUOTA: a cold read produces a number with no turn at all', async () => {
+  const platformDiscovery = createHostPlatformDiscovery()
+  const cache = new AntigravityQuotaHarvestCache({
+    discoverListeners: pid => platformDiscovery.discoverListeners(pid),
+  })
+  const ctx = createTestContext()
+  // No adapter, no turn, no session: this scenario exists to prove the
+  // reading needs none of them.
+  const source = new AntigravityOwnChildQuotaSource(
+    cache,
+    createColdQuotaHarvest(ctx as any, {
+      executable: config.executable,
+      env: config.env,
+      disposeGraceMs: config.disposeGraceMs,
+    }, cache),
+  )
+
+  const startedAt = Date.now()
+  const snapshot = await new AntigravityUsageCollector(source).collect(1)
+  const elapsedMs = Date.now() - startedAt
+
+  assert.equal(
+    snapshot.status,
+    'AVAILABLE',
+    'a cold quota read produced nothing: either the vendor no longer exposes its loopback listener '
+    + `before stdin, or the RPC no longer answers on it. Snapshot: ${JSON.stringify(snapshot)}`,
+  )
+  assert.ok(snapshot.windows.length > 0, 'an AVAILABLE snapshot with no window is not a reading')
+  const window = snapshot.windows[0] as any
+  assert.ok(
+    typeof window.usedPercent === 'number' && window.usedPercent >= 0 && window.usedPercent <= 100,
+    `window carries no usable usedPercent: ${JSON.stringify(window)}`,
+  )
+  // Bounded rather than merely eventual: this is on the path of a person
+  // opening a usage panel. Measured at ~1.8s against agy 1.1.25; the ceiling
+  // here is deliberately loose enough not to be a flake and tight enough to
+  // notice the vendor making it slow.
+  assert.ok(elapsedMs < 15_000, `a cold quota read took ${elapsedMs}ms, which is past its own deadline`)
+  console.log(`[quota] cold read in ${elapsedMs}ms; ${snapshot.windows.length} window(s); first: ${window.label} usedPercent=${window.usedPercent}`)
 })
