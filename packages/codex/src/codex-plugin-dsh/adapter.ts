@@ -228,6 +228,7 @@ function historyDigests(messages: readonly Message[]): string[] {
 }
 
 interface ActiveCodexTurn {
+  readonly registryKey: string
   readonly sessionId: string
   readonly model: string
   readonly toolSignature: string
@@ -681,9 +682,12 @@ export class CodexAppServerAdapter extends LlmAdapter {
     if (options.sessionId === undefined) {
       throw new Error('codex-plugin-dsh: Codex App Server calls require a live DSH session')
     }
+    const isAuxiliary = options.purpose !== undefined
+    // For auxiliary requests (compaction, session-title), maxTokens is accepted
+    // rather than honoured, because the App Server exposes no equivalent knob.
     const unsupported = [
       options.temperature === undefined ? undefined : 'temperature',
-      options.maxTokens === undefined ? undefined : 'maxTokens',
+      options.maxTokens === undefined || isAuxiliary ? undefined : 'maxTokens',
       options.stop === undefined ? undefined : 'stop',
     ].filter((value): value is string => value !== undefined)
     if (unsupported.length > 0) {
@@ -699,12 +703,14 @@ export class CodexAppServerAdapter extends LlmAdapter {
     }
     const sessionId = String(options.sessionId)
     const requestedToolSignature = codexToolSignature(options.tools)
-    if (this.inFlight.has(sessionId)) {
-      throw new Error('codex-plugin-dsh: Codex received a second concurrent request for one DSH session')
+    if (!isAuxiliary) {
+      if (this.inFlight.has(sessionId)) {
+        throw new Error('codex-plugin-dsh: Codex received a second concurrent request for one DSH session')
+      }
+      this.inFlight.add(sessionId)
     }
-    this.inFlight.add(sessionId)
     try {
-      let active = this.activeTurns.get(sessionId)
+      let active = isAuxiliary ? undefined : this.activeTurns.get(sessionId)
       const continuing = active !== undefined
       if (active === undefined) active = await this.startTurn(options, sessionId, cwd)
       const turn = active
@@ -777,6 +783,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
         }
         let decision: CodexDecision | undefined
         let decisionItemId: string | undefined
+        let auxiliaryText: string | undefined
         for (;;) {
           const event = await turn.events.next(turn.signal)
           if (event.kind === 'dynamic-tool') {
@@ -841,7 +848,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
               continue
             }
             if (phase === 'final_answer') {
-              if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined) {
+              if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined || auxiliaryText !== undefined) {
                 throw new Error('codex-plugin-dsh: App Server emitted a second non-commentary agent message in one turn')
               }
               decisionItemId = itemId
@@ -947,7 +954,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
               continue
             }
             // Anything else is the decision: claim it, parse it, emit nothing.
-            if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined) {
+            if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined || auxiliaryText !== undefined) {
               throw new Error('codex-plugin-dsh: App Server emitted a second non-commentary agent message in one turn')
             }
             decisionItemId = itemId
@@ -959,7 +966,11 @@ export class CodexAppServerAdapter extends LlmAdapter {
               block.text = completedText
               block.ended = true
             }
-            decision = codexDecision(completedText, options.tools)
+            if (isAuxiliary) {
+              auxiliaryText = completedText
+            } else {
+              decision = codexDecision(completedText, options.tools)
+            }
             continue
           }
           if (method === 'thread/tokenUsage/updated') {
@@ -970,12 +981,31 @@ export class CodexAppServerAdapter extends LlmAdapter {
           const completedTurn = object(params.turn, 'turn/completed turn')
           if (contextWindowExceeded(completedTurn)) {
             if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
-            yield { type: 'finish', reason: { kind: 'max-tokens' }, replayState: { response: turn.replayState } }
+            yield {
+              type: 'finish',
+              reason: { kind: 'max-tokens' },
+              ...isAuxiliary ? {} : { replayState: { response: turn.replayState } },
+            }
             return
           }
           if (completedTurn.status !== 'completed') throw turnFailure(completedTurn)
           if ([...turn.blocks.values()].some(block => !block.ended)) {
             throw new Error('codex-plugin-dsh: App Server completed with an open agent message')
+          }
+          if (isAuxiliary) {
+            if (auxiliaryText === undefined || auxiliaryText.trim().length === 0) {
+              if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
+              if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+              yield { type: 'finish', reason: { kind: 'stop' } }
+              return
+            }
+            const index = turn.nextBlockIndex++
+            yield { type: 'block-start', index, blockType: 'text' }
+            yield { type: 'text-delta', index, text: auxiliaryText }
+            yield { type: 'block-end', index, block: { type: 'text', text: auxiliaryText } }
+            if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+            yield { type: 'finish', reason: { kind: 'stop' } }
+            return
           }
           if (decision === undefined) {
             if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
@@ -1022,7 +1052,9 @@ export class CodexAppServerAdapter extends LlmAdapter {
         if (!keepAlive) await this.closeTurn(turn)
       }
     } finally {
-      this.inFlight.delete(sessionId)
+      if (!isAuxiliary) {
+        this.inFlight.delete(sessionId)
+      }
     }
   }
 
@@ -1031,6 +1063,8 @@ export class CodexAppServerAdapter extends LlmAdapter {
     sessionId: string,
     cwd: string,
   ): Promise<ActiveCodexTurn> {
+    const isAuxiliary = options.purpose !== undefined
+    const registryKey = isAuxiliary ? `${sessionId}#aux-${randomUUID()}` : sessionId
     // Opening a turn is one step's work, so the caller and a timeout bound it.
     const setupSignal = combinedSignal(options.signal, this.config.turnTimeoutMs)
     // The turn's own lifetime, which spans however many DSH steps it takes.
@@ -1057,6 +1091,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
       CODEX_APP_SERVER_PROVIDER,
       resolveImageUrl,
       sessionId,
+      isAuxiliary,
     )
     const toolSignature = codexToolSignature(options.tools)
     const availableTools = new Set((options.tools ?? []).map(tool => tool.name))
@@ -1087,7 +1122,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
       await connection.initialize(signal)
       const isolationConfig = await this.isolationConfig(connection, cwd, signal)
       let threadResult: Record<string, unknown>
-      if (history.checkpoint === undefined) {
+      if (isAuxiliary || history.checkpoint === undefined) {
         threadResult = await connection.request(
           'thread/start',
           this.threadParams(options, cwd, isolationConfig),
@@ -1193,7 +1228,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
           items: history.injectItems,
         }, signal)
       }
-      const outputSchema = codexOutputSchema(options.tools)
+      const outputSchema = isAuxiliary ? undefined : codexOutputSchema(options.tools)
       const turnResult = await connection.request('turn/start', {
         threadId,
         input: history.turnInput,
@@ -1205,6 +1240,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
       turnId = string(turn.id, 'turn id')
       let active!: ActiveCodexTurn
       active = {
+        registryKey,
         sessionId,
         model: options.model,
         toolSignature,
@@ -1236,7 +1272,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
       }
       active.signal.addEventListener('abort', active.onAbort, { once: true })
       setupSignal.removeEventListener('abort', linkSetup)
-      this.activeTurns.set(active.sessionId, active)
+      this.activeTurns.set(active.registryKey, active)
       return active
     } catch (error) {
       events.fail(thrown(error))
@@ -1283,7 +1319,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
   }
 
   private async finishCloseTurn(active: ActiveCodexTurn): Promise<void> {
-    if (this.activeTurns.get(active.sessionId) === active) this.activeTurns.delete(active.sessionId)
+    if (this.activeTurns.get(active.registryKey) === active) this.activeTurns.delete(active.registryKey)
     active.signal.removeEventListener('abort', active.onAbort)
     const closed = new Error('codex-plugin-dsh: App Server turn closed before a pending DSH tool result was returned')
     active.awaiting?.response.reject(closed)
@@ -1329,7 +1365,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
       sandbox: 'read-only',
       config: isolationConfig,
       baseInstructions: options.system ?? '',
-      developerInstructions: CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS,
+      ...options.purpose !== undefined ? {} : { developerInstructions: CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS },
     }
   }
 
@@ -1341,7 +1377,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
   ): Record<string, unknown> {
     return {
       ...this.threadConfigOverrides(options, cwd, isolationConfig),
-      ephemeral: false,
+      ephemeral: options.purpose !== undefined,
       ...dynamicTools === undefined ? {} : { dynamicTools },
     }
   }
