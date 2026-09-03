@@ -13,10 +13,10 @@ Antigravity primary-provider plugin for Nishi DSH Suite, backed by the user's in
 
 The vendor publishes no machine-readable quota surface: not a command, not a
 flag, not a file. The only one that exists is a private RPC of its language
-server. This route reads that RPC on exactly one process — the `agy` child it
-spawned for a turn — resolving its loopback ports from that pid alone, and
-caches the reading for the usage collector. The call carries no credential:
-loopback, `Content-Type` and `Connect-Protocol-Version`, nothing else.
+server. This route reads that RPC on processes it started itself, resolving
+loopback ports from those pids alone, and caches the reading for the usage
+collector. The call carries no credential: loopback, `Content-Type` and
+`Connect-Protocol-Version`, nothing else.
 
 It used to reach further: scanning every process on the machine for something
 Antigravity-shaped and lifting a `--csrf_token` out of its command line. That
@@ -24,10 +24,28 @@ was removed on 2026-09-03. It contradicted this package's own posture that it
 reads no credential or token store, and both independent reviewers ranked
 removing it their second-highest simplification.
 
-The cost is stated rather than hidden. **There is no quota figure until this
-plugin has run a turn**, and the figure never reflects what the Antigravity IDE
-or desktop app consumed. When there is no reading the collector reports an
-honest unsupported row rather than an error or a fabricated number.
+There are two readings, in that order of preference. The cheap one is
+opportunistic: while a turn's child is alive it is asked, for free, since the
+turn is happening anyway. When there is no recent one, a child is spawned for
+the reading alone — the minimal stream-json shape with no model, no schema and
+no agent, in a scratch directory of its own, **with nothing written to its
+stdin**, which is what makes it cost no tokens: `agy` runs a turn per line of
+stdin and there are no lines. One such child at a time, at most one per
+minute, disposed through the grace path.
+
+That closed the cost this section used to state — there is no longer a blind
+window before the first turn — and it was probed rather than assumed, because
+"the listener exists" was never the question. **The question was whether a
+turn-free answer is TRUE**, and the live suite now reads one account both ways
+minutes apart and gets the same figure to the second decimal.
+
+Two limits remain, and they are the vendor's rather than this route's. The
+figure never reflects what the Antigravity IDE or desktop app consumed. And
+the RPC's own content is unreliable: after an upstream failure every bucket can
+come back with no remaining-fraction field at all — before AND after a
+completed turn — which surfaces as an honest unsupported row rather than as
+invented headroom, because the parser skips a bucket with no usable fraction
+and reports nothing when none survive.
 
 The distinction between provider id and route is intentional: `antigravity` is the provider identity, while `antigravity-cli` is the DSH model route retained for saved-session compatibility.
 
@@ -64,6 +82,36 @@ DSH tool schemas are rewritten into the vendor's accepted subset first. Annotati
 Every envelope carries a `turn` field the reply must echo, and a decision stamped for any other turn is discarded. It exists because `structured_output` is not cleared between turns: measured on real `agy 1.1.24`, a turn that produced none of its own resolved with the **previous** turn's object, verbatim and schema-valid, while its `response` held plain prose. Read without the stamp that is indistinguishable from a fresh decision, so a stale `tool_calls` runs the same tool a second time and the model, handed a duplicate result, has every reason to answer in prose again — a repeated-identical-call loop generated inside the transport. The vendor documents the schema as binding "the terminal `result` event" while `--help` says "only applicable to the final result", so per-turn enforcement is treated as best-effort and its absence detected rather than relied on.
 
 A stamp that does not match falls through to the turn's own `response` before failing, since the vendor's parse can miss a payload that is plainly there. When neither source answers this turn the conversation is abandoned rather than continued: the vendor is holding a turn DSH rejected, and the next request reopens from DSH's history.
+
+### A turn settles with a reason, not a boolean
+
+`agy` publishes seven `result` statuses. This route read exactly one of them —
+`status === 'SUCCESS'` — and reported the other six as a single kind of
+failure, which is wrong at both ends: a cancellation is not a failed turn, and
+`WAITING`/`RUNNING` in the one event documented to be terminal mean the turn
+has **not** settled. They are now classified, and each reports under its own
+code: a cancellation as DSH's `ABORTED`, which makes the stream finish as
+`aborted` rather than `error`; an unsettled turn as a protocol violation; an
+unrecognised or missing status as a failure, since an ending this adapter
+cannot name over input the vendor has already consumed must not read as
+success.
+
+Every non-success kind still abandons the live conversation, cancellation
+included. That is deliberate: keeping a cancelled conversation would be worth
+its prefix cache only if the vendor kept the input line it was cut off in, and
+on `agy 1.1.25` neither way this route can cut a turn short produces
+`CANCELED` at all — a `--print-timeout` expiry, which is the production
+turn-timeout path, and a SIGINT both report `ERROR` with `timeout waiting for
+response`, and leave the child unusable. So the cancellation branch is
+unreachable and correct rather than reachable and guessed at.
+
+A failed turn also names the vendor build it ran against, read once per
+adapter by a separate `agy --version` that nothing waits on. `agy`
+self-updates — the binary moved 1.1.24 to 1.1.25 during one afternoon of
+probing — so the build is exactly the fact a crash report cannot reconstruct
+afterwards, and it is published nowhere else: not in `init`, not in the result
+envelope, not in the vendor's own updater state. A diagnostic with no build
+says nothing rather than guessing.
 
 ### One decision, validated whole
 
@@ -118,7 +166,7 @@ Project Memory and DSH-native child-agent delegation are external to this provid
 
 The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: 99 unit tests plus 11 live scenarios (8 primary, 1 session continuation, 1 native search, 1 routed search) against the real `agy 1.1.22` binary, both on the alpha.1 baseline. Primary and session continuation were re-run on the current tree; the two search scenarios date from 2026-08-31 and are untouched by the changes since.
+`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: **143 unit tests plus 18 live scenarios** (8 primary, 4 agent-loop, 2 quota, 1 session continuation, 1 agent allowlist, 1 native search, 1 routed search), all on the alpha.1 baseline. All seven suites were re-run against the real binary on the current tree, on `agy 1.1.25` after the vendor self-updated from `1.1.24` mid-pass, each read from its own exit code.
 
 ## Validation status — PENDING PROVIDER STAGE
 
