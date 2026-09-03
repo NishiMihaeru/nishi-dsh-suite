@@ -194,6 +194,22 @@ test('LIVE PROBE: Codex primary mounts without vendor subagents and returns CODE
     const fullText = textBlocks.map((c: any) => c.block.text).join('\n').trim()
     console.log(`Codex Primary response: ${JSON.stringify(fullText)}`)
     assert.ok(fullText.includes('CODEX_PRIMARY_OK'), `Expected CODEX_PRIMARY_OK, got: ${fullText}`)
+
+    // The vendor publishes its usable context window on
+    // `thread/tokenUsage/updated` and nowhere else, so this is the earliest
+    // point it can be asserted: before the turn there is nothing to report.
+    // Deliberately a floor rather than an equality -- 258400 is what real
+    // 0.150.0 returns today (272000 less the vendor's 5% reserve), but the
+    // figure is the vendor's to change, and a test that pins it would fail on
+    // a model retune rather than on a defect. The claim under test is that DSH
+    // learns a plausible window at all.
+    const resolvedAfter = await adapter.resolveModel('codex-app-server', model)
+    console.log(`Context window reported after the turn: ${JSON.stringify(resolvedAfter.context)}`)
+    assert.ok(resolvedAfter.context, 'a completed turn must leave DSH knowing the model context window')
+    assert.ok(
+      Number.isSafeInteger(resolvedAfter.context.contextWindow) && resolvedAfter.context.contextWindow > 100_000,
+      `context window must be a plausible token count, got ${JSON.stringify(resolvedAfter.context)}`,
+    )
   } finally {
     await adapter.dispose()
   }

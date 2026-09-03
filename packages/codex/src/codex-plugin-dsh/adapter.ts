@@ -362,6 +362,32 @@ function contextWindowExceeded(turn: Record<string, unknown>): boolean {
   return (turn.error as Record<string, unknown>).codexErrorInfo === 'contextWindowExceeded'
 }
 
+/**
+ * The vendor's own usable context window for the model this turn ran on, when
+ * it discloses one.
+ *
+ * `thread/tokenUsage/updated` is the ONLY place the App Server publishes this.
+ * `model/list` carries no such field, and `config/read` exposes
+ * `model_context_window` as the user's OVERRIDE slot, which reads `null` until
+ * somebody sets it -- so the figure cannot be had before a turn has run.
+ *
+ * What arrives is already the USABLE window rather than the model's raw
+ * capacity: measured on real `codex-cli 0.150.0`, an untouched thread reports
+ * `258400` where the raw window is 272000, and forcing
+ * `-c model_context_window=50000` reports `47500`, `=100000` reports `95000`.
+ * The vendor reserves 5% and publishes the remainder, which is exactly the
+ * number a compaction threshold wants -- and reading it here means a user's own
+ * `~/.codex/config.toml` override is honoured for free.
+ *
+ * Nullable in the vendor's schema, so absence is expected rather than an error.
+ */
+function modelContextWindowFrom(value: unknown): number | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const window = (value as Record<string, unknown>).modelContextWindow
+  if (typeof window !== 'number' || !Number.isSafeInteger(window) || window <= 0) return undefined
+  return window
+}
+
 function usageFrom(value: unknown): TokenUsage {
   const tokenUsage = object(value, 'token usage')
   const last = object(tokenUsage.last, 'last-turn token usage')
@@ -512,6 +538,14 @@ function resumedTurnIds(thread: Record<string, unknown>): readonly string[] {
 
 /** Local Codex App Server route with session-aware history, permissions, and process ownership. */
 export class CodexAppServerAdapter extends LlmAdapter {
+  /**
+   * Usable context window per model id, as the vendor disclosed it on a turn
+   * that actually ran. Empty until then, and `resolveModel` reports no context
+   * capacity while it is -- absence is legal (invariant 4) and is the honest
+   * answer, where a hardcoded per-`gpt-5.x` figure would be a guess that goes
+   * stale silently when the vendor retunes a model or the user overrides it.
+   */
+  private readonly contextWindows = new Map<string, number>()
   private cachedModels: { readonly expiresAt: number; readonly models: readonly CatalogModel[] } | undefined
   private pendingModels: Promise<readonly CatalogModel[]> | undefined
   private readonly activeTurns = new Map<string, ActiveCodexTurn>()
@@ -553,14 +587,20 @@ export class CodexAppServerAdapter extends LlmAdapter {
     modelId: string,
     signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
+    // Reported for a model absent from the catalog too: the catalog can drop a
+    // model the caller still names, and a window this adapter watched the vendor
+    // publish for it is no less true for that.
+    const contextWindow = this.contextWindows.get(modelId)
+    const context = contextWindow === undefined ? {} : { context: { contextWindow } }
     const model = (await this.models(signal)).find(candidate => candidate.id === modelId)
-    if (model === undefined) return { provider, id: modelId, name: modelId, inputModalities: ['text'] }
+    if (model === undefined) return { provider, id: modelId, name: modelId, inputModalities: ['text'], ...context }
     return {
       provider,
       id: model.id,
       name: model.name,
       ...model.description === undefined ? {} : { description: model.description },
       inputModalities: model.inputModalities,
+      ...context,
       ...model.supportedReasoningEfforts.length === 0
         ? {}
         : {
@@ -782,6 +822,8 @@ export class CodexAppServerAdapter extends LlmAdapter {
           }
           if (method === 'thread/tokenUsage/updated') {
             turn.usage = usageFrom(params.tokenUsage)
+            const window = modelContextWindowFrom(params.tokenUsage)
+            if (window !== undefined) this.contextWindows.set(turn.model, window)
             continue
           }
           if (method !== 'turn/completed') continue
