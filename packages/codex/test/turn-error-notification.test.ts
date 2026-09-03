@@ -75,10 +75,7 @@ test('an error notification without a threadId fails the turn immediately instea
   const first = iterator.next()
 
   const active = await waitForActiveTurn(adapter, 'session-a')
-  active.events.push({
-    kind: 'notification',
-    notification: { method: 'error', params: { willRetry: false, error: { message: `fatal marker without threadId ${SECRET}` } } },
-  })
+  active.events.push({ method: 'error', params: { willRetry: false, error: { message: `fatal marker without threadId ${SECRET}` } } })
 
   await assert.rejects(
     drainWithGuard(first, 2_000, 'the turn'),
@@ -105,30 +102,20 @@ test('an error notification for a different, non-empty threadId is still ignored
 
   const active = await waitForActiveTurn(adapter, 'session-a')
 
-  // A fatal-looking error for someone else's thread must not end this turn.
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'error',
-      params: { threadId: 'someone-elses-thread', willRetry: false, error: { message: 'must be ignored' } },
-    },
+    method: 'error',
+    params: { threadId: 'someone-elses-thread', willRetry: false, error: { message: 'must be ignored' } },
   })
   // The real turn then completes normally.
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: {
-        threadId: 'thread-a',
-        turnId: 'turn-a',
-        item: { type: 'agentMessage', id: 'msg-1', phase: null, text: JSON.stringify({ decision: { kind: 'final', message: 'final answer' } }) },
-      },
+    method: 'item/completed',
+    params: {
+      threadId: 'thread-a',
+      turnId: 'turn-a',
+      item: { type: 'agentMessage', id: 'msg-1', phase: null, text: JSON.stringify({ decision: { kind: 'final', message: 'final answer' } }) },
     },
   })
-  active.events.push({
-    kind: 'notification',
-    notification: { method: 'turn/completed', params: { threadId: 'thread-a', turn: { id: 'turn-a', status: 'completed' } } },
-  })
+  active.events.push({ method: 'turn/completed', params: { threadId: 'thread-a', turn: { id: 'turn-a', status: 'completed' } } })
 
   for (;;) {
     const { value, done } = await drainWithGuard(pending, 2_000, 'the turn')
@@ -157,16 +144,13 @@ test('a failed turn reports the status without copying the vendor error text', a
 
   const active = await waitForActiveTurn(adapter, 'session-a')
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: {
-        threadId: 'thread-a',
-        turn: {
-          id: 'turn-a',
-          status: 'failed',
-          error: { message: `disk full while writing ${SECRET} token=${TOKEN}` },
-        },
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-a',
+      turn: {
+        id: 'turn-a',
+        status: 'failed',
+        error: { message: `disk full while writing ${SECRET} token=${TOKEN}` },
       },
     },
   })

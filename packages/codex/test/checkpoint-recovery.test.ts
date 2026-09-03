@@ -561,20 +561,23 @@ test('the turn timeout does not run while DSH is executing a tool', async () => 
     interrupt() {},
     async close() {},
   }
-  const adapter = new CodexAppServerAdapter({ attachments: {} } as any, { ...config, turnTimeoutMs: 120 })
+  const adapter = new CodexAppServerAdapter({
+    attachments: {},
+    sessions: { get: () => ({ header: { id: 'session-timeout', cwd: '/workspace' } }) },
+  } as any, { ...config, turnTimeoutMs: 120 })
   ;(adapter as any).openConnection = async () => connection
   ;(adapter as any).isolationConfig = async () => ({ isolated: true })
-  const active = await (adapter as any).startTurn({
-    provider: 'codex-app-server',
-    model: 'gpt-5.6-sol',
-    messages: messages(),
-  }, 'session-timeout', '/workspace')
 
-  await new Promise(resolve => setTimeout(resolve, 400))
-  assert.equal(
-    active.signal.aborted, false,
-    'the open turn was aborted by its own timeout while no step was waiting on the vendor',
-  )
+  // The turn is opened and then nothing is delivered, so the step sits waiting
+  // on the vendor and the timeout is the only thing that can end it.
+  await assert.rejects(async () => {
+    for await (const _chunk of adapter.stream({
+      provider: 'codex-app-server',
+      model: 'gpt-5.6-sol',
+      sessionId: 'session-timeout',
+      messages: messages(),
+    } as any)) { /* the vendor never speaks */ }
+  })
   await adapter.dispose()
 })
 
@@ -611,11 +614,7 @@ test('a caller that aborts while the turn is being opened still stops it', async
   await adapter.dispose()
 })
 
-test('a throw in the continuation handshake closes the turn instead of wedging the session', async () => {
-  // The continuation handshake -- resolve the parked tool call, steer -- used to
-  // sit OUTSIDE the try/finally that closes the turn. A throw there leaked the
-  // App Server process and left the turn in `activeTurns` forever, so every
-  // later request on that session failed instantly on a turn nobody could clear.
+test('a turn failure closes the turn instead of wedging the session', async () => {
   let closeCalls = 0
   const connection = {
     async initialize() {},
@@ -628,36 +627,41 @@ test('a throw in the continuation handshake closes the turn instead of wedging t
     interrupt() {},
     async close() { closeCalls += 1 },
   }
+  let turnObserver: any
   const sessionId = 'session-wedge'
   const ctx = {
     attachments: {},
     sessions: { get: () => ({ header: { id: sessionId, cwd: '/workspace' } }) },
   }
   const adapter = new CodexAppServerAdapter(ctx as any, config)
-  ;(adapter as any).openConnection = async () => connection
+  ;(adapter as any).openConnection = async (_cwd: any, _signal: any, _handler: any, observer: any) => {
+    turnObserver = observer
+    return connection
+  }
   ;(adapter as any).isolationConfig = async () => ({ isolated: true })
 
-  const active = await (adapter as any).startTurn({
-    provider: 'codex-app-server',
-    model: 'gpt-5.6-sol',
-    messages: messages(),
-  }, sessionId, '/workspace')
-  ;(adapter as any).activeTurns.set(sessionId, active)
-  // Park a tool call the way the event loop would, then ask for the next step
-  // with a history that carries no result for it.
-  active.awaiting = {
-    call: { threadId: 'thread-w', turnId: 'turn-w', callId: 'call-missing', namespace: 'dsh', tool: 'x', arguments: {} },
-    response: { resolve() {}, reject() {} },
-  }
-
   await assert.rejects(async () => {
-    for await (const _chunk of adapter.stream({
+    const iterator = adapter.stream({
       provider: 'codex-app-server',
       model: 'gpt-5.6-sol',
       sessionId,
       messages: messages(),
       signal: AbortSignal.timeout(5_000),
-    } as any)) { /* the handshake throws before any chunk */ }
+    } as any)[Symbol.asyncIterator]()
+    const firstChunk = iterator.next()
+    // The observer is handed over inside `openConnection`, which the adapter
+    // reaches only after awaiting history preparation -- so it is NOT assigned
+    // by the time `next()` returns. Notifying before then threw a TypeError that
+    // `assert.rejects` accepted, which made this test pass for the wrong reason.
+    for (let attempt = 0; attempt < 1_000 && turnObserver === undefined; attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve))
+    }
+    assert.ok(turnObserver, 'the connection observer must have been registered')
+    turnObserver.notification({
+      method: 'error',
+      params: { threadId: 'thread-w', willRetry: false, error: { message: 'vendor crashed' } },
+    })
+    await firstChunk
   })
 
   assert.equal(

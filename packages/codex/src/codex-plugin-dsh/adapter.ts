@@ -11,7 +11,7 @@
  * - -c project_doc_max_bytes=0
  */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -41,6 +41,7 @@ import {
   codexDecisionDigest,
   codexHistoryDigest,
   prepareCodexHistory,
+  type CodexImageUrlResolver,
   type CodexReplayState,
 } from './history.js'
 import { codexVendorFailure } from './vendor-stderr.js'
@@ -50,25 +51,20 @@ import {
   codexOutputSchema,
   type CodexDecision,
 } from './stepped-schema.js'
-import {
-  codexDynamicToolCall,
-  codexDynamicToolResult,
-  codexToolSignature,
-  type CodexDynamicToolCall,
-  type CodexToolImageUrlResolver,
-} from './tools.js'
 import { object, string, thrown } from './validation.js'
 
 /** Provider route registered in the existing DSH model catalog. */
 export const CODEX_APP_SERVER_PROVIDER = 'codex-app-server'
 
-/** Provider instructions that separate DSH dynamic tools from Codex host capabilities. */
+/** Provider instructions for Codex structured output decisions. */
 export const CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS = [
-  'DeepSeek Harness owns tool selection, permission checks, execution, and durable tool logs.',
-  'Use only tools in the dsh dynamic-tool namespace for shell, files, web, code changes, and other actions represented in the DSH tool catalog.',
+  'DeepSeek Harness owns tool selection, permission checks, execution, and the durable tool log.',
+  'Your reply is the required decision: either exactly one tool call or a final message to the user, never both and never more than one call.',
+  'DSH executes that decision and places the result in the conversation before the next turn; do not write as though the tool has already run.',
+  'For an optional parameter you were not asked to set, pass null rather than inventing a value.',
   'Do not use built-in shell, apply_patch, web search, MCP, app, plugin, multi-agent, or view-image tools.',
-  'The dsh skill tool loads only names listed in the DSH <available_skills> catalog included in the conversation; never use it to load Codex host skills or capabilities.',
-  'For image creation or editing, use Codex host imagegen and native image generation directly; never call the dsh skill tool with the name imagegen.',
+  'The skill tool loads only names listed in the DSH <available_skills> catalog included in the conversation; never use it to load Codex host skills or capabilities.',
+  'For image creation or editing, use Codex host imagegen and native image generation directly; never call the skill tool with the name imagegen.',
 ].join(' ')
 
 const WINDOWS_EXECUTABLE_ENV = 'DSH_CODEX_APP_SERVER_EXECUTABLE'
@@ -105,100 +101,34 @@ interface ActiveBlock {
   ended: boolean
 }
 
-interface PendingDynamicToolCall {
-  readonly call: CodexDynamicToolCall
-  readonly response: PromiseWithResolvers<unknown>
-}
-
-type ActiveTurnEvent =
-  | { readonly kind: 'notification'; readonly notification: AppServerNotification }
-  | ({ readonly kind: 'dynamic-tool' } & PendingDynamicToolCall)
-
 class ActiveTurnQueue {
-  private readonly values: ActiveTurnEvent[] = []
-  private readonly waiters: Array<PromiseWithResolvers<ActiveTurnEvent>> = []
+  private readonly values: AppServerNotification[] = []
+  private readonly waiters: Array<PromiseWithResolvers<AppServerNotification>> = []
   private terminal: Error | undefined
 
-  push(event: ActiveTurnEvent): void {
-    if (this.terminal !== undefined) {
-      if (event.kind === 'dynamic-tool') event.response.reject(this.terminal)
-      return
-    }
+  push(notification: AppServerNotification | { readonly kind: 'notification'; readonly notification: AppServerNotification }): void {
+    if (this.terminal !== undefined) return
+    const unwrapped = typeof notification === 'object' && notification !== null && 'kind' in notification && notification.kind === 'notification'
+      ? (notification as { readonly notification: AppServerNotification }).notification
+      : notification as AppServerNotification
     const waiter = this.waiters.shift()
-    if (waiter === undefined) this.values.push(event)
-    else waiter.resolve(event)
+    if (waiter === undefined) this.values.push(unwrapped)
+    else waiter.resolve(unwrapped)
   }
 
   fail(error: Error): void {
     if (this.terminal !== undefined) return
     this.terminal = error
-    for (const event of this.values.splice(0)) {
-      if (event.kind === 'dynamic-tool') event.response.reject(error)
-    }
+    this.values.length = 0
     for (const waiter of this.waiters.splice(0)) waiter.reject(error)
   }
 
-  /**
-   * Why the vendor has already stopped waiting for a parked tool call, if it
-   * has -- read from what is buffered here, unread.
-   *
-   * While DSH executes a tool it stops consuming this queue, so everything the
-   * App Server emits in that window waits here. Two buffered things each mean
-   * the vendor gave up on the call DSH is still holding:
-   *
-   * - a `dynamicToolCall` **item completion**. The vendor's own thread item
-   *   carries `status: "inProgress" | "completed" | "failed"`, from its
-   *   generated protocol bindings, and it completes that item when it is done
-   *   with the call. On the healthy path it does so only AFTER DSH answers --
-   *   observed in three live probes, where it arrived within 1 ms of the
-   *   response and never before it. Buffered ahead of the answer, it is the
-   *   vendor saying so in its own vocabulary, and it fires whether or not the
-   *   turn also ended;
-   * - a `turn/completed`, or a fatal non-retrying `error`. The turn finished
-   *   around its own outstanding call.
-   *
-   * Answering into either is silent by construction: buffered agent output
-   * replays on the continuing step, sets `finalOutput`, and the turn yields an
-   * ordinary `stop` -- a whole turn of reasoning built on a result the model
-   * never received, recorded as a normal answer. Reproduced against this
-   * adapter before the check existed, and seen in a real session log first.
-   *
-   * @returns a reason for the refusal, or `undefined` when the vendor is still
-   * waiting the way this transport needs it to.
-   */
-  abandonedCall(threadId: string, turnId: string): string | undefined {
-    for (const event of this.values) {
-      if (event.kind !== 'notification') continue
-      const { method, params } = event.notification
-      if (method === 'item/completed') {
-        const item = params.item
-        if (typeof item === 'object' && item !== null && (item as { type?: unknown }).type === 'dynamicToolCall') {
-          const status = (item as { status?: unknown }).status
-          return `the vendor completed the tool call itself (status ${JSON.stringify(status)})`
-        }
-        continue
-      }
-      // A fatal error ends the turn wherever it is addressed; a retrying one
-      // does not, and the main loop treats it the same way.
-      if (method === 'error') {
-        if (params.willRetry !== true) return 'the vendor turn failed'
-        continue
-      }
-      if (method !== 'turn/completed' || params.threadId !== threadId) continue
-      const completed = params.turn
-      if (typeof completed === 'object' && completed !== null && (completed as { id?: unknown }).id === turnId) {
-        return 'the vendor turn ended'
-      }
-    }
-    return undefined
-  }
-
-  async next(signal: AbortSignal): Promise<ActiveTurnEvent> {
+  async next(signal: AbortSignal): Promise<AppServerNotification> {
     signal.throwIfAborted()
     const value = this.values.shift()
     if (value !== undefined) return value
     if (this.terminal !== undefined) throw this.terminal
-    const waiter = Promise.withResolvers<ActiveTurnEvent>()
+    const waiter = Promise.withResolvers<AppServerNotification>()
     this.waiters.push(waiter)
     const onAbort = (): void => { waiter.reject(abortError(signal)) }
     signal.addEventListener('abort', onAbort, { once: true })
@@ -212,60 +142,23 @@ class ActiveTurnQueue {
   }
 }
 
-/**
- * Digest the DSH history a vendor turn was opened against.
- *
- * Content, not ids alone: DSH rewrites a message's content while carrying its
- * id over -- the tool-result pruner does exactly that -- so an id-only
- * comparison reports agreement across a rewrite that changed everything the
- * model would read.
- */
-function historyDigests(messages: readonly Message[]): string[] {
-  return messages.map(message => createHash('sha256')
-    .update(JSON.stringify([message.id, message.role, message.content]))
-    .digest('hex')
-    .slice(0, 32))
-}
-
 interface ActiveCodexTurn {
   readonly registryKey: string
   readonly sessionId: string
   readonly model: string
-  readonly toolSignature: string
-  /**
-   * Digests of the DSH history this turn was opened against.
-   *
-   * A turn here spans DSH steps: it parks inside a dynamic tool call while
-   * DSH's own loop executes, and DSH rewrites history behind the adapter's
-   * back -- compaction, the tool-result pruner, repair, a user rewind. The
-   * continuation checks its request still agrees with this prefix, because
-   * resuming across a rewrite makes the model reason from a thread whose
-   * prefix DSH no longer has.
-   */
-  readonly historyDigests: readonly string[]
   readonly connection: CodexAppServerConnection
   readonly events: ActiveTurnQueue
   readonly signal: AbortSignal
   readonly threadId: string
   readonly turnId: string
   replayState: CodexReplayState
-  readonly resolveImageUrl: CodexToolImageUrlResolver
+  readonly resolveImageUrl: CodexImageUrlResolver
   readonly onAbort: () => void
-  /**
-   * Aborts this vendor turn, which outlives the DSH step that opened it.
-   *
-   * Neither the caller's signal nor the turn timeout is baked in here. Both are
-   * armed onto this controller for one step and disarmed when that step returns
-   * (`#armStep`). Baking them in made cancelling during a continuation
-   * impossible, and made the timeout count DSH's own tool execution.
-   */
-  readonly abort: AbortController
   readonly blocks: Map<string, ActiveBlock>
   readonly completedImages: Set<string>
   nextBlockIndex: number
   finalOutput: boolean
   usage?: TokenUsage
-  awaiting?: PendingDynamicToolCall
   closing?: Promise<void>
 }
 
@@ -702,7 +595,6 @@ export class CodexAppServerAdapter extends LlmAdapter {
       throw new Error('codex-plugin-dsh: the selected DSH session has no working directory')
     }
     const sessionId = String(options.sessionId)
-    const requestedToolSignature = codexToolSignature(options.tools)
     if (!isAuxiliary) {
       if (this.inFlight.has(sessionId)) {
         throw new Error('codex-plugin-dsh: Codex received a second concurrent request for one DSH session')
@@ -710,109 +602,14 @@ export class CodexAppServerAdapter extends LlmAdapter {
       this.inFlight.add(sessionId)
     }
     try {
-      let active = isAuxiliary ? undefined : this.activeTurns.get(sessionId)
-      const continuing = active !== undefined
-      if (active === undefined) active = await this.startTurn(options, sessionId, cwd)
-      const turn = active
-      let keepAlive = false
-      // Armed here and disarmed in the `finally`, so the whole step -- the
-      // continuation handshake included -- is cancellable and bounded, and a
-      // throw in that handshake can no longer leave the turn wedged in
-      // `activeTurns` with its App Server process still running.
-      const disarmStep = this.#armStep(turn, options)
+      const turn = await this.startTurn(options, sessionId, cwd)
       try {
-        if (continuing) {
-          if (turn.model !== options.model) {
-            throw new Error('codex-plugin-dsh: the model changed while an App Server dynamic tool call was pending')
-          }
-          if (turn.toolSignature !== requestedToolSignature) {
-            throw new Error('codex-plugin-dsh: the DSH tool catalog changed while an App Server dynamic tool call was pending')
-          }
-          // The third thing that can move under a parked call, and the only one
-          // that used to move silently. A missing tool result already fails by
-          // name below, and an assistant or tool message after it fails in
-          // `codexDynamicToolResult`; a rewrite of the history BEFORE the call
-          // failed nowhere. The vendor thread still holds the original prefix
-          // server-side, so the model would resume reasoning from a history DSH
-          // no longer has and the answer would be recorded against the new one.
-          // Ending the turn is the whole fix: the next request goes through
-          // `startTurn`, where the checkpoint tip comparison realigns the thread
-          // by rollback, fork or rebuild.
-          const current = historyDigests(options.messages)
-          const agrees = current.length >= turn.historyDigests.length
-            && turn.historyDigests.every((digest, index) => current[index] === digest)
-          if (!agrees) {
-            throw new Error('codex-plugin-dsh: the DSH history changed while an App Server dynamic tool call was pending')
-          }
-          options.signal?.throwIfAborted()
-          const pending = turn.awaiting
-          if (pending === undefined) {
-            throw new Error('codex-plugin-dsh: an App Server turn is already active for this DSH session')
-          }
-          // The fourth thing that can move under a parked call, and the second
-          // that moved silently: the VENDOR's own state rather than DSH's. A
-          // turn that ended around its own outstanding tool call answered from
-          // whatever the model had instead of the result, and resolving into it
-          // records that answer as an ordinary completion. Throwing discards
-          // the turn; the next request goes through `startTurn`, which realigns
-          // by checkpoint the same way the history guard above relies on.
-          const abandoned = turn.events.abandonedCall(turn.threadId, turn.turnId)
-          if (abandoned !== undefined) {
-            throw new Error(
-              `codex-plugin-dsh: ${abandoned} while a dynamic tool call was still parked, `
-              + 'so the model proceeded without ever receiving its result',
-            )
-          }
-          const continuation = await codexDynamicToolResult(
-            options.messages,
-            pending.call.callId,
-            turn.resolveImageUrl,
-          )
-          if (continuation.steerInput.length > 0) {
-            await turn.connection.request('turn/steer', {
-              threadId: turn.threadId,
-              expectedTurnId: turn.turnId,
-              input: continuation.steerInput,
-            }, turn.signal)
-          }
-          pending.response.resolve(continuation.response)
-          delete turn.awaiting
-          turn.blocks.clear()
-          turn.nextBlockIndex = 0
-          turn.finalOutput = false
-        }
         let decision: CodexDecision | undefined
         let decisionItemId: string | undefined
         let auxiliaryText: string | undefined
         for (;;) {
-          const event = await turn.events.next(turn.signal)
-          if (event.kind === 'dynamic-tool') {
-            const { call } = event
-            if (call.threadId !== turn.threadId || call.turnId !== turn.turnId) continue
-            if (turn.awaiting !== undefined) {
-              throw new Error('codex-plugin-dsh: App Server issued another dynamic tool call before DSH returned the first result')
-            }
-            if ([...turn.blocks.values()].some(block => !block.ended)) {
-              throw new Error('codex-plugin-dsh: App Server requested a dynamic tool with an open agent message')
-            }
-            const argumentsText = JSON.stringify(call.arguments)
-            if (argumentsText === undefined) {
-              throw new Error(`codex-plugin-dsh: App Server returned invalid arguments for DSH tool ${JSON.stringify(call.tool)}`)
-            }
-            const index = turn.nextBlockIndex++
-            const id = ToolCallId(call.callId)
-            yield { type: 'block-start', index, blockType: 'tool-call' }
-            yield { type: 'tool-call-delta', index, id, name: call.tool, argumentsDelta: argumentsText }
-            yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.tool, arguments: argumentsText } }
-            turn.awaiting = event
-            turn.blocks.clear()
-            turn.nextBlockIndex = 0
-            turn.finalOutput = false
-            keepAlive = true
-            yield { type: 'finish', reason: { kind: 'tool-calls' } }
-            return
-          }
-          const { method, params } = event.notification
+          const notification = await turn.events.next(turn.signal)
+          const { method, params } = notification
           if (method === 'error') {
             // A fatal App Server error may arrive without a threadId (or with
             // one that does not identify any thread), and the generic filter
@@ -1048,8 +845,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
           }
         }
       } finally {
-        disarmStep()
-        if (!keepAlive) await this.closeTurn(turn)
+        await this.closeTurn(turn)
       }
     } finally {
       if (!isAuxiliary) {
@@ -1065,18 +861,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
   ): Promise<ActiveCodexTurn> {
     const isAuxiliary = options.purpose !== undefined
     const registryKey = isAuxiliary ? `${sessionId}#aux-${randomUUID()}` : sessionId
-    // Opening a turn is one step's work, so the caller and a timeout bound it.
-    const setupSignal = combinedSignal(options.signal, this.config.turnTimeoutMs)
-    // The turn's own lifetime, which spans however many DSH steps it takes.
-    const turnAbort = new AbortController()
-    const signal = turnAbort.signal
-    // Every `signal` use below is a setup request and must stay stoppable by the
-    // caller or the setup timeout; the link is dropped once the turn is open, or
-    // that timeout would later fire inside a DSH tool call.
-    const linkSetup = (): void => {
-      turnAbort.abort(setupSignal.reason ?? new Error('codex-plugin-dsh: opening the App Server turn was aborted'))
-    }
-    setupSignal.addEventListener('abort', linkSetup, { once: true })
+    const signal = this.#armStep(options)
     const imageUrls = new Map<string, Promise<string>>()
     const resolveImageUrl = (attachment: ImageAttachmentRef): Promise<string> => {
       const key = String(attachment.attachmentId)
@@ -1093,30 +878,19 @@ export class CodexAppServerAdapter extends LlmAdapter {
       sessionId,
       isAuxiliary,
     )
-    const toolSignature = codexToolSignature(options.tools)
-    const availableTools = new Set((options.tools ?? []).map(tool => tool.name))
     const events = new ActiveTurnQueue()
     let threadId: string | undefined
     let turnId: string | undefined
     let connection: CodexAppServerConnection | undefined
     const observer: AppServerConnectionObserver = {
-      notification: notification => { events.push({ kind: 'notification', notification }) },
+      notification: notification => { events.push(notification) },
       failure: error => { events.fail(error) },
     }
     try {
       connection = await this.openConnection(
         cwd,
         signal,
-        (method, params) => {
-          if (method !== 'item/tool/call') return this.handleServerRequest(method, params)
-          const response = Promise.withResolvers<unknown>()
-          events.push({
-            kind: 'dynamic-tool',
-            call: codexDynamicToolCall(params, availableTools),
-            response,
-          })
-          return response.promise
-        },
+        (method, params) => this.handleServerRequest(method, params),
         observer,
       )
       await connection.initialize(signal)
@@ -1243,8 +1017,6 @@ export class CodexAppServerAdapter extends LlmAdapter {
         registryKey,
         sessionId,
         model: options.model,
-        toolSignature,
-        historyDigests: historyDigests(options.messages),
         connection,
         events,
         signal,
@@ -1260,7 +1032,6 @@ export class CodexAppServerAdapter extends LlmAdapter {
           prefixDigest: codexHistoryDigest(options.messages),
         },
         resolveImageUrl,
-        abort: turnAbort,
         onAbort: () => {
           connection?.interrupt(threadId as string, turnId as string)
           void this.closeTurn(active)
@@ -1271,7 +1042,6 @@ export class CodexAppServerAdapter extends LlmAdapter {
         finalOutput: false,
       }
       active.signal.addEventListener('abort', active.onAbort, { once: true })
-      setupSignal.removeEventListener('abort', linkSetup)
       this.activeTurns.set(active.registryKey, active)
       return active
     } catch (error) {
@@ -1282,33 +1052,11 @@ export class CodexAppServerAdapter extends LlmAdapter {
   }
 
   /**
-   * Arm one DSH step's cancellation and its vendor timeout onto a turn that
-   * outlives the step, and disarm both when the step ends.
-   *
-   * Two defects lived here while the signal was built once in `startTurn`. A
-   * continuation step awaited the FIRST step's signal, so cancelling during a
-   * continuation was never observed and the step hung until the turn timeout.
-   * And that timeout ran on wall-clock across the whole turn, so DSH executing a
-   * tool -- which may be waiting on a human approval -- spent the vendor's
-   * budget and killed the App Server mid-turn.
-   *
-   * Arming per step fixes both: every step's caller can cancel it, and the clock
-   * measures only time spent waiting on the vendor.
+   * The vendor turn no longer spans DSH steps, so the step's own signal and
+   * timeout bound the whole thing.
    */
-  #armStep(active: ActiveCodexTurn, options: GenerateOptions): () => void {
-    const abortTurn = (reason: unknown): void => {
-      if (!active.signal.aborted) active.abort.abort(reason)
-    }
-    const timeout = AbortSignal.timeout(this.config.turnTimeoutMs)
-    const onTimeout = (): void => { abortTurn(timeout.reason) }
-    timeout.addEventListener('abort', onTimeout, { once: true })
-    const caller = options.signal
-    const onCaller = (): void => { abortTurn(caller?.reason) }
-    caller?.addEventListener('abort', onCaller, { once: true })
-    return () => {
-      timeout.removeEventListener('abort', onTimeout)
-      caller?.removeEventListener('abort', onCaller)
-    }
+  #armStep(options: GenerateOptions): AbortSignal {
+    return combinedSignal(options.signal, this.config.turnTimeoutMs)
   }
 
   private async closeTurn(active: ActiveCodexTurn): Promise<void> {
@@ -1321,9 +1069,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
   private async finishCloseTurn(active: ActiveCodexTurn): Promise<void> {
     if (this.activeTurns.get(active.registryKey) === active) this.activeTurns.delete(active.registryKey)
     active.signal.removeEventListener('abort', active.onAbort)
-    const closed = new Error('codex-plugin-dsh: App Server turn closed before a pending DSH tool result was returned')
-    active.awaiting?.response.reject(closed)
-    active.events.fail(closed)
+    active.events.fail(new Error('codex-plugin-dsh: App Server turn closed'))
     await active.connection.close()
   }
 
@@ -1349,9 +1095,9 @@ export class CodexAppServerAdapter extends LlmAdapter {
    *
    * `ThreadResumeParams` accepts exactly this field set plus
    * `approvalsReviewer`, `modelProvider`, `personality`, `serviceTier` (none
-   * of which this adapter sets); it does NOT accept `ephemeral` or
-   * `dynamicTools`, and the App Server rejects unknown fields, so those two
-   * are added only by {@link threadParams} for `thread/start`/`thread/fork`.
+   * of which this adapter sets); it does NOT accept `ephemeral`, and the App
+   * Server rejects unknown fields, so that is added only by {@link threadParams}
+   * for `thread/start`/`thread/fork`.
    */
   private threadConfigOverrides(
     options: GenerateOptions,
@@ -1373,12 +1119,10 @@ export class CodexAppServerAdapter extends LlmAdapter {
     options: GenerateOptions,
     cwd: string,
     isolationConfig: Record<string, unknown>,
-    dynamicTools?: readonly unknown[],
   ): Record<string, unknown> {
     return {
       ...this.threadConfigOverrides(options, cwd, isolationConfig),
       ephemeral: options.purpose !== undefined,
-      ...dynamicTools === undefined ? {} : { dynamicTools },
     }
   }
 

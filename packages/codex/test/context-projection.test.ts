@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { projectedContentText } from '../src/codex-plugin-dsh/content-projection.ts'
-import { codexHistoryDigest, prepareCodexHistory } from '../src/codex-plugin-dsh/history.ts'
-import { codexDynamicToolResult } from '../src/codex-plugin-dsh/tools.ts'
+import { codexHistoryDigest, prepareCodexHistory, responseItems } from '../src/codex-plugin-dsh/history.ts'
 import { projectCodexPrimaryHistory } from '../src/primary-history.ts'
 
 const provider = 'codex-app-server'
@@ -123,42 +122,78 @@ test('a settlement notice already in history replays as projected text', async (
   ])
 })
 
-test('a settlement notice landing after a tool result steers projected text into the live turn', async () => {
-  const continuation = await codexDynamicToolResult(
-    [
-      {
-        role: 'assistant',
-        source: { kind: 'model', provider },
-        content: [{ type: 'tool-call', id: 'exec-1', name: 'todo_write', arguments: '{}' }],
-      },
-      {
-        role: 'user',
-        source: { kind: 'tool', callId: 'exec-1' },
-        content: [{
-          type: 'tool-result',
-          toolCallId: 'exec-1',
-          content: [
-            { type: 'text', text: 'todo updated' },
-            { type: 'reasoning', text: 'nested' },
-          ],
-        }],
-      },
-      settlementNotice(),
-    ] as any,
-    'exec-1',
-    noImages,
-  )
+test('a settlement notice landing after a tool result projects nested blocks and turn input', async () => {
+  const messages = [
+    {
+      role: 'assistant',
+      source: { kind: 'model', provider },
+      content: [{ type: 'tool-call', id: 'exec-1', name: 'todo_write', arguments: '{}' }],
+    },
+    {
+      role: 'user',
+      source: { kind: 'tool', callId: 'exec-1' },
+      content: [{
+        type: 'tool-result',
+        toolCallId: 'exec-1',
+        content: [
+          { type: 'text', text: 'todo updated' },
+          { type: 'reasoning', text: 'nested' },
+        ],
+      }],
+    },
+    settlementNotice(),
+  ] as any
 
-  assert.deepEqual(continuation.response, {
-    contentItems: [
-      { type: 'inputText', text: 'todo updated' },
-      { type: 'inputText', text: '[dsh: reasoning]\nnested' },
-    ],
-    success: true,
-  })
-  assert.deepEqual(continuation.steerInput, [
+  const history = await prepareCodexHistory(messages, provider, noImages)
+
+  assert.deepEqual(history.injectItems, [
+    {
+      type: 'function_call',
+      call_id: 'exec-1',
+      name: 'todo_write',
+      arguments: '{}',
+      status: 'completed',
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'exec-1',
+      output: [
+        { type: 'input_text', text: 'todo updated' },
+        { type: 'input_text', text: '[dsh: reasoning]\nnested' },
+      ],
+    },
+  ])
+  assert.deepEqual(history.turnInput, [
     { type: 'text', text: 'subagent "scout" was stopped before it finished', text_elements: [] },
     { type: 'text', text: '[dsh: tool call read({"path":"/etc/hosts"})]', text_elements: [] },
+  ])
+})
+
+test('a tool result with non-text blocks projects to structured input_text items in responseItems', async () => {
+  const items = await responseItems([
+    {
+      role: 'user',
+      source: { kind: 'tool', callId: 'exec-1' },
+      content: [{
+        type: 'tool-result',
+        toolCallId: 'exec-1',
+        content: [
+          { type: 'text', text: 'todo updated' },
+          { type: 'reasoning', text: 'nested' },
+        ],
+      }],
+    } as any,
+  ], noImages)
+
+  assert.deepEqual(items, [
+    {
+      type: 'function_call_output',
+      call_id: 'exec-1',
+      output: [
+        { type: 'input_text', text: 'todo updated' },
+        { type: 'input_text', text: '[dsh: reasoning]\nnested' },
+      ],
+    },
   ])
 })
 

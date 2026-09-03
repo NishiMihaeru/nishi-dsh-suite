@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Message, StreamChunk, ToolSchema } from '@deepseek-ai/dsh-llm'
-import { CodexAppServerAdapter } from '../src/codex-plugin-dsh/adapter.ts'
+import {
+  CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS,
+  CodexAppServerAdapter,
+} from '../src/codex-plugin-dsh/adapter.ts'
 import {
   codexDecisionDigest,
   codexHistoryDigest,
@@ -102,29 +105,23 @@ test('1. turn/start carries an outputSchema built from the request tools, and th
   const active = await waitForActiveTurn(adapter, 'session-test')
 
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: {
-        threadId: 'thread-test',
-        turnId: 'turn-test',
-        item: {
-          id: 'msg-1',
-          type: 'agentMessage',
-          phase: 'final_answer',
-          text: JSON.stringify({ decision: { kind: 'final', message: 'done' } }),
-        },
+    method: 'item/completed',
+    params: {
+      threadId: 'thread-test',
+      turnId: 'turn-test',
+      item: {
+        id: 'msg-1',
+        type: 'agentMessage',
+        phase: 'final_answer',
+        text: JSON.stringify({ decision: { kind: 'final', message: 'done' } }),
       },
     },
   })
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: {
-        threadId: 'thread-test',
-        turn: { id: 'turn-test', status: 'completed' },
-      },
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-test',
+      turn: { id: 'turn-test', status: 'completed' },
     },
   })
 
@@ -150,29 +147,23 @@ test('2. a request with no tools sends no outputSchema key at all', async () => 
   const active = await waitForActiveTurn(adapter, 'session-test')
 
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: {
-        threadId: 'thread-test',
-        turnId: 'turn-test',
-        item: {
-          id: 'msg-1',
-          type: 'agentMessage',
-          phase: 'final_answer',
-          text: JSON.stringify({ decision: { kind: 'final', message: 'done' } }),
-        },
+    method: 'item/completed',
+    params: {
+      threadId: 'thread-test',
+      turnId: 'turn-test',
+      item: {
+        id: 'msg-1',
+        type: 'agentMessage',
+        phase: 'final_answer',
+        text: JSON.stringify({ decision: { kind: 'final', message: 'done' } }),
       },
     },
   })
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: {
-        threadId: 'thread-test',
-        turn: { id: 'turn-test', status: 'completed' },
-      },
+    method: 'turn/completed',
+    params: {
+      threadId: 'thread-test',
+      turn: { id: 'turn-test', status: 'completed' },
     },
   })
 
@@ -200,52 +191,40 @@ test('3. a turn whose decision is final yields one text block with the decision 
   const userMessage = 'The result of the calculation is 42.'
   const chunks = await collectChunks(adapter, options, active => {
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/started',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
+      method: 'item/started',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
+      },
+    })
+    active.events.push({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'msg-1',
+        delta: JSON.stringify({ decision: { kind: 'final', message: userMessage } }),
+      },
+    })
+    active.events.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'msg-1',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: JSON.stringify({ decision: { kind: 'final', message: userMessage } }),
         },
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'msg-1',
-          delta: JSON.stringify({ decision: { kind: 'final', message: userMessage } }),
-        },
-      },
-    })
-    active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'msg-1',
-            type: 'agentMessage',
-            phase: 'final_answer',
-            text: JSON.stringify({ decision: { kind: 'final', message: userMessage } }),
-          },
-        },
-      },
-    })
-    active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'turn/completed',
-        params: {
-          threadId: 'thread-test',
-          turn: { id: 'turn-test', status: 'completed' },
-        },
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-test',
+        turn: { id: 'turn-test', status: 'completed' },
       },
     })
   })
@@ -292,56 +271,44 @@ test('4. the raw JSON deltas of the decision produce no text-delta chunks — as
   const { adapter, options } = createFixture({ tools })
   const chunks = await collectChunks(adapter, options, active => {
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/started',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
-        },
+      method: 'item/started',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
       },
     })
     // 10 raw JSON fragments
     const fragments = ['{"', 'decision', '":{"', 'kind', '":"', 'final', '","', 'message', '":"', 'Hello world!"}}']
     for (const delta of fragments) {
       active.events.push({
-        kind: 'notification',
-        notification: {
-          method: 'item/agentMessage/delta',
-          params: {
-            threadId: 'thread-test',
-            turnId: 'turn-test',
-            itemId: 'msg-1',
-            delta,
-          },
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'thread-test',
+          turnId: 'turn-test',
+          itemId: 'msg-1',
+          delta,
         },
       })
     }
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'msg-1',
-            type: 'agentMessage',
-            phase: 'final_answer',
-            text: '{"decision":{"kind":"final","message":"Hello world!"}}',
-          },
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'msg-1',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: '{"decision":{"kind":"final","message":"Hello world!"}}',
         },
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'turn/completed',
-        params: {
-          threadId: 'thread-test',
-          turn: { id: 'turn-test', status: 'completed' },
-        },
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-test',
+        turn: { id: 'turn-test', status: 'completed' },
       },
     })
   })
@@ -368,105 +335,81 @@ test('5. a commentary message still streams as reasoning while a decision is buf
   const chunks = await collectChunks(adapter, options, active => {
     // 1. Commentary message
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/started',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: { id: 'reasoning-1', type: 'agentMessage', phase: 'commentary' },
-        },
+      method: 'item/started',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: { id: 'reasoning-1', type: 'agentMessage', phase: 'commentary' },
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'reasoning-1',
-          delta: 'Thinking about ',
-        },
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'reasoning-1',
+        delta: 'Thinking about ',
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'reasoning-1',
-          delta: 'the problem...',
-        },
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'reasoning-1',
+        delta: 'the problem...',
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'reasoning-1',
-            type: 'agentMessage',
-            phase: 'commentary',
-            text: 'Thinking about the problem...',
-          },
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'reasoning-1',
+          type: 'agentMessage',
+          phase: 'commentary',
+          text: 'Thinking about the problem...',
         },
       },
     })
 
     // 2. Decision message (buffered)
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/started',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: { id: 'msg-decision', type: 'agentMessage', phase: 'final_answer' },
+      method: 'item/started',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: { id: 'msg-decision', type: 'agentMessage', phase: 'final_answer' },
+      },
+    })
+    active.events.push({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'msg-decision',
+        delta: '{"decision":{"kind":"final","message":"Answer"}}',
+      },
+    })
+    active.events.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'msg-decision',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: '{"decision":{"kind":"final","message":"Answer"}}',
         },
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'msg-decision',
-          delta: '{"decision":{"kind":"final","message":"Answer"}}',
-        },
-      },
-    })
-    active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'msg-decision',
-            type: 'agentMessage',
-            phase: 'final_answer',
-            text: '{"decision":{"kind":"final","message":"Answer"}}',
-          },
-        },
-      },
-    })
-    active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'turn/completed',
-        params: {
-          threadId: 'thread-test',
-          turn: { id: 'turn-test', status: 'completed' },
-        },
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-test',
+        turn: { id: 'turn-test', status: 'completed' },
       },
     })
   })
@@ -515,52 +458,40 @@ test('6. a turn whose decision is a tool call yields one tool-call block with a 
 
   const chunks = await collectChunks(adapter, options, active => {
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/started',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
+      method: 'item/started',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
+      },
+    })
+    active.events.push({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'msg-1',
+        delta: decisionText,
+      },
+    })
+    active.events.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'msg-1',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: decisionText,
         },
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'msg-1',
-          delta: decisionText,
-        },
-      },
-    })
-    active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'msg-1',
-            type: 'agentMessage',
-            phase: 'final_answer',
-            text: decisionText,
-          },
-        },
-      },
-    })
-    active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'turn/completed',
-        params: {
-          threadId: 'thread-test',
-          turn: { id: 'turn-test', status: 'completed' },
-        },
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-test',
+        turn: { id: 'turn-test', status: 'completed' },
       },
     })
   })
@@ -604,42 +535,33 @@ test('7. two non-commentary agent messages in one turn throw', async () => {
       await collectChunks(adapter, options, active => {
         // First non-commentary agent message
         active.events.push({
-          kind: 'notification',
-          notification: {
-            method: 'item/started',
-            params: {
-              threadId: 'thread-test',
-              turnId: 'turn-test',
-              item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
-            },
+          method: 'item/started',
+          params: {
+            threadId: 'thread-test',
+            turnId: 'turn-test',
+            item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer' },
           },
         })
         active.events.push({
-          kind: 'notification',
-          notification: {
-            method: 'item/completed',
-            params: {
-              threadId: 'thread-test',
-              turnId: 'turn-test',
-              item: {
-                id: 'msg-1',
-                type: 'agentMessage',
-                phase: 'final_answer',
-                text: JSON.stringify({ decision: { kind: 'final', message: 'one' } }),
-              },
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-test',
+            turnId: 'turn-test',
+            item: {
+              id: 'msg-1',
+              type: 'agentMessage',
+              phase: 'final_answer',
+              text: JSON.stringify({ decision: { kind: 'final', message: 'one' } }),
             },
           },
         })
         // Second non-commentary agent message in the same turn
         active.events.push({
-          kind: 'notification',
-          notification: {
-            method: 'item/started',
-            params: {
-              threadId: 'thread-test',
-              turnId: 'turn-test',
-              item: { id: 'msg-2', type: 'agentMessage', phase: 'final_answer' },
-            },
+          method: 'item/started',
+          params: {
+            threadId: 'thread-test',
+            turnId: 'turn-test',
+            item: { id: 'msg-2', type: 'agentMessage', phase: 'final_answer' },
           },
         })
       })
@@ -738,83 +660,65 @@ test('10. finding 1: delta for a commentary message before item/started followed
   const chunks = await collectChunks(adapter, options, active => {
     // 1. Delta for commentary message before its item/started
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'msg-c',
-          delta: reasoningText,
-        },
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'msg-c',
+        delta: reasoningText,
       },
     })
     // 2. item/completed for msg-c with phase: 'commentary'
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'msg-c',
-            type: 'agentMessage',
-            phase: 'commentary',
-            text: reasoningText,
-          },
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'msg-c',
+          type: 'agentMessage',
+          phase: 'commentary',
+          text: reasoningText,
         },
       },
     })
     // 3. Real final_answer decision
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/started',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: { id: 'msg-final', type: 'agentMessage', phase: 'final_answer' },
-        },
+      method: 'item/started',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: { id: 'msg-final', type: 'agentMessage', phase: 'final_answer' },
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'msg-final',
-          delta: JSON.stringify({ decision: { kind: 'final', message: finalText } }),
-        },
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'msg-final',
+        delta: JSON.stringify({ decision: { kind: 'final', message: finalText } }),
       },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'msg-final',
-            type: 'agentMessage',
-            phase: 'final_answer',
-            text: JSON.stringify({ decision: { kind: 'final', message: finalText } }),
-          },
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'msg-final',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: JSON.stringify({ decision: { kind: 'final', message: finalText } }),
         },
       },
     })
     // 4. turn/completed
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'turn/completed',
-        params: {
-          threadId: 'thread-test',
-          turn: { id: 'turn-test', status: 'completed' },
-        },
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-test',
+        turn: { id: 'turn-test', status: 'completed' },
       },
     })
   })
@@ -867,43 +771,34 @@ test('11. delta-first message that turns out to be the decision parses and finis
   const chunks = await collectChunks(adapter, options, active => {
     // 1. Delta for decision message before item/started
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/agentMessage/delta',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          itemId: 'msg-decision',
-          delta: decisionPayload,
-        },
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        itemId: 'msg-decision',
+        delta: decisionPayload,
       },
     })
     // 2. item/completed for msg-decision with phase: 'final_answer'
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: {
-          threadId: 'thread-test',
-          turnId: 'turn-test',
-          item: {
-            id: 'msg-decision',
-            type: 'agentMessage',
-            phase: 'final_answer',
-            text: decisionPayload,
-          },
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: {
+          id: 'msg-decision',
+          type: 'agentMessage',
+          phase: 'final_answer',
+          text: decisionPayload,
         },
       },
     })
     // 3. turn/completed
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'turn/completed',
-        params: {
-          threadId: 'thread-test',
-          turn: { id: 'turn-test', status: 'completed' },
-        },
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-test',
+        turn: { id: 'turn-test', status: 'completed' },
       },
     })
   })
@@ -934,14 +829,11 @@ test('12. an unknown phase string throws the unknown agent message phase error',
     async () => {
       await collectChunks(adapter, options, active => {
         active.events.push({
-          kind: 'notification',
-          notification: {
-            method: 'item/started',
-            params: {
-              threadId: 'thread-test',
-              turnId: 'turn-test',
-              item: { id: 'msg-unknown', type: 'agentMessage', phase: 'summary' },
-            },
+          method: 'item/started',
+          params: {
+            threadId: 'thread-test',
+            turnId: 'turn-test',
+            item: { id: 'msg-unknown', type: 'agentMessage', phase: 'summary' },
           },
         })
       })
@@ -953,14 +845,11 @@ test('12. an unknown phase string throws the unknown agent message phase error',
     async () => {
       await collectChunks(adapter, options, active => {
         active.events.push({
-          kind: 'notification',
-          notification: {
-            method: 'item/completed',
-            params: {
-              threadId: 'thread-test',
-              turnId: 'turn-test',
-              item: { id: 'msg-unknown', type: 'agentMessage', phase: 'summary', text: 'summary text' },
-            },
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-test',
+            turnId: 'turn-test',
+            item: { id: 'msg-unknown', type: 'agentMessage', phase: 'summary', text: 'summary text' },
           },
         })
       })
@@ -977,29 +866,23 @@ test('13. a final decision with an empty message fails with without a final answ
       async () => {
         await collectChunks(adapter, options, active => {
           active.events.push({
-            kind: 'notification',
-            notification: {
-              method: 'item/completed',
-              params: {
-                threadId: 'thread-test',
-                turnId: 'turn-test',
-                item: {
-                  id: 'msg-1',
-                  type: 'agentMessage',
-                  phase: 'final_answer',
-                  text: JSON.stringify({ decision: { kind: 'final', message: '' } }),
-                },
+            method: 'item/completed',
+            params: {
+              threadId: 'thread-test',
+              turnId: 'turn-test',
+              item: {
+                id: 'msg-1',
+                type: 'agentMessage',
+                phase: 'final_answer',
+                text: JSON.stringify({ decision: { kind: 'final', message: '' } }),
               },
             },
           })
           active.events.push({
-            kind: 'notification',
-            notification: {
-              method: 'turn/completed',
-              params: {
-                threadId: 'thread-test',
-                turn: { id: 'turn-test', status: 'completed' },
-              },
+            method: 'turn/completed',
+            params: {
+              threadId: 'thread-test',
+              turn: { id: 'turn-test', status: 'completed' },
             },
           })
         })
@@ -1015,29 +898,23 @@ test('13. a final decision with an empty message fails with without a final answ
       async () => {
         await collectChunks(adapter, options, active => {
           active.events.push({
-            kind: 'notification',
-            notification: {
-              method: 'item/completed',
-              params: {
-                threadId: 'thread-test',
-                turnId: 'turn-test',
-                item: {
-                  id: 'msg-1',
-                  type: 'agentMessage',
-                  phase: 'final_answer',
-                  text: JSON.stringify({ decision: { kind: 'final', message: '   \n\t  ' } }),
-                },
+            method: 'item/completed',
+            params: {
+              threadId: 'thread-test',
+              turnId: 'turn-test',
+              item: {
+                id: 'msg-1',
+                type: 'agentMessage',
+                phase: 'final_answer',
+                text: JSON.stringify({ decision: { kind: 'final', message: '   \n\t  ' } }),
               },
             },
           })
           active.events.push({
-            kind: 'notification',
-            notification: {
-              method: 'turn/completed',
-              params: {
-                threadId: 'thread-test',
-                turn: { id: 'turn-test', status: 'completed' },
-              },
+            method: 'turn/completed',
+            params: {
+              threadId: 'thread-test',
+              turn: { id: 'turn-test', status: 'completed' },
             },
           })
         })
@@ -1051,29 +928,23 @@ test('13. a final decision with an empty message fails with without a final answ
     const { adapter, options } = createFixture()
     const chunks = await collectChunks(adapter, options, active => {
       active.events.push({
-        kind: 'notification',
-        notification: {
-          method: 'item/completed',
-          params: {
-            threadId: 'thread-test',
-            turnId: 'turn-test',
-            item: {
-              id: 'msg-1',
-              type: 'agentMessage',
-              phase: 'final_answer',
-              text: JSON.stringify({ decision: { kind: 'final', message: 'Valid non-empty answer' } }),
-            },
+        method: 'item/completed',
+        params: {
+          threadId: 'thread-test',
+          turnId: 'turn-test',
+          item: {
+            id: 'msg-1',
+            type: 'agentMessage',
+            phase: 'final_answer',
+            text: JSON.stringify({ decision: { kind: 'final', message: 'Valid non-empty answer' } }),
           },
         },
       })
       active.events.push({
-        kind: 'notification',
-        notification: {
-          method: 'turn/completed',
-          params: {
-            threadId: 'thread-test',
-            turn: { id: 'turn-test', status: 'completed' },
-          },
+        method: 'turn/completed',
+        params: {
+          threadId: 'thread-test',
+          turn: { id: 'turn-test', status: 'completed' },
         },
       })
     })
@@ -1085,3 +956,27 @@ test('13. a final decision with an empty message fails with without a final answ
     assert.equal(finish.reason.kind, 'stop')
   }
 })
+
+test('developer instructions mention neither dynamic-tool namespace nor dynamicTools, and instruct passing null for unasked optionals', () => {
+  assert.equal(
+    CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS.includes('dynamic-tool'),
+    false,
+    'developer instructions must not mention dynamic-tool',
+  )
+  assert.equal(
+    CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS.includes('dynamicTools'),
+    false,
+    'developer instructions must not mention dynamicTools',
+  )
+  assert.equal(
+    CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS.includes('dsh dynamic-tool'),
+    false,
+    'developer instructions must not mention dsh dynamic-tool namespace',
+  )
+  assert.match(
+    CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS,
+    /for an optional parameter you were not asked to set, pass null rather than inventing a value/i,
+    'developer instructions must instruct model to pass null for unasked optional parameters',
+  )
+})
+

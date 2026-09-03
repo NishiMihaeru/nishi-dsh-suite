@@ -106,24 +106,18 @@ test('1. a compaction-shaped request issues no thread/resume, thread/fork or thr
   assert.ok(active, 'auxiliary turn must be registered')
 
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: {
-        threadId: active.threadId,
-        turnId: active.turnId,
-        item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer', text: 'Compaction summary text' },
-      },
+    method: 'item/completed',
+    params: {
+      threadId: active.threadId,
+      turnId: active.turnId,
+      item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer', text: 'Compaction summary text' },
     },
   })
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: {
-        threadId: active.threadId,
-        turn: { id: active.turnId, status: 'completed' },
-      },
+    method: 'turn/completed',
+    params: {
+      threadId: active.threadId,
+      turn: { id: active.turnId, status: 'completed' },
     },
   })
 
@@ -190,24 +184,18 @@ test('2. the same request sends no outputSchema key, no developerInstructions ke
   assert.ok(active, 'turn must be registered')
 
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: {
-        threadId: active.threadId,
-        turnId: active.turnId,
-        item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer', text: 'Summary result' },
-      },
+    method: 'item/completed',
+    params: {
+      threadId: active.threadId,
+      turnId: active.turnId,
+      item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer', text: 'Summary result' },
     },
   })
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: {
-        threadId: active.threadId,
-        turn: { id: active.turnId, status: 'completed' },
-      },
+    method: 'turn/completed',
+    params: {
+      threadId: active.threadId,
+      turn: { id: active.turnId, status: 'completed' },
     },
   })
 
@@ -283,47 +271,35 @@ test('3. an auxiliary turn plain agent text is streamed and finishes as stop, wi
   assert.ok(active, 'active turn registered')
 
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/started',
-      params: {
-        threadId: active.threadId,
-        turnId: active.turnId,
-        item: { id: 'msg-plain', type: 'agentMessage', phase: 'final_answer' },
-      },
+    method: 'item/started',
+    params: {
+      threadId: active.threadId,
+      turnId: active.turnId,
+      item: { id: 'msg-plain', type: 'agentMessage', phase: 'final_answer' },
     },
   })
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/agentMessage/delta',
-      params: {
-        threadId: active.threadId,
-        turnId: active.turnId,
-        itemId: 'msg-plain',
-        delta: plainText,
-      },
+    method: 'item/agentMessage/delta',
+    params: {
+      threadId: active.threadId,
+      turnId: active.turnId,
+      itemId: 'msg-plain',
+      delta: plainText,
     },
   })
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: {
-        threadId: active.threadId,
-        turnId: active.turnId,
-        item: { id: 'msg-plain', type: 'agentMessage', phase: 'final_answer', text: plainText },
-      },
+    method: 'item/completed',
+    params: {
+      threadId: active.threadId,
+      turnId: active.turnId,
+      item: { id: 'msg-plain', type: 'agentMessage', phase: 'final_answer', text: plainText },
     },
   })
   active.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: {
-        threadId: active.threadId,
-        turn: { id: active.turnId, status: 'completed' },
-      },
+    method: 'turn/completed',
+    params: {
+      threadId: active.threadId,
+      turn: { id: active.turnId, status: 'completed' },
     },
   })
 
@@ -397,18 +373,12 @@ test('4. maxTokens is accepted with a purpose and still rejected without one; te
     }
     assert.ok(active, 'active turn opened with maxTokens and purpose')
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'item/completed',
-        params: { threadId: active.threadId, turnId: active.turnId, item: { id: 'm1', type: 'agentMessage', phase: 'final_answer', text: 'ok' } },
-      },
+      method: 'item/completed',
+      params: { threadId: active.threadId, turnId: active.turnId, item: { id: 'm1', type: 'agentMessage', phase: 'final_answer', text: 'ok' } },
     })
     active.events.push({
-      kind: 'notification',
-      notification: {
-        method: 'turn/completed',
-        params: { threadId: active.threadId, turn: { id: active.turnId, status: 'completed' } },
-      },
+      method: 'turn/completed',
+      params: { threadId: active.threadId, turn: { id: active.turnId, status: 'completed' } },
     })
     let res = await pending
     while (!res.done) res = await iter.next()
@@ -517,18 +487,12 @@ test('5. a purpose: "session-title" request succeeds while an ordinary request f
 
   // Complete title turn
   titleActive.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: { threadId: titleActive.threadId, turnId: titleActive.turnId, item: { id: 'm-title', type: 'agentMessage', phase: 'final_answer', text: 'My Session Title' } },
-    },
+    method: 'item/completed',
+    params: { threadId: titleActive.threadId, turnId: titleActive.turnId, item: { id: 'm-title', type: 'agentMessage', phase: 'final_answer', text: 'My Session Title' } },
   })
   titleActive.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: { threadId: titleActive.threadId, turn: { id: titleActive.turnId, status: 'completed' } },
-    },
+    method: 'turn/completed',
+    params: { threadId: titleActive.threadId, turn: { id: titleActive.turnId, status: 'completed' } },
   })
 
   const titleChunks: StreamChunk[] = []
@@ -546,22 +510,16 @@ test('5. a purpose: "session-title" request succeeds while an ordinary request f
 
   // Complete primary turn
   primaryActive.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: {
-        threadId: primaryActive.threadId,
-        turnId: primaryActive.turnId,
-        item: { id: 'm-primary', type: 'agentMessage', phase: 'final_answer', text: JSON.stringify({ decision: { kind: 'final', message: 'primary done' } }) },
-      },
+    method: 'item/completed',
+    params: {
+      threadId: primaryActive.threadId,
+      turnId: primaryActive.turnId,
+      item: { id: 'm-primary', type: 'agentMessage', phase: 'final_answer', text: JSON.stringify({ decision: { kind: 'final', message: 'primary done' } }) },
     },
   })
   primaryActive.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: { threadId: primaryActive.threadId, turn: { id: primaryActive.turnId, status: 'completed' } },
-    },
+    method: 'turn/completed',
+    params: { threadId: primaryActive.threadId, turn: { id: primaryActive.turnId, status: 'completed' } },
   })
 
   const primaryChunks: StreamChunk[] = []
@@ -656,18 +614,12 @@ test('6. with a primary turn in flight and an auxiliary turn started and finishe
 
   // Complete aux turn
   auxActive.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'item/completed',
-      params: { threadId: auxActive.threadId, turnId: auxActive.turnId, item: { id: 'm-aux', type: 'agentMessage', phase: 'final_answer', text: 'aux finished' } },
-    },
+    method: 'item/completed',
+    params: { threadId: auxActive.threadId, turnId: auxActive.turnId, item: { id: 'm-aux', type: 'agentMessage', phase: 'final_answer', text: 'aux finished' } },
   })
   auxActive.events.push({
-    kind: 'notification',
-    notification: {
-      method: 'turn/completed',
-      params: { threadId: auxActive.threadId, turn: { id: auxActive.turnId, status: 'completed' } },
-    },
+    method: 'turn/completed',
+    params: { threadId: auxActive.threadId, turn: { id: auxActive.turnId, status: 'completed' } },
   })
 
   let auxRes = await auxPending
