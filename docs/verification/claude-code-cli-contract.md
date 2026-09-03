@@ -76,6 +76,8 @@ Status: **P** published in `--help` or the vendor's own docs; **A** ambiguous; *
 | 28 | Automatic prompt-cache breakpoints across the turns of one child | the whole economic case for a session-lived child | **MEASURED** (finding 4). The CLI places them itself: no flag, no cache-control plumbing, ~300 tokens of creation per later turn against an 18k prefix read back in full |
 | 29 | `--setting-sources <user\|project\|local>` | the isolation posture, and the reason `--safe-mode` is unnecessary | **MEASURED** (finding 11). `user` alone drops a repository's hooks, its slash commands and its `CLAUDE.md`, while leaving auth, the model and our own `--mcp-config` intact |
 | 30 | `--include-hook-events` | seeing repository hooks fire instead of inferring it | **MEASURED** (finding 11). The instrument that made the exposure observable rather than argued: `hook_started`/`hook_response` pairs on the ordinary stream |
+| 31 | `DISABLE_COMPACT`, with `--autocompact` at the model's full window as a second belt | keeping DSH's history authoritative | **MEASURED** (finding 12). Documented as "disables all compaction"; without it the vendor collapsed a 116k conversation to 1,091 tokens mid-session |
+| 32 | `system/compact_boundary` with `compact_metadata` (`trigger`, `pre_tokens`, `post_tokens`, `cumulative_dropped_tokens`, `preserved_segment`) | the watch that proves the belt held | **MEASURED** (finding 12). For this route its arrival is a failure signal, not an event to render |
 
 ## Traps
 
@@ -85,7 +87,7 @@ Status: **P** published in `--help` or the vendor's own docs; **A** ambiguous; *
 
 ## Probe results, 2026-09-03
 
-All five open probes ran, then trap 1 was probed too, and six findings nobody asked for came out of the arms. Shape: `claude 2.1.246`, `claude-haiku-4-5-20251001`, `--effort low`, a sterile workspace outside this repository, and a **scrubbed environment** -- only `PATH`, `HOME`, `USER`, `LANG`, `TERM=dumb`, because this session's own `CLAUDE_CODE_*` variables (including a messaging socket and token) would otherwise be inherited by every child and the probe would measure the harness. Total spend across every arm was well under a dollar. Recipes are not retained as a suite; they are described below.
+All five open probes ran, then trap 1, then the vendor's own compaction, and seven findings nobody asked for came out of the arms. Where a knob has a documented domain -- compaction does -- the domain is quoted from the documentation rather than guessed at, because one round of guessing values here measured nothing (finding 12). Shape: `claude 2.1.246`, `claude-haiku-4-5-20251001`, `--effort low`, a sterile workspace outside this repository, and a **scrubbed environment** -- only `PATH`, `HOME`, `USER`, `LANG`, `TERM=dumb`, because this session's own `CLAUDE_CODE_*` variables (including a messaging socket and token) would otherwise be inherited by every child and the probe would measure the harness. Total spend across every arm was well under a dollar. Recipes are not retained as a suite; they are described below.
 
 **1. One `stream-json` child serves several turns, and `init` is a per-TURN event.** Probe 1, answered positively: after the first `result` the process was alive, accepted a second message on stdin, answered it, and exited 0 on stdin EOF. History carried across the boundary -- a codeword planted in turn 1 came back verbatim in turn 2 -- so the session-lived-child design transfers from `agy` intact. Two cadence details the docs do not state: **`system/init` is emitted at the head of every turn, not once per process**, and **nothing at all is emitted before the first stdin line**. A child started and left alone printed zero bytes for twelve seconds and exited 0 on EOF. So `init.capabilities` cannot be read as a free feature probe the way Antigravity's quota listener can be read for free -- detection costs a turn -- but it can be re-read on every turn, which is strictly more than Codex's one-shot version floor.
 
@@ -134,10 +136,39 @@ Arm C is the answer, and it retires the conflict finding 3 created: **safe mode 
 
 Two smaller notes from these arms. `init.skills` reported 16 in *every* arm, safe mode included, so the skill count is not an isolation signal -- what makes them unreachable is `--tools ""` removing the `Skill` tool, not the posture. And even with `--no-session-persistence`, the CLI creates `~/.claude/projects/<sanitised-cwd>/memory/` -- two empty directories, no files; the probe removed them.
 
+**12. The CLI compacts the conversation by itself in print mode, and `DISABLE_COMPACT` is the documented off switch.** This was the last thing in this file's design that nobody had looked at: `--autocompact` exists, so a second compactor may sit on top of history DSH treats as authoritative. It does. Probed with a 116k-token prefix and `--autocompact 100000`, three turns:
+
+```text
+system/compact_boundary  compact_metadata: { trigger: "auto", pre_tokens: 116640,
+                           post_tokens: 1091, cumulative_dropped_tokens: 115549,
+                           duration_ms: 18364, preserved_segment: {...} }
+```
+
+The turn it happened in took 21 s instead of 3 s and its `usage` shows the collapse. An otherwise identical arm with `DISABLE_COMPACT=1` produced **zero** compaction events, kept `cache_read` at 116,360 on the third turn, and cost $0.041 against the compacting arm's $0.285.
+
+The controls are documented, and this is the part to read rather than probe (`model-config`, `env-vars`):
+
+| control | domain | precedence |
+|---|---|---|
+| `--autocompact <auto\|tokens>` | `auto`, or 100K-1M | per launch; not preempted by managed settings |
+| `/autocompact <value>` | same | writes the `autoCompactWindow` user setting |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | plain token count only | **takes precedence over the command, the flag and the setting** |
+| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | 1-100 | can only LOWER the trigger, never raise it |
+| `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | token count | on a `claude-` model ID it applies **only when `DISABLE_COMPACT` is also set** |
+| `DISABLE_COMPACT` | set / unset | "disables all compaction" |
+
+With no window configured, the vendor compacts when the conversation reaches the model's context limit, and certain model configurations compact at the 200K boundary regardless.
+
+**What the route must do.** Set `DISABLE_COMPACT=1` in the child's environment, and additionally pass `--autocompact` at the model's full window so that if the variable is ever dropped the trigger sits at the ceiling instead of below it. Then treat `system/compact_boundary` on the stream as a hard failure rather than an event: it means the vendor rewrote history behind DSH, and the only correct response is to rebuild the conversation from DSH's own history. This is the same hazard class as Antigravity's trajectory trimming (`agy-cli-contract.md` finding 9) with one difference that matters -- there the vendor's trim is invisible, here it announces itself on the stream, so the watch is cheap and exact.
+
+**A correction that belongs with it.** Two earlier arms set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to 20,000 and 5,000 and saw nothing happen; I read that as the variable being ignored. It is not: the documented domain is 100K-1M, and a value below it does not apply. Likewise `CLAUDE_CODE_MAX_CONTEXT_TOKENS` left `modelUsage.contextWindow` at 200,000 because it is documented to apply to a `claude-` model ID only alongside `DISABLE_COMPACT`. The knob domain was in the documentation the whole time, and guessing values measured nothing.
+
+**13. The prompt cache is shared BETWEEN processes, which rewrites the rebuild economics.** Not planned, and it corrects something already written down. Two separate arms started fresh children with new session ids and the same `--system-prompt-file`, and both paid `cache_creation: 0` while reading back 115,879 tokens that an earlier, already-exited child had created. So a dead child does not cost a full prefix recreation: within the cache TTL a rebuild pays cache reads. Replaying DSH history into a replacement child is therefore cheap -- **as long as the prefix is byte-identical**, which promotes prefix stability (system prompt text, tool list, their order) from a nicety to a property worth a test.
+
 ### What is still unmeasured
 
 - Whether the resumed-unfinished-turn half of row 17 reproduces. Testing it requires persistence plus a resume, which means writing to the vendor's session store, so it stayed out of this pass.
-- Long-run behaviour: compaction, the 200k window, and whether `init.capabilities` ever changes mid-session.
+- Whether `init.capabilities` ever changes mid-session, and whether `microcompact_boundary` -- a second, narrower mechanism the binary carries -- is also governed by `DISABLE_COMPACT`.
 - Anything about a model other than `claude-haiku-4-5`, and anything about a real DSH prefix. Cheap arms answer cheap questions.
 
 ### Probe hygiene
