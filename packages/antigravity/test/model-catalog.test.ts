@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
+import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
  * Regression net for `loadModels()` (antigravity-primary.ts:~534), its JSON
@@ -68,7 +69,10 @@ function modelCatalogCtx(responses: ReadonlyArray<{ stdout: string; stderr: stri
   return {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn() {
+      spawn(spec: { argv: readonly string[] }) {
+        // Before the counter: the version read must not consume a scripted
+        // catalog response, or every test here measures a shifted script.
+        if (isVersionSpawn(spec.argv)) return versionChild()
         const response = responses[call] ?? responses[responses.length - 1]
         call += 1
         return collectedChild(response.stdout, response.stderr, response.exitCode ?? 0)

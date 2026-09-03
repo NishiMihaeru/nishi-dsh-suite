@@ -559,12 +559,112 @@ function recordUsageBaseline(reported: TokenUsage, previous: TokenUsage | undefi
   }
 }
 
+/**
+ * A version-shaped token, and nothing else, out of `agy --version` output.
+ *
+ * `--version` output is vendor-authored text like every other byte this
+ * package reads back from the CLI, so it goes through the same discipline the
+ * stderr recognisers follow: only a token matched by this pattern is kept,
+ * never the line it sat on and never the text around it. Measured on real
+ * `agy 1.1.25`, the whole output is the bare `1.1.25`, but a vendor free to
+ * print `agy version 1.2.0 (abc123)` tomorrow must not thereby get a
+ * paragraph of its own choosing into a DSH diagnostic.
+ */
+const VENDOR_BUILD_TOKEN = /(?:^|\s)v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]{1,40})?)(?:\s|$)/
+
+function parseVendorBuild(stdout: string): string | undefined {
+  for (const line of stdout.split('\n')) {
+    const match = VENDOR_BUILD_TOKEN.exec(line.trim())
+    if (match?.[1] !== undefined) return match[1]
+  }
+  return undefined
+}
+
 function isEffortUnsupported(result: AgyTurnResult): boolean {
   return typeof result.error === 'string' && isEffortUnsupportedText(result.error)
 }
 
-function isSuccess(result: AgyTurnResult): boolean {
-  return result.status === 'SUCCESS'
+/**
+ * How one vendor turn settled, by the vendor's own published status.
+ *
+ * `agy` publishes seven -- `SUCCESS`, `ERROR`, `CANCELED`, `INTERRUPTED`,
+ * `INVALID`, `WAITING`, `RUNNING` (`docs/verification/agy-cli-contract.md`) --
+ * and they are not seven shades of one outcome. This used to be a boolean
+ * (`status === 'SUCCESS'`), which named the other six in a diagnostic string
+ * and acted on none, and that collapse was wrong in both directions:
+ * cancellation is not a turn failure, and `WAITING`/`RUNNING` in a terminal
+ * `result` means the turn has NOT settled -- the opposite of the completed
+ * failure it read as.
+ */
+type TurnSettlement =
+  | { readonly kind: 'success' }
+  | { readonly kind: 'cancelled'; readonly status: string }
+  | { readonly kind: 'unsettled'; readonly status: string }
+  | { readonly kind: 'failed'; readonly status: string }
+
+/** A settlement that cannot yield a decision; the three non-success kinds. */
+type UnusableSettlement = Exclude<TurnSettlement, { kind: 'success' }>
+
+/**
+ * Classify one `result` envelope.
+ *
+ * An unrecognised status -- a vendor addition, or the field missing outright
+ * -- is `failed` rather than anything softer: an ending this adapter cannot
+ * name, over input the vendor has already consumed, must not read as success.
+ */
+function settlement(result: AgyTurnResult): TurnSettlement {
+  const status = typeof result.status === 'string' ? result.status : String(result.status)
+  switch (status) {
+    case 'SUCCESS':
+      return { kind: 'success' }
+    case 'CANCELED':
+    case 'INTERRUPTED':
+      return { kind: 'cancelled', status }
+    case 'WAITING':
+    case 'RUNNING':
+      return { kind: 'unsettled', status }
+    default:
+      return { kind: 'failed', status }
+  }
+}
+
+/** How to name a non-success settlement in a diagnostic. */
+function settlementPhrase(settled: UnusableSettlement): string {
+  switch (settled.kind) {
+    case 'cancelled':
+      return 'was cancelled'
+    case 'unsettled':
+      return 'did not settle'
+    default:
+      return 'failed'
+  }
+}
+
+/**
+ * The DSH failure code one non-success settlement reports under.
+ *
+ * `ABORTED` is not a local invention: `dsh-llm` turns an adapter throw
+ * carrying it into the stream's terminal `{ kind: 'aborted', failure }`
+ * instead of `{ kind: 'error', failure }`, which is the documented shape for
+ * a cancelled request ("Every stream ends in exactly one terminal `finish`
+ * chunk ... `{ kind: 'aborted', failure }` on cancellation", dsh-llm README).
+ * Downstream that reaches telemetry severity and the ACP stop reason; the
+ * agent loop itself still routes both through `agent/request-error`, so this
+ * corrects what a cancellation is REPORTED as rather than pretending it
+ * changes the loop's control flow.
+ *
+ * An unsettled turn is a protocol violation, not a vendor error: the vendor
+ * put a non-terminal status in the one event documented to be terminal.
+ */
+function settlementCode(settled: UnusableSettlement): string {
+  switch (settled.kind) {
+    case 'cancelled':
+      return 'ABORTED'
+    case 'unsettled':
+      return 'ANTIGRAVITY_PROTOCOL'
+    default:
+      return 'ANTIGRAVITY_CLI'
+  }
 }
 
 /**
@@ -579,14 +679,14 @@ function isSuccess(result: AgyTurnResult): boolean {
  * an unrecognized category instead of the vendor's own words. Safe and
  * uninformative beats informative and leaking.
  */
-function resultFailure(result: AgyTurnResult): LlmError {
+function resultFailure(result: AgyTurnResult, settled: UnusableSettlement, buildNote: string): LlmError {
   const failure = antigravityVendorFailure({
     stage: 'turn',
     stderrText: typeof result.error === 'string' ? result.error : undefined,
   })
   return new LlmError(
-    `Antigravity CLI turn failed (status ${String(result.status)}). ${failure.message}`,
-    'ANTIGRAVITY_CLI',
+    `Antigravity CLI turn ${settlementPhrase(settled)} (status ${settled.status}).${buildNote} ${failure.message}`,
+    settlementCode(settled),
     { cause: failure },
   )
 }
@@ -683,6 +783,21 @@ export class AntigravityCliAdapter extends LlmAdapter {
   private readonly turnsInFlight = new Set<string>()
   private callSeq = 0
   private disposed = false
+  /**
+   * The vendor build, read once per adapter and never waited for.
+   *
+   * One `agy --version` spawn buys the one fact a failed turn cannot
+   * reconstruct afterwards -- `agy` self-updates, so the build that produced
+   * a crash is gone by the time anyone reads the report. Deliberately NOT
+   * gated: nothing awaits this, no turn fails because it failed, and a
+   * diagnostic that has no build simply does not mention one.
+   *
+   * One attempt, period. A retry loop would put an unbounded number of extra
+   * vendor spawns behind a diagnostic nicety, and a `--version` that does not
+   * answer or does not parse is a structural condition rather than a blip.
+   */
+  private vendorBuild: string | undefined
+  private vendorBuildAttempted = false
 
   constructor(
     private readonly ctx: Context,
@@ -786,15 +901,33 @@ export class AntigravityCliAdapter extends LlmAdapter {
         'ANTIGRAVITY_NATIVE_TOOL',
       )
     }
-    if (!isSuccess(result)) {
+    const settled = settlement(result)
+    if (settled.kind !== 'success') {
+      // Abandoned for every non-success kind, cancellation included, and that
+      // is a measured choice rather than the old collapse under a new name.
+      // Keeping a cancelled conversation would be worth its prefix cache
+      // only if the vendor kept the input line it was cut off in -- and
+      // probed on real `agy 1.1.25`, neither way this route can cut a turn
+      // short produces `CANCELED` at all. A `--print-timeout` expiry and a
+      // SIGINT both report `ERROR` with `timeout waiting for response`, and
+      // the child is unusable afterwards either way: it exits `1` on the
+      // next input line, or 12ms after the result
+      // (`docs/verification/agy-cli-contract.md`, finding 13). So the kind
+      // decides what a settlement is REPORTED as, which is observable, and
+      // does not decide a live conversation's fate on a guess about a state
+      // nothing here can currently produce.
       await this.abandonSession(options)
+      // Left ahead of the settlement, and unconditional: an unsupported
+      // effort arrives as `ERROR` plus vendor text, so this only ever fires
+      // on a `failed` settlement in practice, and hoisting it into that
+      // branch would trade a real diagnostic for a tidier switch.
       if (options.reasoningEffort !== undefined && isEffortUnsupported(result)) {
         throw new LlmError(
           `Antigravity model ${JSON.stringify(options.model)} does not support reasoning effort ${JSON.stringify(String(options.reasoningEffort))}`,
           'UNSUPPORTED',
         )
       }
-      throw resultFailure(result)
+      throw resultFailure(result, settled, this.vendorBuildNote())
     }
 
     // Read the decision AND check it can be executed as a whole, under one
@@ -874,6 +1007,28 @@ export class AntigravityCliAdapter extends LlmAdapter {
     if (workspace) await workspace.dispose()
   }
 
+  /**
+   * Start the one `agy --version` read, if it has not been started already.
+   *
+   * Returns immediately in every case: the read is fire-and-forget, its
+   * failure is swallowed, and its answer is only ever consulted by a
+   * diagnostic that is happy without one.
+   */
+  private noteVendorBuild(): void {
+    if (this.vendorBuildAttempted || this.disposed) return
+    this.vendorBuildAttempted = true
+    void this.runCollected(['--version'], this.config.catalogTimeoutMs)
+      .then(({ exitCode, stdout }) => {
+        if (exitCode === 0) this.vendorBuild = parseVendorBuild(stdout)
+      })
+      .catch(() => {})
+  }
+
+  /** The build clause for one diagnostic, empty until (or unless) the read lands. */
+  private vendorBuildNote(): string {
+    return this.vendorBuild === undefined ? '' : ` Vendor build ${this.vendorBuild}.`
+  }
+
   private async models(signal?: AbortSignal): Promise<readonly CatalogModel[]> {
     const now = Date.now()
     if (this.cachedModels && this.cachedModels.expiresAt >= now) return this.cachedModels.models
@@ -897,7 +1052,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
     if (machine.exitCode === 0) {
       const envelope = parseAgyEnvelope(machine.stdout)
       if (envelope) {
-        if (!isSuccess(envelope)) {
+        const settled = settlement(envelope)
+        if (settled.kind !== 'success') {
           // envelope.error is vendor-authored free text like any other vendor
           // output, so it is sanitised here rather than forwarded: this path
           // must not become a way around the VendorFailure contract.
@@ -906,8 +1062,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
             stderrText: typeof envelope.error === 'string' ? envelope.error : undefined,
           })
           throw new LlmError(
-            `Antigravity model discovery failed (status ${String(envelope.status)}). ${failure.message}`,
-            'ANTIGRAVITY_CLI',
+            `Antigravity model discovery ${settlementPhrase(settled)} (status ${settled.status}). ${failure.message}`,
+            settlementCode(settled),
             { cause: failure },
           )
         }
@@ -1176,6 +1332,11 @@ export class AntigravityCliAdapter extends LlmAdapter {
     lifetime: AbortSignal,
     resolveSignal: AbortSignal,
   ): Promise<AgyTurnProcess> {
+    // Kicked here rather than in the constructor: registering this provider
+    // must not spawn a vendor process for a session that never routes to it.
+    // Started before the child so the answer is usually in hand by the time
+    // anything fails, awaited nowhere so it cannot delay this turn.
+    this.noteVendorBuild()
     const workspace = await this.ensureBridgeWorkspace()
     const { model, effort } = await this.resolveInvocationModel(
       options.model,
@@ -1205,6 +1366,7 @@ export class AntigravityCliAdapter extends LlmAdapter {
       cwd: workspace.root,
       graceMs: this.config.disposeGraceMs,
       stderrMaxBytes: this.config.stderrMaxBytes,
+      build: () => this.vendorBuild,
     }, lifetime)
     this.turnChildren.add(child)
 

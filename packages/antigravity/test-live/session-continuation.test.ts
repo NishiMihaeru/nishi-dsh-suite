@@ -60,12 +60,18 @@ function createTestContext(turnSpawns: { count: number }) {
       return findOnPath(name) ?? name
     },
     spawn(spec: any) {
-      // `models` is the catalog lookup, not a turn: counting that housekeeping
-      // call as a turn child is what made this assertion read 2. `list` is
-      // still excluded although nothing runs it since the MCP bridge was
-      // removed, because a future housekeeping subcommand would trip this the
-      // same way and the exclusion costs nothing.
-      const housekeeping = spec.argv.includes('models') || spec.argv.includes('list')
+      // `models` is the catalog lookup and `--version` is the build read --
+      // housekeeping, not turns. Counting either as a turn child is what made
+      // this assertion read 2, twice: first for `models`, and again on
+      // 2026-09-03 when the ungated `agy --version` read landed and this
+      // suite was the only thing that noticed, because a live suite is
+      // outside `pnpm test`. `list` is still excluded although nothing runs
+      // it since the MCP bridge was removed, because a future housekeeping
+      // subcommand would trip this the same way and the exclusion costs
+      // nothing.
+      const housekeeping = spec.argv.includes('models')
+        || spec.argv.includes('list')
+        || spec.argv.includes('--version')
       if (!housekeeping) turnSpawns.count += 1
       const [cmd, ...args] = spec.argv
       const child = spawn(cmd, args, {

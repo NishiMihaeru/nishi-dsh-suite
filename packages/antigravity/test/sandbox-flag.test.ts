@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { AntigravitySearchBackend } from '../src/web-search-backend.ts'
+import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
  * Regression net for the vendor's own `--sandbox` flag (agy `--help`:
@@ -77,6 +78,7 @@ function createPrimarySubprocessMock(onTurnSpawn: (argv: readonly string[]) => v
   return {
     async resolveExecutable() { return '/resolved/agy' },
     spawn(spec: { argv: readonly string[] }) {
+      if (isVersionSpawn(spec.argv)) return versionChild()
       if (spec.argv.includes('models')) {
         return streamingChild({
           lines: [
@@ -250,6 +252,7 @@ test('argv mapping: catalog discovery failure invokes the requested id rather th
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
       spawn(spec: { argv: readonly string[] }) {
+        if (isVersionSpawn(spec.argv)) return versionChild()
         // Discovery fails; the turn itself must still reach the vendor.
         if (spec.argv.includes('models')) {
           return streamingChild({ lines: [], stderr: 'catalog unavailable', exitCode: 1 })

@@ -52,6 +52,18 @@ export interface AgyProcessSpec {
   readonly cwd: string
   readonly graceMs: number
   readonly stderrMaxBytes: number
+  /**
+   * The vendor build this child runs, asked for at diagnosis time.
+   *
+   * A provider rather than a value, and that is the point: the build is read
+   * by a separate `agy --version` process that is never waited for, so the
+   * FIRST child of an adapter is usually spawned before the answer arrives --
+   * while the turn it then fails on takes seconds. Asking late means the
+   * first failure names its build too, without any turn ever gating on the
+   * read. It returns `undefined` when the read has not landed, or produced
+   * nothing usable, and a diagnostic then simply says nothing.
+   */
+  build(): string | undefined
 }
 
 /**
@@ -87,6 +99,7 @@ export class AgyTurnProcess {
   private constructor(
     private readonly child: SubprocessHandle,
     private readonly graceMs: number,
+    private readonly build: () => string | undefined,
   ) {
     const stdout = child.stdout
     /* v8 ignore next -- start() rejects before constructing when a pipe is missing. */
@@ -141,7 +154,7 @@ export class AgyTurnProcess {
         'ANTIGRAVITY_CLI',
       )
     }
-    return new AgyTurnProcess(child, spec.graceMs)
+    return new AgyTurnProcess(child, spec.graceMs, () => spec.build())
   }
 
   /**
@@ -247,13 +260,28 @@ export class AgyTurnProcess {
         signal: outcome.signal,
       })
       this.fail(new LlmError(
-        `Antigravity CLI exited before a result event. ${failure.message}`,
+        `Antigravity CLI exited before a result event.${this.buildNote()} ${failure.message}`,
         'ANTIGRAVITY_CLI',
         { cause: failure },
       ), stderr)
     }, () => {
-      this.fail(new LlmError('Antigravity CLI exited before a result event.', 'ANTIGRAVITY_CLI'))
+      this.fail(new LlmError(
+        `Antigravity CLI exited before a result event.${this.buildNote()}`,
+        'ANTIGRAVITY_CLI',
+      ))
     })
+  }
+
+  /**
+   * The build clause for a diagnostic, empty when the build is not known yet.
+   *
+   * A crash is the case the build exists for: which `agy` it happened on is
+   * the first thing a reader needs and the one thing that cannot be
+   * reconstructed afterwards, since the vendor self-updates.
+   */
+  private buildNote(): string {
+    const build = this.build()
+    return build === undefined ? '' : ` Vendor build ${build}.`
   }
 
   /**

@@ -4,6 +4,7 @@ import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { stampedLine } from './turn-stamp.ts'
+import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
  * Regression net for `BLOCKED_NATIVE_TOOLS` (antigravity-primary.ts:58),
@@ -72,6 +73,7 @@ function turnCtx(streamOpts: { lines?: readonly string[]; stderr?: string; exitC
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
       spawn(spec: { argv: readonly string[] }) {
+        if (isVersionSpawn(spec.argv)) return versionChild()
         return streamingChild({ ...streamOpts, streaming: spec.argv.includes('--input-format') })
       },
     },

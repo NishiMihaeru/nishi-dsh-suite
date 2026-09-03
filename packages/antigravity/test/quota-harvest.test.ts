@@ -8,6 +8,7 @@ import {
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { stampedLine } from './turn-stamp.ts'
 import { AntigravityUsageCollector, AntigravityUsageSourceError } from '../src/usage.ts'
+import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
  * Coverage for the opportunistic own-child quota harvest
@@ -99,6 +100,7 @@ function turnCtx(streamOpts: Parameters<typeof streamingChild>[0]) {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
       spawn(spec: { argv: readonly string[] }) {
+        if (isVersionSpawn(spec.argv)) return versionChild()
         return streamingChild({ ...streamOpts, streaming: spec.argv.includes('--input-format') })
       },
     },

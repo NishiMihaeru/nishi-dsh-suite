@@ -5,6 +5,7 @@ import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { stamped, TURN_PLACEHOLDER } from './turn-stamp.ts'
+import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
  * The per-session live `agy` child.
@@ -136,6 +137,7 @@ function harness(replies: readonly unknown[]) {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
       spawn(spec: { argv: readonly string[] }) {
+        if (isVersionSpawn(spec.argv)) return versionChild()
         if (spec.argv.includes('models')) return catalogChild(CATALOG)
         spawns.push([...spec.argv])
         return child.handle
@@ -156,6 +158,7 @@ function multiHarness(repliesPerChild: readonly (readonly unknown[])[]) {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
       spawn(spec: { argv: readonly string[] }) {
+        if (isVersionSpawn(spec.argv)) return versionChild()
         if (spec.argv.includes('models')) return catalogChild(CATALOG)
         const child = liveChild(repliesPerChild[Math.min(children.length, repliesPerChild.length - 1)])
         children.push(child)

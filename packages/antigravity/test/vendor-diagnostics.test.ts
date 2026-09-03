@@ -5,6 +5,7 @@ import { LlmError } from '@deepseek-ai/dsh-llm'
 import { VendorFailure } from 'nishi-dsh-core/runtime'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
 import { AntigravitySearchBackend, AntigravityWebSearchBackendError } from '../src/web-search-backend.ts'
+import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
  * Regression net for the five sites that used to forward raw vendor stdio to
@@ -101,7 +102,10 @@ function modelCatalogCtx(responses: ReadonlyArray<{ stdout: string; stderr: stri
   return {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn() {
+      spawn(spec: { argv: readonly string[] }) {
+        // Before the counter: the version read must not consume a scripted
+        // catalog response, or every test here measures a shifted script.
+        if (isVersionSpawn(spec.argv)) return versionChild()
         const response = responses[call] ?? responses[responses.length - 1]
         call += 1
         return collectedChild(response.stdout, response.stderr, response.exitCode ?? 0)
@@ -114,7 +118,10 @@ function turnCtx(streamOpts: { lines?: readonly string[]; stderr?: string; exitC
   return {
     subprocess: {
       async resolveExecutable() { return '/resolved/agy' },
-      spawn() { return streamingChild(streamOpts) },
+      spawn(spec: { argv: readonly string[] }) {
+        if (isVersionSpawn(spec.argv)) return versionChild()
+        return streamingChild(streamOpts)
+      },
     },
   } as any
 }
