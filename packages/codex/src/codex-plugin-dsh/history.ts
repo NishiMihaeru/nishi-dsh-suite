@@ -42,6 +42,17 @@ export function codexHistoryDigest(messages: readonly Message[]): string {
   return hash.digest('hex')
 }
 
+/** Digest of the tool-call blocks a stepped turn ended with. */
+export function codexDecisionDigest(blocks: readonly ContentBlock[]): string {
+  const hash = createHash('sha256')
+  for (const block of blocks) {
+    if (block.type === 'tool-call') {
+      hash.update(JSON.stringify([block.id, block.name, block.arguments]))
+    }
+  }
+  return hash.digest('hex')
+}
+
 /** App Server text input for the current turn. */
 export interface CodexTextInput {
   readonly type: 'text'
@@ -160,6 +171,13 @@ function latestCheckpoint(
     if (
       state.prefixLength !== index ||
       state.prefixDigest !== codexHistoryDigest(messages.slice(0, index))
+    ) {
+      skipped += 1
+      continue
+    }
+    if (
+      state.decisionDigest !== undefined &&
+      state.decisionDigest !== codexDecisionDigest(message.content)
     ) {
       skipped += 1
       continue

@@ -121,7 +121,7 @@ test('an error notification for a different, non-empty threadId is still ignored
       params: {
         threadId: 'thread-a',
         turnId: 'turn-a',
-        item: { type: 'agentMessage', id: 'msg-1', phase: null, text: 'final answer' },
+        item: { type: 'agentMessage', id: 'msg-1', phase: null, text: JSON.stringify({ decision: { kind: 'final', message: 'final answer' } }) },
       },
     },
   })

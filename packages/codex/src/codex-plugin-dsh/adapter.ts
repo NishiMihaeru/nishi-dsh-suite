@@ -11,7 +11,7 @@
  * - -c project_doc_max_bytes=0
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { extname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
@@ -20,6 +20,7 @@ import {
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
+  type ContentBlock,
   type GenerateOptions,
   type LlmModelInfo,
   type LlmProviderInfo,
@@ -36,13 +37,22 @@ import {
   type AppServerConnectionObserver,
   type AppServerNotification,
 } from './app-server.js'
-import { codexHistoryDigest, prepareCodexHistory, type CodexReplayState } from './history.js'
+import {
+  codexDecisionDigest,
+  codexHistoryDigest,
+  prepareCodexHistory,
+  type CodexReplayState,
+} from './history.js'
 import { codexVendorFailure } from './vendor-stderr.js'
 import { attachmentDataUrl, generatedImageBlock } from './images.js'
 import {
+  codexDecision,
+  codexOutputSchema,
+  type CodexDecision,
+} from './stepped-schema.js'
+import {
   codexDynamicToolCall,
   codexDynamicToolResult,
-  codexDynamicTools,
   codexToolSignature,
   type CodexDynamicToolCall,
   type CodexToolImageUrlResolver,
@@ -88,7 +98,7 @@ interface CatalogModel {
 }
 
 interface ActiveBlock {
-  readonly index: number
+  index: number
   type: 'text' | 'reasoning'
   phase: 'commentary' | 'final_answer' | null
   text: string
@@ -237,7 +247,7 @@ interface ActiveCodexTurn {
   readonly signal: AbortSignal
   readonly threadId: string
   readonly turnId: string
-  readonly replayState: CodexReplayState
+  replayState: CodexReplayState
   readonly resolveImageUrl: CodexToolImageUrlResolver
   readonly onAbort: () => void
   /**
@@ -373,13 +383,13 @@ async function waitForPromise<T>(promise: Promise<T>, signal?: AbortSignal): Pro
   }
 }
 
-function phaseOf(value: unknown): ActiveBlock['phase'] {
+function phaseOf(value: unknown): 'commentary' | 'final_answer' | null {
   if (value === undefined || value === null) return null
   if (value === 'commentary' || value === 'final_answer') return value
   throw new Error(`codex-plugin-dsh: App Server returned unknown agent message phase ${JSON.stringify(value)}`)
 }
 
-function blockType(phase: ActiveBlock['phase']): ActiveBlock['type'] {
+function blockType(phase: 'commentary' | 'final_answer' | null): ActiveBlock['type'] {
   return phase === 'commentary' ? 'reasoning' : 'text'
 }
 
@@ -765,6 +775,8 @@ export class CodexAppServerAdapter extends LlmAdapter {
           turn.nextBlockIndex = 0
           turn.finalOutput = false
         }
+        let decision: CodexDecision | undefined
+        let decisionItemId: string | undefined
         for (;;) {
           const event = await turn.events.next(turn.signal)
           if (event.kind === 'dynamic-tool') {
@@ -814,32 +826,71 @@ export class CodexAppServerAdapter extends LlmAdapter {
             const item = object(params.item, 'started item')
             if (item.type !== 'agentMessage') continue
             const itemId = string(item.id, 'agent message item id')
-            if (turn.blocks.has(itemId)) continue
             const phase = phaseOf(item.phase)
+            if (turn.blocks.has(itemId)) continue
+            if (phase === 'commentary') {
+              const block: ActiveBlock = {
+                index: turn.nextBlockIndex++,
+                type: 'reasoning',
+                phase: 'commentary',
+                text: '',
+                ended: false,
+              }
+              turn.blocks.set(itemId, block)
+              yield { type: 'block-start', index: block.index, blockType: 'reasoning' }
+              continue
+            }
+            if (phase === 'final_answer') {
+              if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined) {
+                throw new Error('codex-plugin-dsh: App Server emitted a second non-commentary agent message in one turn')
+              }
+              decisionItemId = itemId
+              const block: ActiveBlock = {
+                index: -1,
+                type: 'text',
+                phase: 'final_answer',
+                text: '',
+                ended: false,
+              }
+              turn.blocks.set(itemId, block)
+              continue
+            }
+            // An agent message with an unknown phase (null) at item/started is buffered
+            // without claiming decisionItemId or assigning a block index.
             const block: ActiveBlock = {
-              index: turn.nextBlockIndex++,
-              type: blockType(phase),
-              phase,
+              index: -1,
+              type: 'text',
+              phase: null,
               text: '',
               ended: false,
             }
             turn.blocks.set(itemId, block)
-            yield { type: 'block-start', index: block.index, blockType: block.type }
             continue
           }
           if (method === 'item/agentMessage/delta') {
             const itemId = string(params.itemId, 'agent message delta item id')
             let block = turn.blocks.get(itemId)
             if (block === undefined) {
-              block = { index: turn.nextBlockIndex++, type: 'text', phase: null, text: '', ended: false }
+              // A block created from a delta has an unknown phase (null), not yet
+              // known to be the decision. Do not claim decisionItemId and do not
+              // assign a block index yet (-1 sentinel). Text is buffered until item/completed.
+              block = { index: -1, type: 'text', phase: null, text: '', ended: false }
               turn.blocks.set(itemId, block)
-              yield { type: 'block-start', index: block.index, blockType: block.type }
             }
             if (block.ended) throw new Error('codex-plugin-dsh: App Server emitted a delta after item/completed')
             const delta = typeof params.delta === 'string' ? params.delta : ''
             block.text += delta
-            if (block.type === 'reasoning') yield { type: 'reasoning-delta', index: block.index, text: delta }
-            else yield { type: 'text-delta', index: block.index, text: delta }
+            if (block.phase === 'commentary') {
+              // -1 is a sentinel meaning no block index has been assigned yet.
+              // Chunks are never emitted with a negative index. A commentary block
+              // created from item/started has a valid non-negative index; a delta-first block
+              // has phase null and buffers until item/completed, making this yield unreachable
+              // with a negative index.
+              if (block.index < 0) {
+                throw new Error('codex-plugin-dsh: internal invariant: commentary block has no assigned index')
+              }
+              yield { type: 'reasoning-delta', index: block.index, text: delta }
+            }
             continue
           }
           if (method === 'item/completed') {
@@ -860,28 +911,55 @@ export class CodexAppServerAdapter extends LlmAdapter {
             const itemId = string(item.id, 'completed agent message item id')
             const phase = phaseOf(item.phase)
             let block = turn.blocks.get(itemId)
-            if (block === undefined) {
-              block = { index: turn.nextBlockIndex++, type: blockType(phase), phase, text: '', ended: false }
-              turn.blocks.set(itemId, block)
-              yield { type: 'block-start', index: block.index, blockType: block.type }
-            }
             const completedText = typeof item.text === 'string' ? item.text : ''
-            if (!completedText.startsWith(block.text)) {
+            if (block !== undefined && !completedText.startsWith(block.text)) {
               throw new Error('codex-plugin-dsh: completed agent message did not match its streamed deltas')
             }
-            const tail = completedText.slice(block.text.length)
-            if (tail.length > 0) {
-              if (block.type === 'reasoning') yield { type: 'reasoning-delta', index: block.index, text: tail }
-              else yield { type: 'text-delta', index: block.index, text: tail }
-              block.text = completedText
-            }
-            block.ended = true
-            if (block.type === 'reasoning') {
+            if (phase === 'commentary') {
+              if (block === undefined || block.index === -1) {
+                // A commentary block created from a delta before item/started (or without prior events)
+                // has an unknown phase until item/completed. Assign a real index from turn.nextBlockIndex++,
+                // emit block-start, emit the accumulated text as one reasoning-delta, then block-end.
+                const index = turn.nextBlockIndex++
+                block = {
+                  index,
+                  type: 'reasoning',
+                  phase: 'commentary',
+                  text: completedText,
+                  ended: true,
+                }
+                turn.blocks.set(itemId, block)
+                yield { type: 'block-start', index: block.index, blockType: 'reasoning' }
+                if (completedText.length > 0) {
+                  yield { type: 'reasoning-delta', index: block.index, text: completedText }
+                }
+                yield { type: 'block-end', index: block.index, block: { type: 'reasoning', text: block.text } }
+                continue
+              }
+              // A block whose phase was known at item/started already emitted block-start.
+              const tail = completedText.slice(block.text.length)
+              if (tail.length > 0) {
+                yield { type: 'reasoning-delta', index: block.index, text: tail }
+                block.text = completedText
+              }
+              block.ended = true
               yield { type: 'block-end', index: block.index, block: { type: 'reasoning', text: block.text } }
-            } else {
-              yield { type: 'block-end', index: block.index, block: { type: 'text', text: block.text } }
-              if (block.phase !== 'commentary' && block.text.trim().length > 0) turn.finalOutput = true
+              continue
             }
+            // Anything else is the decision: claim it, parse it, emit nothing.
+            if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined) {
+              throw new Error('codex-plugin-dsh: App Server emitted a second non-commentary agent message in one turn')
+            }
+            decisionItemId = itemId
+            if (block === undefined) {
+              block = { index: -1, type: 'text', phase, text: completedText, ended: true }
+              turn.blocks.set(itemId, block)
+            } else {
+              block.phase = phase
+              block.text = completedText
+              block.ended = true
+            }
+            decision = codexDecision(completedText, options.tools)
             continue
           }
           if (method === 'thread/tokenUsage/updated') {
@@ -899,10 +977,45 @@ export class CodexAppServerAdapter extends LlmAdapter {
           if ([...turn.blocks.values()].some(block => !block.ended)) {
             throw new Error('codex-plugin-dsh: App Server completed with an open agent message')
           }
-          if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
-          if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
-          yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: turn.replayState } }
-          return
+          if (decision === undefined) {
+            if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
+            if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+            yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: turn.replayState } }
+            return
+          }
+          if (decision.kind === 'final') {
+            if (decision.message.trim().length === 0) {
+              throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
+            }
+            const index = turn.nextBlockIndex++
+            yield { type: 'block-start', index, blockType: 'text' }
+            yield { type: 'text-delta', index, text: decision.message }
+            yield { type: 'block-end', index, block: { type: 'text', text: decision.message } }
+            if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+            yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: turn.replayState } }
+            return
+          }
+          if (decision.kind === 'tool_call') {
+            const id = ToolCallId(`codex-${randomUUID()}`)
+            const argumentsText = JSON.stringify(decision.arguments)
+            const index = turn.nextBlockIndex++
+            const block: ContentBlock = {
+              type: 'tool-call',
+              id,
+              name: decision.name,
+              arguments: argumentsText,
+            }
+            yield { type: 'block-start', index, blockType: 'tool-call' }
+            yield { type: 'tool-call-delta', index, id, name: decision.name, argumentsDelta: argumentsText }
+            yield { type: 'block-end', index, block }
+            turn.replayState = {
+              ...turn.replayState,
+              decisionDigest: codexDecisionDigest([block]),
+            }
+            if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
+            yield { type: 'finish', reason: { kind: 'tool-calls' }, replayState: { response: turn.replayState } }
+            return
+          }
         }
       } finally {
         disarmStep()
@@ -973,16 +1086,11 @@ export class CodexAppServerAdapter extends LlmAdapter {
       )
       await connection.initialize(signal)
       const isolationConfig = await this.isolationConfig(connection, cwd, signal)
-      // A checkpoint no longer carries the tool catalog it was taken with, so
-      // there is nothing to compare against and the declaration is unconditional.
-      // It only ever reaches `thread/start`, which runs when there is no
-      // checkpoint at all or when one turned out to be unusable.
-      let dynamicTools = codexDynamicTools(options.tools)
       let threadResult: Record<string, unknown>
       if (history.checkpoint === undefined) {
         threadResult = await connection.request(
           'thread/start',
-          this.threadParams(options, cwd, isolationConfig, dynamicTools ?? []),
+          this.threadParams(options, cwd, isolationConfig),
           signal,
         )
       } else {
@@ -1070,10 +1178,9 @@ export class CodexAppServerAdapter extends LlmAdapter {
             sessionId,
             true,
           )
-          dynamicTools = codexDynamicTools(options.tools)
           threadResult = await connection.request(
             'thread/start',
-            this.threadParams(options, cwd, isolationConfig, dynamicTools),
+            this.threadParams(options, cwd, isolationConfig),
             signal,
           )
         }
@@ -1086,11 +1193,13 @@ export class CodexAppServerAdapter extends LlmAdapter {
           items: history.injectItems,
         }, signal)
       }
+      const outputSchema = codexOutputSchema(options.tools)
       const turnResult = await connection.request('turn/start', {
         threadId,
         input: history.turnInput,
         model: options.model,
         ...options.reasoningEffort === undefined ? {} : { effort: options.reasoningEffort },
+        ...outputSchema === undefined ? {} : { outputSchema },
       }, signal)
       const turn = object(turnResult.turn, 'turn/start turn')
       turnId = string(turn.id, 'turn id')

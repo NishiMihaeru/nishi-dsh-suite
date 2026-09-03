@@ -374,7 +374,7 @@ test('a resume-time thread-not-found error rebuilds a new thread from canonical 
     'turn/start',
   ])
   assert.equal(requests[0]?.params.threadId, 'thread-a')
-  assert.deepEqual(requests[1]?.params.dynamicTools, [])
+  assert.equal(requests[1]?.params.dynamicTools, undefined)
   assert.deepEqual(requests[2]?.params, {
     threadId: 'thread-rebuilt',
     items: [

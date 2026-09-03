@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Message } from '@deepseek-ai/dsh-llm'
-import { codexHistoryDigest, prepareCodexHistory } from '../src/codex-plugin-dsh/history.ts'
+import { codexDecisionDigest, codexHistoryDigest, prepareCodexHistory } from '../src/codex-plugin-dsh/history.ts'
 
 const provider = 'codex-app-server'
 const noImages = async (): Promise<string> => {
@@ -431,4 +431,76 @@ test('an assistant checkpoint message with text and no tool calls contributes no
     history.injectItems.every(item => item.type !== 'function_call'),
     'must not contribute any function_call item',
   )
+})
+
+// 9. a checkpoint whose decisionDigest no longer matches its assistant message is passed over and counted
+test('a checkpoint whose decisionDigest no longer matches its assistant message is passed over and counted', async () => {
+  const u0: Message = { id: 'u-0', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'call tool' }] }
+  const toolCallBlock = { type: 'tool-call' as const, id: 'call-1', name: 'search', arguments: '{"q":"deepseek"}' }
+  const originalDigest = codexDecisionDigest([toolCallBlock])
+  const a0: Message = {
+    id: 'a-0',
+    role: 'assistant',
+    source: {
+      kind: 'model',
+      provider,
+      replayState: {
+        response: {
+          kind: 'codex-app-server',
+          version: 2,
+          threadId: 'thread-digest-mismatch',
+          turnId: 'turn-digest-mismatch',
+          sessionId: 'session-a',
+          prefixLength: 1,
+          prefixDigest: codexHistoryDigest([u0]),
+          decisionDigest: originalDigest,
+        },
+      },
+    },
+    // The assistant message was modified after the fact (arguments changed)
+    content: [
+      { type: 'tool-call', id: 'call-1', name: 'search', arguments: '{"q":"tampered"}' },
+    ],
+  }
+  const u1: Message = { id: 'u-1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'next' }] }
+
+  const history = await prepareCodexHistory([u0, a0, u1], provider, noImages, 'session-a')
+
+  assert.equal(history.checkpoint, undefined)
+  assert.equal(history.skippedCheckpoints, 1)
+  assert.equal(history.injectItems.length, 2)
+})
+
+// 10. a checkpoint with no decisionDigest on a text-only response is still accepted
+test('a checkpoint with no decisionDigest on a text-only response is still accepted', async () => {
+  const u0: Message = { id: 'u-0', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'plain hello' }] }
+  const a0: Message = {
+    id: 'a-0',
+    role: 'assistant',
+    source: {
+      kind: 'model',
+      provider,
+      replayState: {
+        response: {
+          kind: 'codex-app-server',
+          version: 2,
+          threadId: 'thread-plain-text',
+          turnId: 'turn-plain-text',
+          sessionId: 'session-a',
+          prefixLength: 1,
+          prefixDigest: codexHistoryDigest([u0]),
+        },
+      },
+    },
+    content: [
+      { type: 'text', text: 'plain answer' },
+    ],
+  }
+  const u1: Message = { id: 'u-1', role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'next question' }] }
+
+  const history = await prepareCodexHistory([u0, a0, u1], provider, noImages, 'session-a')
+
+  assert.equal(history.checkpoint?.turnId, 'turn-plain-text')
+  assert.equal(history.skippedCheckpoints, 0)
+  assert.deepEqual(history.injectItems, [])
 })
