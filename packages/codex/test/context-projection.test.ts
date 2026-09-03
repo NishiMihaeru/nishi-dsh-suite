@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { projectedContentText } from '../src/codex-plugin-dsh/content-projection.ts'
-import { prepareCodexHistory } from '../src/codex-plugin-dsh/history.ts'
+import { codexHistoryDigest, prepareCodexHistory } from '../src/codex-plugin-dsh/history.ts'
 import { codexDynamicToolResult } from '../src/codex-plugin-dsh/tools.ts'
 import { projectCodexPrimaryHistory } from '../src/primary-history.ts'
 
@@ -51,9 +51,10 @@ test('every block a notice can quote projects to text instead of failing the tur
 })
 
 test('a settlement notice waking the turn becomes projected turn input', async () => {
+  const user = { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] }
   const history = await prepareCodexHistory(
     [
-      { role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'go' }] },
+      user,
       {
         role: 'assistant',
         source: {
@@ -62,10 +63,12 @@ test('a settlement notice waking the turn becomes projected turn input', async (
           replayState: {
             response: {
               kind: 'codex-app-server',
-              version: 1,
+              version: 2,
               threadId: 'thread-a',
               turnId: 'turn-a',
               sessionId: 'session-a',
+              prefixLength: 1,
+              prefixDigest: codexHistoryDigest([user as any]),
             },
           },
         },
@@ -302,7 +305,16 @@ test('a request with neither input nor tool results still fails loud', async () 
 })
 
 /** A prior Codex response, with or without a usable checkpoint. */
-function codexReply(text: string, checkpoint?: { threadId: string; turnId: string; sessionId: string }) {
+function codexReply(
+  text: string,
+  checkpoint?: {
+    threadId: string
+    turnId: string
+    sessionId: string
+    prefixLength?: number
+    prefixDigest?: string
+  },
+) {
   return {
     role: 'assistant',
     source: {
@@ -310,7 +322,15 @@ function codexReply(text: string, checkpoint?: { threadId: string; turnId: strin
       provider,
       ...checkpoint === undefined
         ? {}
-        : { replayState: { response: { kind: 'codex-app-server', version: 1, ...checkpoint } } },
+        : {
+            replayState: {
+              response: {
+                kind: 'codex-app-server',
+                version: 2,
+                ...checkpoint,
+              },
+            },
+          },
     },
     content: [{ type: 'text', text }],
   }
@@ -323,10 +343,17 @@ test('a Codex response with no usable checkpoint is passed over, not fatal', asy
   // checkpoint; start a new session`, which killed the session for good over
   // something this module can already recover from. The maintainer chose the
   // rebuild on 2026-08-31.
+  const q1 = userSays('first question')
   const history = await prepareCodexHistory(
     [
-      userSays('first question'),
-      codexReply('first answer', { threadId: 'thread-1', turnId: 'turn-1', sessionId: 'session-a' }),
+      q1,
+      codexReply('first answer', {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        sessionId: 'session-a',
+        prefixLength: 1,
+        prefixDigest: codexHistoryDigest([q1 as any]),
+      }),
       userSays('second question'),
       codexReply('second answer'),
       userSays('third question'),
@@ -363,10 +390,17 @@ test('a history with no usable checkpoint at all rebuilds the whole conversation
 })
 
 test('a checkpoint from another DSH session is passed over and counted', async () => {
+  const q = userSays('question')
   const history = await prepareCodexHistory(
     [
-      userSays('question'),
-      codexReply('answer', { threadId: 'thread-x', turnId: 'turn-x', sessionId: 'session-OTHER' }),
+      q,
+      codexReply('answer', {
+        threadId: 'thread-x',
+        turnId: 'turn-x',
+        sessionId: 'session-OTHER',
+        prefixLength: 1,
+        prefixDigest: codexHistoryDigest([q as any]),
+      }),
       userSays('follow-up'),
     ] as any,
     provider,
@@ -377,9 +411,10 @@ test('a checkpoint from another DSH session is passed over and counted', async (
   assert.equal(history.skippedCheckpoints, 1)
 })
 
-test('a response holding only tool calls is not counted as a lost checkpoint', async () => {
-  // Such a response never had a checkpoint of its own, so it is not evidence
-  // that one was lost, and must not make a healthy history look degraded.
+test('a response holding only tool calls without a checkpoint is counted as a lost checkpoint', async () => {
+  // Under the stepped transport, every completed turn has a checkpoint of its
+  // own -- including turns that produced tool calls -- so a response without
+  // one is counted as skipped.
   const history = await prepareCodexHistory(
     [
       userSays('do the thing'),
@@ -395,5 +430,5 @@ test('a response holding only tool calls is not counted as a lost checkpoint', a
     noImages,
     'session-a',
   )
-  assert.equal(history.skippedCheckpoints, 0)
+  assert.equal(history.skippedCheckpoints, 1)
 })

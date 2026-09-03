@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { prepareCodexHistory } from '../src/codex-plugin-dsh/history.ts'
+import { codexHistoryDigest, prepareCodexHistory } from '../src/codex-plugin-dsh/history.ts'
 
 const provider = 'codex-app-server'
 const noImages = async (): Promise<string> => {
@@ -8,12 +8,13 @@ const noImages = async (): Promise<string> => {
 }
 
 function historyWithCheckpoint(sessionId: string) {
+  const user1 = {
+    role: 'user',
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: 'first question' }],
+  }
   return [
-    {
-      role: 'user',
-      source: { kind: 'user' },
-      content: [{ type: 'text', text: 'first question' }],
-    },
+    user1,
     {
       role: 'assistant',
       source: {
@@ -22,11 +23,12 @@ function historyWithCheckpoint(sessionId: string) {
         replayState: {
           response: {
             kind: 'codex-app-server',
-            version: 1,
+            version: 2,
             threadId: 'thread-a',
             turnId: 'turn-a',
             sessionId,
-            toolSignature: 'tools-a',
+            prefixLength: 1,
+            prefixDigest: codexHistoryDigest([user1 as any]),
           },
         },
       },

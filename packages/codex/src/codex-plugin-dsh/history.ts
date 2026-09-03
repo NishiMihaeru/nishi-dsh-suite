@@ -1,5 +1,6 @@
 /** DSH message history mapping and durable Codex thread checkpoints. */
 
+import { createHash } from 'node:crypto'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import { projectedContentText } from './content-projection.js'
@@ -7,12 +8,38 @@ import { projectedContentText } from './content-projection.js'
 /** Replay data persisted on each successful DSH assistant message. */
 export interface CodexReplayState {
   readonly kind: 'codex-app-server'
-  readonly version: 1
+  readonly version: 2
   readonly threadId: string
   readonly turnId: string
   readonly sessionId: string
-  /** DSH tool catalog persisted by the App Server thread, absent on older plugin checkpoints. */
-  readonly toolSignature?: string
+  /** How many DSH messages preceded the turn this checkpoint belongs to. */
+  readonly prefixLength: number
+  /** Digest of exactly those messages. */
+  readonly prefixDigest: string
+  /**
+   * Digest of the tool-call blocks this response ended with, when it ended in
+   * a tool call. Absent on a response that ended with a message: there is no
+   * decision to pin. Written by the stepped transport in a later part; nothing
+   * writes it yet.
+   */
+  readonly decisionDigest?: string
+}
+
+/**
+ * Digest of a DSH message prefix, by content and not by id alone.
+ *
+ * - by content, never by id alone -- DSH rewrites content and keeps ids, so an
+ *   id-only comparison reports agreement across a rewrite that changed everything
+ *   the model reads;
+ * - one rolling digest, not a stored array -- an array in every checkpoint
+ *   grows the durable replay metadata quadratically over a session.
+ */
+export function codexHistoryDigest(messages: readonly Message[]): string {
+  const hash = createHash('sha256')
+  for (const message of messages) {
+    hash.update(JSON.stringify([message.id, message.role, message.content]))
+  }
+  return hash.digest('hex')
 }
 
 /** App Server text input for the current turn. */
@@ -56,18 +83,27 @@ function replayState(value: unknown): CodexReplayState | undefined {
   const candidate = (raw.response !== null && typeof raw.response === 'object' && !Array.isArray(raw.response))
     ? raw.response as Record<string, unknown>
     : raw
-  if (candidate.kind !== 'codex-app-server' || candidate.version !== 1) return undefined
+  // A version-1 checkpoint is not an error -- it is passed over exactly like a
+  // missing one, so the conversation rebuilds. A v1 checkpoint was written by
+  // the parked transport, whose vendor thread has a different shape, so
+  // resuming it would put the model in a conversation DSH cannot reconstruct.
+  if (candidate.kind !== 'codex-app-server' || candidate.version !== 2) return undefined
   if (typeof candidate.threadId !== 'string' || candidate.threadId.length === 0) return undefined
   if (typeof candidate.turnId !== 'string' || candidate.turnId.length === 0) return undefined
   if (typeof candidate.sessionId !== 'string' || candidate.sessionId.length === 0) return undefined
+  if (typeof candidate.prefixLength !== 'number' || !Number.isInteger(candidate.prefixLength) || candidate.prefixLength < 0) return undefined
+  if (typeof candidate.prefixDigest !== 'string' || candidate.prefixDigest.length === 0) return undefined
+  if (candidate.decisionDigest !== undefined && (typeof candidate.decisionDigest !== 'string' || candidate.decisionDigest.length === 0)) return undefined
   return {
     kind: 'codex-app-server',
-    version: 1,
+    version: 2,
     threadId: candidate.threadId,
     turnId: candidate.turnId,
     sessionId: candidate.sessionId,
-    ...typeof candidate.toolSignature === 'string' && candidate.toolSignature.length > 0
-      ? { toolSignature: candidate.toolSignature }
+    prefixLength: candidate.prefixLength,
+    prefixDigest: candidate.prefixDigest,
+    ...typeof candidate.decisionDigest === 'string' && candidate.decisionDigest.length > 0
+      ? { decisionDigest: candidate.decisionDigest }
       : {},
   }
 }
@@ -94,10 +130,13 @@ interface CheckpointScan {
  *
  * Scanning continues backwards instead of giving up at the first gap, which
  * matters: resuming an OLDER checkpoint and injecting the messages after it
- * keeps the vendor's prompt cache, where a full rebuild would not. The
- * tool-call-only case was already treated this way -- such a response
- * legitimately has no checkpoint -- and this is the same rule without the
- * exception.
+ * keeps the vendor's prompt cache, where a full rebuild would not. If a rewrite
+ * happened late in the conversation, an older checkpoint's prefix is untouched
+ * and still validates, so resuming it and injecting everything after keeps the
+ * vendor's prompt cache where a full rebuild would lose it.
+ * Under the stepped transport, every completed turn has a checkpoint of its own
+ * -- including turns that produced tool calls -- so a response without one is
+ * always counted as skipped.
  *
  * @returns the checkpoint and its index, plus how many responses were passed
  *   over on the way to it.
@@ -112,9 +151,17 @@ function latestCheckpoint(
     if (message?.role !== 'assistant' || message.source.kind !== 'model' || message.source.provider !== provider) continue
     const state = replayState(message.source.replayState)
     if (state === undefined) {
-      // A response holding only tool calls never had a checkpoint of its own,
-      // so it is not evidence of a lost one and is not counted as skipped.
-      if (!message.content.some(block => block.type === 'tool-call')) skipped += 1
+      // Under the stepped transport, every completed turn has a checkpoint of
+      // its own -- including turns that produced tool calls -- so a response
+      // without one is always counted as skipped.
+      skipped += 1
+      continue
+    }
+    if (
+      state.prefixLength !== index ||
+      state.prefixDigest !== codexHistoryDigest(messages.slice(0, index))
+    ) {
+      skipped += 1
       continue
     }
     return { skipped, found: { index, state } }
@@ -334,9 +381,38 @@ export async function prepareCodexHistory(
   if (turnInput.every(input => input.type === 'text' && input.text.trim().length === 0)) {
     throw new Error('codex-plugin-dsh: the current Codex turn is empty')
   }
+  const rawInjectItems = await responseItems(historical, resolveImageUrl)
+  let injectItems: readonly Record<string, unknown>[] = rawInjectItems
+  if (checkpoint !== undefined) {
+    const checkpointMessage = messages[checkpoint.index]
+    if (checkpointMessage?.role === 'assistant') {
+      const toolCallMap = new Map<string, Extract<ContentBlock, { type: 'tool-call' }>>()
+      for (const block of checkpointMessage.content) {
+        if (block.type === 'tool-call') {
+          toolCallMap.set(block.id, block)
+        }
+      }
+      if (toolCallMap.size > 0) {
+        const paired: Record<string, unknown>[] = []
+        for (const item of rawInjectItems) {
+          if (item.type === 'function_call_output' && typeof item.call_id === 'string') {
+            const block = toolCallMap.get(item.call_id)
+            if (block !== undefined) {
+              paired.push(...assistantHistoryItems({
+                ...checkpointMessage,
+                content: [block],
+              }))
+            }
+          }
+          paired.push(item)
+        }
+        injectItems = paired
+      }
+    }
+  }
   return {
     ...checkpoint === undefined ? {} : { checkpoint: checkpoint.state },
-    injectItems: await responseItems(historical, resolveImageUrl),
+    injectItems,
     turnInput,
     skippedCheckpoints,
   }

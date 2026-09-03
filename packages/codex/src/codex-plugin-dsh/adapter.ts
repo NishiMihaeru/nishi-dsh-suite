@@ -36,7 +36,7 @@ import {
   type AppServerConnectionObserver,
   type AppServerNotification,
 } from './app-server.js'
-import { prepareCodexHistory, type CodexReplayState } from './history.js'
+import { codexHistoryDigest, prepareCodexHistory, type CodexReplayState } from './history.js'
 import { codexVendorFailure } from './vendor-stderr.js'
 import { attachmentDataUrl, generatedImageBlock } from './images.js'
 import {
@@ -946,15 +946,6 @@ export class CodexAppServerAdapter extends LlmAdapter {
       sessionId,
     )
     const toolSignature = codexToolSignature(options.tools)
-    if (history.checkpoint !== undefined && history.checkpoint.toolSignature !== toolSignature) {
-      history = await prepareCodexHistory(
-        options.messages,
-        CODEX_APP_SERVER_PROVIDER,
-        resolveImageUrl,
-        sessionId,
-        true,
-      )
-    }
     const availableTools = new Set((options.tools ?? []).map(tool => tool.name))
     const events = new ActiveTurnQueue()
     let threadId: string | undefined
@@ -982,9 +973,11 @@ export class CodexAppServerAdapter extends LlmAdapter {
       )
       await connection.initialize(signal)
       const isolationConfig = await this.isolationConfig(connection, cwd, signal)
-      let dynamicTools = history.checkpoint?.toolSignature === toolSignature
-        ? undefined
-        : codexDynamicTools(options.tools)
+      // A checkpoint no longer carries the tool catalog it was taken with, so
+      // there is nothing to compare against and the declaration is unconditional.
+      // It only ever reaches `thread/start`, which runs when there is no
+      // checkpoint at all or when one turned out to be unusable.
+      let dynamicTools = codexDynamicTools(options.tools)
       let threadResult: Record<string, unknown>
       if (history.checkpoint === undefined) {
         threadResult = await connection.request(
@@ -1114,11 +1107,12 @@ export class CodexAppServerAdapter extends LlmAdapter {
         turnId,
         replayState: {
           kind: 'codex-app-server',
-          version: 1,
+          version: 2,
           threadId,
           turnId,
           sessionId,
-          toolSignature,
+          prefixLength: options.messages.length,
+          prefixDigest: codexHistoryDigest(options.messages),
         },
         resolveImageUrl,
         abort: turnAbort,

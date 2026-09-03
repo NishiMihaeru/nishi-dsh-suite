@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { JsonRpcResponseError } from '@deepseek-ai/dsh-sdk-protocol'
 import { CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS, CodexAppServerAdapter } from '../src/codex-plugin-dsh/adapter.ts'
-import { codexToolSignature } from '../src/codex-plugin-dsh/tools.ts'
+import { codexHistoryDigest } from '../src/codex-plugin-dsh/history.ts'
 
 const config = {
   executable: 'codex',
@@ -16,13 +16,13 @@ const config = {
 }
 
 function messages() {
-  const toolSignature = codexToolSignature(undefined)
+  const user1 = {
+    role: 'user',
+    source: { kind: 'user' },
+    content: [{ type: 'text', text: 'first question' }],
+  }
   return [
-    {
-      role: 'user',
-      source: { kind: 'user' },
-      content: [{ type: 'text', text: 'first question' }],
-    },
+    user1,
     {
       role: 'assistant',
       source: {
@@ -31,11 +31,12 @@ function messages() {
         replayState: {
           response: {
             kind: 'codex-app-server',
-            version: 1,
+            version: 2,
             threadId: 'thread-a',
             turnId: 'turn-a',
             sessionId: 'session-a',
-            toolSignature,
+            prefixLength: 1,
+            prefixDigest: codexHistoryDigest([user1 as any]),
           },
         },
       },
