@@ -62,6 +62,14 @@ function createFixture(overrides: { tools?: ToolSchema[] } = {}) {
   return { adapter, requests, options }
 }
 
+/** A one-tool catalog, so the turn is opened WITH an outputSchema and its final
+ *  message is therefore a decision to parse rather than ordinary prose. */
+const DECISION_TOOLS: ToolSchema[] = [{
+  name: 'noop',
+  description: 'Does nothing.',
+  parameters: { type: 'object', properties: { why: { type: 'string' } }, required: ['why'] },
+}]
+
 async function waitForActiveTurn(adapter: any, sessionId: string): Promise<any> {
   for (let attempt = 0; attempt < 1_000; attempt += 1) {
     const active = adapter.activeTurns.get(sessionId)
@@ -861,7 +869,7 @@ test('12. an unknown phase string throws the unknown agent message phase error',
 test('13. a final decision with an empty message fails with without a final answer, real message succeeds', async () => {
   // 1. Empty message fails
   {
-    const { adapter, options } = createFixture()
+    const { adapter, options } = createFixture({ tools: DECISION_TOOLS })
     await assert.rejects(
       async () => {
         await collectChunks(adapter, options, active => {
@@ -893,7 +901,7 @@ test('13. a final decision with an empty message fails with without a final answ
 
   // 2. Whitespace-only message fails
   {
-    const { adapter, options } = createFixture()
+    const { adapter, options } = createFixture({ tools: DECISION_TOOLS })
     await assert.rejects(
       async () => {
         await collectChunks(adapter, options, active => {
@@ -925,7 +933,7 @@ test('13. a final decision with an empty message fails with without a final answ
 
   // 3. Real message succeeds
   {
-    const { adapter, options } = createFixture()
+    const { adapter, options } = createFixture({ tools: DECISION_TOOLS })
     const chunks = await collectChunks(adapter, options, active => {
       active.events.push({
         method: 'item/completed',
@@ -980,3 +988,35 @@ test('developer instructions mention neither dynamic-tool namespace nor dynamicT
   )
 })
 
+
+test('15. a primary request with no tools is unconstrained: prose comes back as prose, and it still carries replay state', async () => {
+  // Live acceptance caught this and no unit test did, because every one of them
+  // supplied tools. `codexOutputSchema` returns nothing for an empty catalog, so
+  // the model is never asked for JSON -- but the decision parse used to run
+  // anyway and failed the turn with `response is not valid JSON`. A toolless
+  // primary request is unconstrained like an auxiliary one, yet unlike an
+  // auxiliary one it is a real conversation turn and must still checkpoint.
+  const { adapter, options } = createFixture()
+  const chunks = await collectChunks(adapter, options, active => {
+    active.events.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-test',
+        turnId: 'turn-test',
+        item: { id: 'msg-1', type: 'agentMessage', phase: 'final_answer', text: 'CODEX_PRIMARY_OK' },
+      },
+    })
+    active.events.push({
+      method: 'turn/completed',
+      params: { threadId: 'thread-test', turn: { id: 'turn-test', status: 'completed' } },
+    })
+  })
+
+  const text = chunks.find(c => c.type === 'text-delta') as any
+  assert.ok(text, 'the prose answer must reach DSH as text')
+  assert.equal(text.text, 'CODEX_PRIMARY_OK')
+
+  const finish = chunks.find(c => c.type === 'finish') as any
+  assert.equal(finish.reason.kind, 'stop')
+  assert.ok(finish.replayState, 'a toolless PRIMARY turn still checkpoints, unlike an auxiliary one')
+})

@@ -143,11 +143,42 @@ Resuming leaves **one vendor thread per session** persisted in the user's own ve
 
 This does not retroactively change anything: vendor threads created before this change (one per message, under the old fork-per-turn design) still exist in the user's vendor account exactly as they were. Only sessions that continue or start after the redesign accumulate at the new, lower rate.
 
-`thread/inject_items` remains **unverified**: the call succeeds, but injected items are invisible through both `thread/read` and `thread/resume`, so nothing has confirmed they reach the model, even though the adapter depends on it for history that follows a checkpoint. This is the one open item carried from the design decision; see `docs/ROADMAP.md` §7a.
+`thread/inject_items` is **verified** (`pnpm test:live:inject-items`, first on 2026-08-31 and re-run on 2026-09-03 against the stepped transport): injected items are invisible through `thread/read` and `thread/resume`, which is why this was open for so long, but the model demonstrably reads them — the probe puts a value where injection is the only path to it and the answer comes back carrying it. The paragraph that stood here calling it unverified was stale.
+
+One thing measured while verifying it is worth keeping: an **orphan `function_call_output` — one whose `call_id` no `function_call` precedes — is accepted, logged by the vendor as `Orphan function call output`, and then silently ignored.** The turn completes normally and the model never sees the result. That is why the stepped transport re-emits a synthetic `function_call` ahead of each injected output rather than trusting the pairing to be implicit.
 
 Rollback is destructive where fork was not — it discards the truncated turns rather than leaving a branch behind. That is accepted because DSH's own history no longer reaches those turns either.
 
 Whether this suite should clean up the vendor threads it creates (`thread/delete` / `thread/archive` exist) was raised as an open decision and has since been closed: the maintainer decided old sessions do not matter, so no cleanup behavior is implemented and none is planned against previously created threads.
+
+## Codex stepped turns
+
+Since 2026-09-03 the Codex route runs **one completed vendor turn per DSH step**. It does not declare DSH tools to the vendor and does not park the vendor's tool request while DSH executes. Instead `turn/start` carries an `outputSchema` and the model's final message *is* the decision: either one tool call or a final answer. DSH executes that decision and the result reaches the model on the next step, through the same `thread/inject_items` path history already used. `docs/ROADMAP.md` §7d holds the decision, the evidence and what the design brief got wrong.
+
+Two reasons, in the order that carries weight. `outputSchema` is in the published App Server contract and `dynamicTools` — which the previous design required — is not: verified against `codex app-server generate-json-schema` and `generate-ts` from the installed 0.150.0. And a whole class of failure disappears by construction: with no open vendor turn while DSH executes a tool, there is nothing for the vendor to abandon. That defect was real, reached production, and is described in §5.
+
+### What the shape costs
+
+- **The final answer no longer streams.** Under a forced schema it arrives as raw JSON — measured, 28 deltas carrying `{"`, `decision`, `":{"` — so it is buffered and parsed at `item/completed` and emitted as one text block. Commentary still streams as reasoning. A correct incremental extractor for a JSON string is not 60 lines once split escapes, surrogate pairs and duplicate keys are handled, and a delta once emitted cannot be retracted; two independent reviewers judged it not worth the risk.
+- **Every optional tool parameter becomes a required nullable**, because strict mode forbids optional properties. Left alone the model invents plausible values rather than passing `null` — a fabricated `timeoutMs: 10000` for `bash`. One sentence in `CODEX_APP_SERVER_DEVELOPER_INSTRUCTIONS` fixes it, measured across twelve runs, and a unit test fails if that sentence is removed.
+- **Objects are closed.** `additionalProperties: false` is required on every object, which narrows 64 of the catalog's 74 object nodes and overrides a declared openness in five of them. Genuinely unrepresentable subtrees — no `type` and no `oneOf`, an object with no `properties`, an array with no `items` — are carried as JSON-encoded strings and parsed back.
+- **One tool call per DSH step**, deliberately. The parked route already serialised calls, so this is not a regression, but it is now part of the transport contract rather than an accident.
+
+### The checkpoint carries the history it was taken against
+
+`replayState` is version 2 and holds `prefixLength`, `prefixDigest` and, on a turn that ended in a tool call, `decisionDigest`. `latestCheckpoint()` refuses a checkpoint whose prefix no longer digests to what it recorded, and the scan continues backwards rather than giving up — an older checkpoint whose prefix is untouched still validates, so a late rewrite costs one fallback rather than a full rebuild.
+
+This is wider than the guard it replaced. The old in-memory `historyDigests` only covered the window in which a turn was parked; the across-turn path compared checkpoint identity and never transcript content, so rewriting a message's content while keeping its id left the vendor holding text DSH no longer had. Confirmed by test before the change.
+
+A turn that ends in a tool call **must** write a checkpoint. Under the parked design it did not, because the vendor turn was still open; under this one, omitting it makes `latestCheckpoint()` skip that response and every following step resume an older checkpoint or rebuild, with no symptom other than a cold prompt cache.
+
+### Auxiliary requests are isolated
+
+A request carrying `GenerateOptions.purpose` — compaction or session-title — never touches the conversation thread: it ignores every checkpoint, starts an `ephemeral: true` thread, emits no replay state, sends no `outputSchema` and no `developerInstructions`, accepts and ignores `maxTokens`, and is outside the per-session concurrency guard. It also carries a registry key distinct from the session id, because it arrives under the *same* id as the primary request and would otherwise evict the primary turn from `activeTurns` and leak its subprocess.
+
+None of that is precautionary. Before it, a compaction request replaying an older prefix took the destructive `thread/rollback` branch and cut real turns out of the live conversation; what prevented it in practice was the blanket `maxTokens` rejection, so relaxing that alone would have opened the hole.
+
+A request with **no tools** is unconstrained in exactly the same way — `codexOutputSchema` returns nothing for an empty catalog — but it is still a real conversation turn and still checkpoints. Gating the decision parse on "is this auxiliary" instead of "did we send a schema" failed such a turn with `response is not valid JSON`; live acceptance caught it and no unit test did, because every one of them supplied tools.
 
 ## Codex history projection
 

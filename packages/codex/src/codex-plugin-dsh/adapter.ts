@@ -106,14 +106,11 @@ class ActiveTurnQueue {
   private readonly waiters: Array<PromiseWithResolvers<AppServerNotification>> = []
   private terminal: Error | undefined
 
-  push(notification: AppServerNotification | { readonly kind: 'notification'; readonly notification: AppServerNotification }): void {
+  push(notification: AppServerNotification): void {
     if (this.terminal !== undefined) return
-    const unwrapped = typeof notification === 'object' && notification !== null && 'kind' in notification && notification.kind === 'notification'
-      ? (notification as { readonly notification: AppServerNotification }).notification
-      : notification as AppServerNotification
     const waiter = this.waiters.shift()
-    if (waiter === undefined) this.values.push(unwrapped)
-    else waiter.resolve(unwrapped)
+    if (waiter === undefined) this.values.push(notification)
+    else waiter.resolve(notification)
   }
 
   fail(error: Error): void {
@@ -151,6 +148,19 @@ interface ActiveCodexTurn {
   readonly signal: AbortSignal
   readonly threadId: string
   readonly turnId: string
+  /**
+   * Whether this turn was opened with an `outputSchema`, and therefore whether
+   * its final message is a decision to parse or ordinary prose.
+   *
+   * Not the same question as "is this auxiliary". An auxiliary request is
+   * deliberately unconstrained, but so is an ordinary request that carries no
+   * tools -- `codexOutputSchema` returns nothing for an empty catalog, so the
+   * model was never asked for JSON and answering in prose is correct. Gating the
+   * decision parse on the auxiliary flag instead failed such a turn with
+   * `response is not valid JSON`, which live acceptance caught and no unit test
+   * did, because every one of them supplied tools.
+   */
+  readonly constrained: boolean
   replayState: CodexReplayState
   readonly resolveImageUrl: CodexImageUrlResolver
   readonly onAbort: () => void
@@ -606,7 +616,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
       try {
         let decision: CodexDecision | undefined
         let decisionItemId: string | undefined
-        let auxiliaryText: string | undefined
+        let unconstrainedText: string | undefined
         for (;;) {
           const notification = await turn.events.next(turn.signal)
           const { method, params } = notification
@@ -645,7 +655,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
               continue
             }
             if (phase === 'final_answer') {
-              if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined || auxiliaryText !== undefined) {
+              if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined || unconstrainedText !== undefined) {
                 throw new Error('codex-plugin-dsh: App Server emitted a second non-commentary agent message in one turn')
               }
               decisionItemId = itemId
@@ -751,7 +761,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
               continue
             }
             // Anything else is the decision: claim it, parse it, emit nothing.
-            if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined || auxiliaryText !== undefined) {
+            if ((decisionItemId !== undefined && decisionItemId !== itemId) || decision !== undefined || unconstrainedText !== undefined) {
               throw new Error('codex-plugin-dsh: App Server emitted a second non-commentary agent message in one turn')
             }
             decisionItemId = itemId
@@ -763,8 +773,8 @@ export class CodexAppServerAdapter extends LlmAdapter {
               block.text = completedText
               block.ended = true
             }
-            if (isAuxiliary) {
-              auxiliaryText = completedText
+            if (!turn.constrained) {
+              unconstrainedText = completedText
             } else {
               decision = codexDecision(completedText, options.tools)
             }
@@ -789,19 +799,19 @@ export class CodexAppServerAdapter extends LlmAdapter {
           if ([...turn.blocks.values()].some(block => !block.ended)) {
             throw new Error('codex-plugin-dsh: App Server completed with an open agent message')
           }
-          if (isAuxiliary) {
-            if (auxiliaryText === undefined || auxiliaryText.trim().length === 0) {
+          if (!turn.constrained) {
+            if (unconstrainedText === undefined || unconstrainedText.trim().length === 0) {
               if (!turn.finalOutput) throw new Error('codex-plugin-dsh: App Server completed without a final answer or image')
               if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
-              yield { type: 'finish', reason: { kind: 'stop' } }
+              yield { type: 'finish', reason: { kind: 'stop' }, ...isAuxiliary ? {} : { replayState: { response: turn.replayState } } }
               return
             }
             const index = turn.nextBlockIndex++
             yield { type: 'block-start', index, blockType: 'text' }
-            yield { type: 'text-delta', index, text: auxiliaryText }
-            yield { type: 'block-end', index, block: { type: 'text', text: auxiliaryText } }
+            yield { type: 'text-delta', index, text: unconstrainedText }
+            yield { type: 'block-end', index, block: { type: 'text', text: unconstrainedText } }
             if (turn.usage !== undefined) yield { type: 'usage', usage: turn.usage }
-            yield { type: 'finish', reason: { kind: 'stop' } }
+            yield { type: 'finish', reason: { kind: 'stop' }, ...isAuxiliary ? {} : { replayState: { response: turn.replayState } } }
             return
           }
           if (decision === undefined) {
@@ -1017,6 +1027,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
         registryKey,
         sessionId,
         model: options.model,
+        constrained: outputSchema !== undefined,
         connection,
         events,
         signal,

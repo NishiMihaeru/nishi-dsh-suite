@@ -445,6 +445,15 @@ test('5. a purpose: "session-title" request succeeds while an ordinary request f
     model: 'gpt-5.6-sol',
     sessionId: 'session-concurrent-test',
     messages: [{ role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text: 'primary' }] }],
+    // A catalog, so this ordinary turn is opened WITH an `outputSchema` and its
+    // final message is a decision. Without tools it would be unconstrained, like
+    // the auxiliary turn it is racing, and the test would not be comparing the
+    // two kinds of request at all.
+    tools: [{
+      name: 'noop',
+      description: 'Does nothing.',
+      parameters: { type: 'object', properties: { why: { type: 'string' } }, required: ['why'] },
+    }],
   }
   const titleOptions = {
     provider: 'codex-app-server',
