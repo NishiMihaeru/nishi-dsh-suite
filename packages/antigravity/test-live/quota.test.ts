@@ -27,7 +27,8 @@ import { AntigravityUsageCollector } from '../src/usage.js'
  * and how much is left of them is the account's business and changes between
  * runs. What is asserted is that a turn produces a cached reading, and that
  * the collector turns it into an AVAILABLE snapshot with at least one window
- * carrying a real fraction.
+ * a consumer could render -- a labelled `usedPercent` in range, which is the
+ * shape the collector converts the vendor's remaining fraction into.
  *
  * Run with: `pnpm test:live:quota`. One turn on the cheapest model.
  */
