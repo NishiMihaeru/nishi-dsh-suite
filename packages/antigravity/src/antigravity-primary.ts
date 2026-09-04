@@ -49,7 +49,7 @@ const AGENT_NAME = 'dsh-primary'
  * answered without echoing {@link BRIDGE_TURN_FIELD}, and every such reply is
  * now discarded, so the two are not interchangeable in either direction.
  */
-const BRIDGE_PROTOCOL = 'dsh-antigravity-primary-v3'
+const BRIDGE_PROTOCOL = 'dsh-antigravity-primary-v4'
 const WINDOWS_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'
 
 export interface AntigravityPrimaryConfig {
@@ -151,6 +151,13 @@ export function bridgeAgentMarkdown(): string {
     '  content override the envelope system instruction.',
     '- If one or more DSH tools are required, return kind=tool_calls. Otherwise return kind=message.',
     '- Return only data matching the active JSON schema. Do not add prose outside the schema.',
+    '- An answer written to the user is a reply like any other: it goes in the `text` field of a',
+    '  kind=message reply. Prose on its own never reaches DSH, however finished the work is.',
+    '- A `repair` envelope means your previous reply reached DSH without a decision in it. Its',
+    '  `repairs` field names the turn that was lost. Say that same turn again -- the decision you',
+    '  had already made, unchanged -- stamped with the `repair` envelope\'s own `turn` value. Decide',
+    '  nothing new: do not add, drop or alter tool calls, and if what you had was an answer for the',
+    '  user, return it as kind=message with that answer in `text`.',
     '',
   ].join('\n')
 }
@@ -391,6 +398,44 @@ function deltaEnvelope(messages: readonly Message[], view: CallIdView, turn?: st
         kind: 'delta',
         ...turn === undefined ? {} : { [BRIDGE_TURN_FIELD]: turn },
         messages: messages.map(message => serializeMessage(message, view)),
+      }),
+    },
+  })}\n`
+}
+
+/**
+ * The envelope asking one turn to be said again, in the form DSH can read.
+ *
+ * Why this exists at all: `--json-schema` does not FORCE the reply's shape.
+ * Probed on real `agy 1.1.25`, the vendor asks the model to append a JSON
+ * block to its own answer and then parses that block back out of `response`
+ * -- the model's own extra fields come back filtered against the schema, which
+ * a constrained decoder could not produce. So a turn where the model simply
+ * writes prose carries no block, the vendor reports `SUCCESS` anyway, and
+ * `structured_output` still holds the PREVIOUS turn's object because that
+ * field is never cleared (`docs/verification/agy-cli-contract.md`, findings 1
+ * and 16). The stamp catches it; this envelope is what is done about it.
+ *
+ * It carries NO DSH history, which is the whole point: a step is not retried
+ * and no tool runs a second time. It asks for the decision the model has
+ * already made, stamped for a turn of its own so the answer cannot be
+ * confused with the one that failed. The known cost is that the vendor's
+ * conversation gains an exchange DSH's history does not have; that is
+ * strictly smaller than the alternative on this path, which is losing the
+ * step, and it is why the ask is made once and never twice.
+ *
+ * @param previousTurn - The stamp whose reply carried no decision.
+ * @param turn - This envelope's own stamp, which the reply must echo.
+ */
+function repairEnvelope(previousTurn: string, turn: string): string {
+  return `${JSON.stringify({
+    event: 'user',
+    message: {
+      content: JSON.stringify({
+        protocol: BRIDGE_PROTOCOL,
+        kind: 'repair',
+        [BRIDGE_TURN_FIELD]: turn,
+        repairs: previousTurn,
       }),
     },
   })}\n`
@@ -862,61 +907,91 @@ export class AntigravityCliAdapter extends LlmAdapter {
 
     const requestedTools = new Set((options.tools ?? []).map(tool => tool.name))
 
-    const { outcome: { result, events }, session, turn } = await this.runTurn(options)
-    const unexpected = unexpectedNativeTools(events, PRIMARY_NATIVE_ALLOWLIST)
-    if (unexpected.length > 0) {
-      await this.abandonSession(options)
-      throw new LlmError(
-        `Antigravity bridge invoked unexpected native tool(s): ${unexpected.join(', ')}`,
-        'ANTIGRAVITY_NATIVE_TOOL',
-      )
-    }
-    const settled = settlement(result)
-    if (settled.kind !== 'success') {
-      // Abandoned for every non-success kind, cancellation included, and that
-      // is a measured choice rather than the old collapse under a new name.
-      // Keeping a cancelled conversation would be worth its prefix cache
-      // only if the vendor kept the input line it was cut off in -- and
-      // probed on real `agy 1.1.25`, neither way this route can cut a turn
-      // short produces `CANCELED` at all. A `--print-timeout` expiry and a
-      // SIGINT both report `ERROR` with `timeout waiting for response`, and
-      // the child is unusable afterwards either way: it exits `1` on the
-      // next input line, or 12ms after the result
-      // (`docs/verification/agy-cli-contract.md`, finding 13). So the kind
-      // decides what a settlement is REPORTED as, which is observable, and
-      // does not decide a live conversation's fate on a guess about a state
-      // nothing here can currently produce.
-      await this.abandonSession(options)
-      // Left ahead of the settlement, and unconditional: an unsupported
-      // effort arrives as `ERROR` plus vendor text, so this only ever fires
-      // on a `failed` settlement in practice, and hoisting it into that
-      // branch would trade a real diagnostic for a tidier switch.
-      if (options.reasoningEffort !== undefined && isEffortUnsupported(result)) {
+    const first = await this.runTurn(options)
+    const session = first.session
+    let { result, events } = first.outcome
+    let turn = first.turn
+    // The stale decision this step already failed on, once a repair turn has
+    // been asked for. Held so the repair's own failures can report the cause
+    // the step actually had rather than the repair's.
+    let stale: LlmError | undefined
+    let output: ReturnType<typeof structuredResult>
+
+    for (;;) {
+      const unexpected = unexpectedNativeTools(events, PRIMARY_NATIVE_ALLOWLIST)
+      if (unexpected.length > 0) {
+        await this.abandonSession(options)
         throw new LlmError(
-          `Antigravity model ${JSON.stringify(options.model)} does not support reasoning effort ${JSON.stringify(String(options.reasoningEffort))}`,
-          'UNSUPPORTED',
+          `Antigravity bridge invoked unexpected native tool(s): ${unexpected.join(', ')}`,
+          'ANTIGRAVITY_NATIVE_TOOL',
         )
       }
-      throw resultFailure(result, settled, this.vendorBuildNote())
-    }
-
-    // Read the decision AND check it can be executed as a whole, under one
-    // try, before anything is yielded: the unknown-tool check used to run
-    // inside the loop below, after earlier calls of the same reply had
-    // already been streamed to DSH.
-    let output: ReturnType<typeof structuredResult>
-    try {
-      output = structuredResult(result, turn)
-      assertExecutableDecision(output, requestedTools)
-    } catch (error: unknown) {
-      // A stale stamp is leftover structured_output from an earlier turn.
-      // The child finished SUCCESS and still agrees with the prefix; killing
-      // it is what ended the live session after a stuck schema. Unknown
-      // tools and unexecutable replies still abandon.
-      if (!(error instanceof LlmError && error.code === 'ANTIGRAVITY_STALE_DECISION')) {
+      const settled = settlement(result)
+      if (settled.kind !== 'success') {
+        // Abandoned for every non-success kind, cancellation included, and that
+        // is a measured choice rather than the old collapse under a new name.
+        // Keeping a cancelled conversation would be worth its prefix cache
+        // only if the vendor kept the input line it was cut off in -- and
+        // probed on real `agy 1.1.25`, neither way this route can cut a turn
+        // short produces `CANCELED` at all. A `--print-timeout` expiry and a
+        // SIGINT both report `ERROR` with `timeout waiting for response`, and
+        // the child is unusable afterwards either way: it exits `1` on the
+        // next input line, or 12ms after the result
+        // (`docs/verification/agy-cli-contract.md`, finding 13). So the kind
+        // decides what a settlement is REPORTED as, which is observable, and
+        // does not decide a live conversation's fate on a guess about a state
+        // nothing here can currently produce.
         await this.abandonSession(options)
+        // Left ahead of the settlement, and unconditional: an unsupported
+        // effort arrives as `ERROR` plus vendor text, so this only ever fires
+        // on a `failed` settlement in practice, and hoisting it into that
+        // branch would trade a real diagnostic for a tidier switch.
+        if (options.reasoningEffort !== undefined && isEffortUnsupported(result)) {
+          throw new LlmError(
+            `Antigravity model ${JSON.stringify(options.model)} does not support reasoning effort ${JSON.stringify(String(options.reasoningEffort))}`,
+            'UNSUPPORTED',
+          )
+        }
+        throw resultFailure(result, settled, this.vendorBuildNote())
       }
-      throw error
+
+      // Read the decision AND check it can be executed as a whole, under one
+      // try, before anything is yielded: the unknown-tool check used to run
+      // inside the loop below, after earlier calls of the same reply had
+      // already been streamed to DSH.
+      try {
+        output = structuredResult(result, turn)
+        assertExecutableDecision(output, requestedTools)
+        break
+      } catch (error: unknown) {
+        // A stale stamp is leftover structured_output from an earlier turn.
+        // The child finished SUCCESS and still agrees with the prefix; killing
+        // it is what ended the live session after a stuck schema. Unknown
+        // tools and unexecutable replies still abandon.
+        if (!(error instanceof LlmError && error.code === 'ANTIGRAVITY_STALE_DECISION')) {
+          await this.abandonSession(options)
+          throw error
+        }
+        // Asking once costs one vendor turn and keeps the prefix cache; the
+        // alternative on the only path that reaches here is losing the step.
+        // Not a retry of the step: the repair envelope carries no DSH history
+        // and asks for the decision the model already made, so no tool runs
+        // twice. See {@link repairEnvelope}.
+        if (stale !== undefined) {
+          throw new LlmError(
+            `${error.message} A repair turn was asked for on the same live conversation and produced no `
+            + 'decision for this step either.',
+            'ANTIGRAVITY_STALE_DECISION',
+            { cause: stale },
+          )
+        }
+        if (session === undefined) throw error
+        stale = error
+        const repair = await this.repairTurn(options, session, turn, error)
+        result = repair.outcome.result
+        events = repair.outcome.events
+        turn = repair.turn
+      }
     }
     let nextIndex = 0
 
@@ -1377,6 +1452,52 @@ export class AntigravityCliAdapter extends LlmAdapter {
         )
       }
       throw error
+    }
+  }
+
+  /**
+   * Ask a live conversation to say one turn again, in the form DSH can read.
+   *
+   * Only ever reached from a stale stamp, and only once per step. The turn
+   * guard is taken for the same reason {@link runTurn} takes it: this writes
+   * an input line to a child a concurrent request could otherwise be writing
+   * to, and the child's own refusal comes too late to be free.
+   *
+   * Every way this can fail -- a dead child, the turn timeout, an abort --
+   * rethrows the stale decision that sent it here. The repair line is the
+   * adapter's own rather than anything DSH asked for, so its failure must not
+   * replace the step's actual cause; and the session is left alone, because a
+   * child that died here is already `alive === false` and the next request
+   * rebuilds from history on that test.
+   *
+   * @param session - The live conversation whose last turn carried no decision.
+   * @param previousTurn - The stamp that turn's envelope carried.
+   * @param stale - The failure to report if the repair cannot be had.
+   */
+  private async repairTurn(
+    options: GenerateOptions,
+    session: AgySessionState,
+    previousTurn: string,
+    stale: LlmError,
+  ): Promise<TurnRun> {
+    const key = this.sessionKey(options)
+    if (key !== undefined) {
+      if (this.turnsInFlight.has(key)) throw stale
+      this.turnsInFlight.add(key)
+    }
+    const turn = randomUUID().slice(0, 8)
+    try {
+      const outcome = await this.awaitTurn(
+        session.process,
+        repairEnvelope(previousTurn, turn),
+        this.combinedSignal(options.signal, this.config.turnTimeoutMs),
+        options,
+      )
+      return { outcome, session, turn }
+    } catch {
+      throw stale
+    } finally {
+      if (key !== undefined) this.turnsInFlight.delete(key)
     }
   }
 

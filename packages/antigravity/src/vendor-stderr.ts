@@ -45,6 +45,29 @@ const ANTIGRAVITY_STDERR_RECOGNIZERS: readonly VendorStderrRecognizer[] = [
     pattern: /invalid model selection/i,
     message: () => 'Antigravity CLI rejected the requested model or reasoning effort as unsupported.',
   },
+  {
+    // Measured twice on real `agy 1.1.25` (`agy-cli-contract.md`, finding 13):
+    // a `--print-timeout` expiry and a SIGINT mid-generation BOTH report
+    // `ERROR` with exactly this text. `--print-timeout` is on the production
+    // invocation, set from `turnTimeoutMs`, so this is the wording an ordinary
+    // turn timeout arrives in -- the single most likely `failed` settlement on
+    // this route, and until now the one that read as `unrecognized`.
+    category: 'turn-timeout',
+    pattern: /timeout waiting for response/i,
+    message: () => 'Antigravity CLI gave up waiting for the model to answer this turn.',
+  },
+  {
+    // NOT measured here: taken from the vendor's own issue tracker, where a
+    // turn is reported ending `ERROR` with `context canceled` after a valid
+    // completion, because the CLI cancels its own background subtask at turn
+    // cleanup (google-antigravity/antigravity-cli#848, open against 1.1.17).
+    // Admitted on the same standard the others are -- a captured, quoted
+    // vendor string rather than a guess at wording -- and the message says
+    // only what the category is, since this build has not been seen doing it.
+    category: 'vendor-cancelled-turn',
+    pattern: /context canceled/i,
+    message: () => 'Antigravity CLI cancelled the turn internally while finishing it.',
+  },
 ]
 
 export interface AntigravityVendorFailureSpec {

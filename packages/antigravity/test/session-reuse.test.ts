@@ -203,6 +203,10 @@ async function collect(iterable: AsyncIterable<any>) {
   return chunks
 }
 
+function textOf(chunks: readonly any[]): string {
+  return chunks.filter(chunk => chunk.type === 'text-delta').map(chunk => String(chunk.text)).join('')
+}
+
 function toolCallIds(chunks: readonly any[]): string[] {
   return chunks.filter(chunk => chunk.type === 'block-end' && chunk.block?.type === 'tool-call')
     .map(chunk => String(chunk.block.id))
@@ -273,39 +277,100 @@ test('every envelope carries a turn stamp, and no two turns of one conversation 
  * again -- a repeated-identical-call loop generated inside the transport.
  * See `docs/verification/agy-cli-contract.md`.
  */
-test('a reply stamped for an earlier turn is refused instead of executed again', async () => {
-  const stale = {
-    conversation_id: 'c1',
-    status: 'SUCCESS',
-    // The exact vendor shape: prose in `response`, no JSON in it at all, and
-    // an envelope still carrying the first turn's decision.
-    response: 'banana\n',
-    structured_output: { kind: 'tool_calls', text: '', turn: 'stale-01', tool_calls: [{ id: 'call_1', name: 'read_file', arguments: { path: 'a.ts' } }] },
-  }
+/**
+ * The exact vendor shape of a turn that carried no decision of its own: prose
+ * in `response` with no JSON in it at all, and an envelope still holding the
+ * FIRST turn's `structured_output`, verbatim.
+ */
+const STALE_TURN = {
+  conversation_id: 'c1',
+  status: 'SUCCESS',
+  response: 'banana\n',
+  structured_output: { kind: 'tool_calls', text: '', turn: 'stale-01', tool_calls: [{ id: 'call_1', name: 'read_file', arguments: { path: 'a.ts' } }] },
+}
+
+/** Drive one session to the point where its next turn comes back stale. */
+async function upToStaleTurn(adapter: AntigravityCliAdapter) {
+  const first = userText('read a.ts')
+  const step1 = await collect(adapter.stream(request({ messages: [first] })))
+  const callId = toolCallIds(step1)[0]
+  return [first, assistantToolCall(callId, 'read_file', '{"path":"a.ts"}'), toolResult(callId, 'file body')]
+}
+
+test('a reply stamped for an earlier turn is repaired rather than executed again', async () => {
   const { ctx, children, spawns } = multiHarness([
-    [toolCallReply('call_1', 'read_file', { path: 'a.ts' }), stale, messageReply('kept')],
+    [toolCallReply('call_1', 'read_file', { path: 'a.ts' }), STALE_TURN, messageReply('the answer I already had')],
   ])
   const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
   try {
-    const first = userText('read a.ts')
-    const step1 = await collect(adapter.stream(request({ messages: [first] })))
-    const callId = toolCallIds(step1)[0]
-    const continued = [first, assistantToolCall(callId, 'read_file', '{"path":"a.ts"}'), toolResult(callId, 'file body')]
+    const continued = await upToStaleTurn(adapter)
+    const step2 = await collect(adapter.stream(request({ messages: continued })))
+
+    // The step survives, and it carries the repair's decision -- never the
+    // stale one, whose tool call would have been `read_file` a second time.
+    assert.equal(textOf(step2), 'the answer I already had')
+    assert.deepEqual(toolCallIds(step2), [])
+    assert.equal(spawns.length, 1, 'a repair runs on the live child, not a new one')
+
+    const envelopes = children[0].envelopes()
+    assert.equal(envelopes.length, 3)
+    const repair = envelopes[2]
+    assert.equal(repair.kind, 'repair')
+    // It names the turn that was lost, is stamped for a turn of its own so the
+    // reply cannot be confused with the one that failed, and -- the property
+    // that makes this not a retry -- carries no DSH history at all.
+    assert.equal(typeof repair.repairs, 'string')
+    assert.equal(repair.repairs, envelopes[1].turn)
+    assert.notEqual(repair.turn, envelopes[1].turn)
+    assert.equal(repair.messages, undefined)
+    assert.equal(repair.system, undefined)
+  } finally { await adapter.dispose() }
+})
+
+test('the repair is asked for once, and a second stale reply fails the step without killing the child', async () => {
+  const { ctx, children, spawns } = multiHarness([
+    [toolCallReply('call_1', 'read_file', { path: 'a.ts' }), STALE_TURN, STALE_TURN, messageReply('later')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  try {
+    const continued = await upToStaleTurn(adapter)
 
     await assert.rejects(collect(adapter.stream(request({ messages: continued }))), (error: unknown) => {
       assert.ok(error instanceof LlmError)
       assert.equal(error.code, 'ANTIGRAVITY_STALE_DECISION')
       assert.match(error.message, /stale-01/)
+      assert.match(error.message, /repair turn was asked for/)
       return true
     })
+    assert.equal(children[0].envelopes().length, 3, 'exactly one repair, never two')
 
     // The child finished SUCCESS and still agrees with the prefix. Failing
     // the step is enough; abandoning it is what killed the live session.
     await collect(adapter.stream(request({ messages: [...continued, userText('again')] })))
     assert.equal(spawns.length, 1, 'a stale decision must not kill a healthy child')
     const envelopes = children[0].envelopes()
-    assert.equal(envelopes.length, 3)
-    assert.equal(envelopes[2].kind, 'delta')
+    assert.equal(envelopes.length, 4)
+    assert.equal(envelopes[3].kind, 'delta')
+  } finally { await adapter.dispose() }
+})
+
+test('a request with no session of its own fails on a stale reply instead of repairing', async () => {
+  const { ctx, children, spawns } = multiHarness([[STALE_TURN, messageReply('unreachable')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  try {
+    // No `sessionId`: the child is a throwaway and `runTurnBody` has already
+    // closed it by the time the decision is read, so there is nothing to ask.
+    await assert.rejects(
+      collect(adapter.stream(request({ messages: [userText('hi')], sessionId: undefined }))),
+      (error: unknown) => {
+        assert.ok(error instanceof LlmError)
+        assert.equal(error.code, 'ANTIGRAVITY_STALE_DECISION')
+        assert.doesNotMatch(error.message, /repair turn was asked for/)
+        return true
+      },
+    )
+    assert.equal(spawns.length, 1)
+    assert.equal(children[0].envelopes().length, 1, 'no repair line on a throwaway child')
   } finally { await adapter.dispose() }
 })
 

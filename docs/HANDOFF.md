@@ -8,6 +8,8 @@ This is the only session handoff file. Update it in place when the active task c
 
 The Codex-then-Antigravity bugfix queue in `docs/verification/rc3-review.md` addendum B is done on this tree (unit tests). Do not add a Codex rate-limit recognizer without a captured live App Server error string. Empty `subagent()` inherit is stock DSH and stays that way. Live Codex/Antigravity suites have not been re-run on this cut.
 
+**Uncommitted on top of that** (Antigravity, unit-tested and probed live, docs updated): a stale decision now asks the same live conversation to restate the turn -- a `repair` envelope, no DSH history, once per step -- instead of losing the step; bridge protocol `v3` -> `v4`; `turn-timeout` and `vendor-cancelled-turn` stderr recognizers. Why it is safe to ask is finding 16 in `agy-cli-contract.md`: `--json-schema` parses a block the model appends to its own answer rather than constraining decoding, so a blockless turn is not a broken conversation. Antigravity 147/147, and **all seven live suites re-run on this tree against real `agy 1.1.25` -- 18/18, each read from its own exit code** (ledger entry 2026-09-04). Those suites cannot provoke a stale decision, so they show the change broke nothing live; the recovery itself is evidenced by hand probes in finding 16.
+
 ## Current branch/state
 
 ```text

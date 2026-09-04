@@ -340,3 +340,56 @@ test('model-unsupported recognizer also fires at the turn-exit site when no reas
     return true
   })
 })
+
+// --- recognizer coverage: turn-timeout -----------------------------------
+
+/**
+ * The exact `result.error` text a `--print-timeout` expiry and a SIGINT
+ * mid-generation BOTH produce on real `agy 1.1.25`, measured twice
+ * (`docs/verification/agy-cli-contract.md`, finding 13). That flag is on the
+ * production invocation, set from `turnTimeoutMs`, so this is how an ordinary
+ * turn timeout arrives -- and it read as `unrecognized` until it was named.
+ */
+const REAL_TURN_TIMEOUT_ERROR = 'timeout waiting for response'
+
+test('turn-timeout recognizer names the production timeout path instead of reporting it unrecognized', async () => {
+  const resultLine = JSON.stringify({
+    event: 'result',
+    result: { status: 'ERROR', error: `${REAL_TURN_TIMEOUT_ERROR} at ${SECRET_PATH}`, response: '' },
+  })
+  const ctx = turnCtx({ lines: [resultLine], stderr: '', exitCode: 0 })
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_CLI')
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.category, 'turn-timeout')
+    assert.match(error.message, /gave up waiting for the model to answer this turn/)
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(SECRET_PATH)))
+    return true
+  })
+})
+
+// --- recognizer coverage: vendor-cancelled-turn ---------------------------
+
+test('vendor-cancelled-turn recognizer names the vendor\'s own turn-cleanup cancellation', async () => {
+  const resultLine = JSON.stringify({
+    event: 'result',
+    result: { status: 'ERROR', error: `context canceled token=${FAKE_TOKEN}`, response: '' },
+  })
+  const ctx = turnCtx({ lines: [resultLine], stderr: '', exitCode: 0 })
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
+
+  await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
+    assert.ok(error instanceof LlmError)
+    assert.equal(error.code, 'ANTIGRAVITY_CLI')
+    assert.ok(error.cause instanceof VendorFailure)
+    assert.equal(error.cause.category, 'vendor-cancelled-turn')
+    assert.match(error.message, /cancelled the turn internally while finishing it/)
+    assert.doesNotMatch(error.message, new RegExp(escapeRegExp(FAKE_TOKEN)))
+    return true
+  })
+})
