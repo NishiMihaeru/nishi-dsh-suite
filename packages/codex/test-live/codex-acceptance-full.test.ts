@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import test, { after } from 'node:test'
 import * as codex from '../src/index.ts'
 import { resolveCodexExecutable } from '../src/resolver.ts'
+import { CodexAppServerConnection } from '../src/codex-plugin-dsh/app-server.ts'
 import { CodexSearchBackend } from '../src/web-search-backend.ts'
 import { OfficialCodexRateLimitsSource } from '../src/usage-source.ts'
 import { normalizeCodexRateLimits } from '../src/usage.ts'
@@ -663,6 +664,55 @@ test('SCENARIOS 14 & 15: Adversarial prompt testing against forbidden host capab
     const adapter = adapters.get('codex-app-server')
     if (adapter) await adapter.dispose()
     await rm(workdir, { recursive: true, force: true }).catch(() => {})
+  }
+})
+
+test('SCENARIO 16: the config/read fields isolation depends on still have the shape it assumes', async () => {
+  // Isolation reads `mcp_servers` and `apps` out of `config/read` to disable
+  // every discovered host capability, and fails closed when either is shaped
+  // wrong -- which is right, and which makes their shape load-bearing.
+  //
+  // Neither field is in the published contract. `codex app-server
+  // generate-json-schema` defines `ConfigReadResponse.config` as `Config`, and
+  // that definition lists 25 keys -- `model`, `model_context_window`,
+  // `web_search`, `tools` and so on -- with no `apps` and no `mcp_servers`
+  // among them. The vendor sends them; it never declared them. So a change on
+  // that side cannot be caught by reading the schema, and the last one was not:
+  // real 0.150.0 answers `apps: null`, isolation rejected null as shapeless,
+  // and the provider was out before a turn could open.
+  //
+  // This scenario is the monitor that replaces the contract we do not have.
+  // Failing here means the vendor moved and isolation must be re-read -- it is
+  // not a product defect on its own, and the message says so.
+  const resolved = resolveCodexExecutable()
+  const child = createRealSubprocess().spawn({
+    argv: [resolved.executable, 'app-server'],
+    cwd: process.cwd(),
+    env: {},
+  })
+  const connection = new CodexAppServerConnection(child as any, async () => ({}))
+  const signal = AbortSignal.timeout(60_000)
+  try {
+    await connection.initialize(signal)
+    const result = await connection.request('config/read', { includeLayers: false, cwd: process.cwd() }, signal)
+    const config = result.config as Record<string, unknown>
+    assert.ok(config && typeof config === 'object', 'config/read must return a config object')
+
+    for (const field of ['mcp_servers', 'apps']) {
+      assert.ok(field in config, `config/read must still carry ${field}; isolation disables what it finds there`)
+      const value = config[field]
+      const shape = value === null
+        ? 'null'
+        : Array.isArray(value) ? 'array' : typeof value
+      console.log(`config/read ${field}: ${shape}`)
+      assert.ok(
+        value === null || (typeof value === 'object' && !Array.isArray(value)),
+        `config/read ${field} is ${shape}; isolation reads it as a map or as unset, so the vendor moved`,
+      )
+    }
+  } finally {
+    await connection.close().catch(() => {})
+    killTree(child.pid, 'SIGKILL')
   }
 })
 

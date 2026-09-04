@@ -191,6 +191,103 @@ test('a retrying error is ignored twice and fails the turn on the third', async 
   )
 })
 
+test('retrying errors separated by progress do not accumulate across a long turn', async () => {
+  // The bound is on thrashing, not on a turn's lifetime. A vendor that hiccups,
+  // recovers, streams, hiccups again and finishes is healthy; a cumulative
+  // count would kill it on the third hiccup however far apart they fell. Six
+  // retrying errors here, each followed by a notification for this turn, and
+  // the turn must still complete.
+  const { adapter, options } = fixture()
+  const iterator = adapter.stream(options)[Symbol.asyncIterator]()
+  const chunks: any[] = []
+  let pending = iterator.next()
+  const active = await waitForActiveTurn(adapter, 'session-a')
+
+  for (let hiccup = 0; hiccup < 6; hiccup += 1) {
+    active.events.push({ method: 'error', params: { willRetry: true, error: { message: `blip-${hiccup}` } } })
+    // Progress: a commentary message belonging to this turn.
+    active.events.push({
+      method: 'item/started',
+      params: {
+        threadId: 'thread-a',
+        turnId: 'turn-a',
+        item: { type: 'agentMessage', id: `note-${hiccup}`, phase: 'commentary' },
+      },
+    })
+    active.events.push({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-a',
+        turnId: 'turn-a',
+        item: { type: 'agentMessage', id: `note-${hiccup}`, phase: 'commentary', text: `thinking ${hiccup}` },
+      },
+    })
+  }
+  active.events.push({
+    method: 'item/completed',
+    params: {
+      threadId: 'thread-a',
+      turnId: 'turn-a',
+      item: { type: 'agentMessage', id: 'msg-1', phase: null, text: JSON.stringify({ decision: { kind: 'final', message: 'survived' } }) },
+    },
+  })
+  active.events.push({ method: 'turn/completed', params: { threadId: 'thread-a', turn: { id: 'turn-a', status: 'completed' } } })
+
+  for (;;) {
+    const { value, done } = await drainWithGuard(pending, 2_000, 'the long hiccuping turn')
+    if (done) break
+    chunks.push(value)
+    pending = iterator.next()
+  }
+
+  // This fixture declares no tools, so the turn is unconstrained and the final
+  // message arrives as prose rather than a parsed decision. What is under test
+  // is the retry accounting, so assert the turn survived and carried its text.
+  const text = chunks.filter(c => c.type === 'block-end' && c.block.type === 'text').map(c => c.block.text).join('')
+  assert.match(text, /survived/)
+  assert.equal((chunks.find(c => c.type === 'finish') as any).reason.kind, 'stop')
+})
+
+test('three retrying errors in a row still fail the turn even after earlier progress', async () => {
+  // The other half of the same rule: forgiving a run must not disarm the bound.
+  const { adapter, options } = fixture()
+  const iterator = adapter.stream(options)[Symbol.asyncIterator]()
+  const first = iterator.next()
+  const active = await waitForActiveTurn(adapter, 'session-a')
+
+  active.events.push({ method: 'error', params: { willRetry: true, error: { message: 'early blip' } } })
+  active.events.push({
+    method: 'item/started',
+    params: {
+      threadId: 'thread-a',
+      turnId: 'turn-a',
+      item: { type: 'agentMessage', id: 'note-0', phase: 'commentary' },
+    },
+  })
+  for (let i = 0; i < 3; i += 1) {
+    active.events.push({ method: 'error', params: { willRetry: true, error: { message: 'stuck' } } })
+  }
+
+  // Progress yields chunks before the thrashing starts, so the rejection is not
+  // on the first `next()`; drain until it throws.
+  await assert.rejects(
+    async () => {
+      let pending = first
+      for (;;) {
+        const { done } = await drainWithGuard(pending, 2_000, 'the thrashing turn')
+        if (done) return
+        pending = iterator.next()
+      }
+    },
+    (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.equal((error as { code?: unknown }).code, 'CODEX_APP_SERVER')
+      assert.doesNotMatch(error.message, /stuck/)
+      return true
+    },
+  )
+})
+
 test('two retrying errors still let a later successful turn complete', async () => {
   const { adapter, options } = fixture()
   const iterator = adapter.stream(options)[Symbol.asyncIterator]()

@@ -172,17 +172,28 @@ interface ActiveCodexTurn {
   finalOutput: boolean
   /**
    * How many `error` notifications with `willRetry: true` this turn has
-   * already ignored. The App Server uses that flag for a transient fault it
-   * intends to recover from; without a cap the turn sits until
-   * `turnTimeoutMs` (ten minutes) and still bills.
+   * ignored **since the vendor last made progress**. The App Server sets that
+   * flag for a transient fault it intends to recover from; without a bound the
+   * turn sits until `turnTimeoutMs` (ten minutes) and still bills.
+   *
+   * Counted consecutively rather than cumulatively, and reset by any
+   * notification belonging to this turn. A lifetime cap answers the wrong
+   * question: a vendor that retries once, streams for a minute, retries again
+   * and finishes is healthy, and a cumulative count kills it on the third
+   * hiccup of a long turn. What actually indicates a stuck vendor is retrying
+   * errors with nothing in between, which is what this measures.
    */
-  ignoredRetryingErrors: number
+  consecutiveRetryingErrors: number
   usage?: TokenUsage
   closing?: Promise<void>
 }
 
-/** Ignore this many retrying App Server errors; the next one fails the turn. */
-const MAX_IGNORED_RETRYING_ERRORS = 2
+/**
+ * Ignore this many retrying App Server errors in a row; the next one fails the
+ * turn. Any notification for this turn resets the run, so the bound is on
+ * thrashing rather than on a turn's lifetime.
+ */
+const MAX_CONSECUTIVE_RETRYING_ERRORS = 2
 
 /** Process invocation for one resolved Codex executable. */
 export interface CodexAppServerInvocation {
@@ -694,8 +705,8 @@ export class CodexAppServerAdapter extends LlmAdapter {
             // belonging to someone else's thread; anything else is ours.
             const errorThreadId = typeof params.threadId === 'string' ? params.threadId : undefined
             if (errorThreadId !== undefined && errorThreadId.length > 0 && errorThreadId !== turn.threadId) continue
-            if (params.willRetry === true && turn.ignoredRetryingErrors < MAX_IGNORED_RETRYING_ERRORS) {
-              turn.ignoredRetryingErrors += 1
+            if (params.willRetry === true && turn.consecutiveRetryingErrors < MAX_CONSECUTIVE_RETRYING_ERRORS) {
+              turn.consecutiveRetryingErrors += 1
               continue
             }
             throw notificationFailure(params.error)
@@ -705,6 +716,10 @@ export class CodexAppServerAdapter extends LlmAdapter {
             ? object(params.turn, 'turn/completed turn').id
             : params.turnId
           if (notificationTurnId !== turn.turnId) continue
+          // Anything addressed to this turn is progress: the vendor recovered
+          // from whatever it said it would retry. Forgive the run so a later
+          // hiccup is judged on its own, not on this turn's whole history.
+          turn.consecutiveRetryingErrors = 0
           if (method === 'item/started') {
             const item = object(params.item, 'started item')
             if (item.type !== 'agentMessage') continue
@@ -1127,7 +1142,7 @@ export class CodexAppServerAdapter extends LlmAdapter {
         completedImages: new Set(),
         nextBlockIndex: 0,
         finalOutput: false,
-        ignoredRetryingErrors: 0,
+        consecutiveRetryingErrors: 0,
       }
       active.signal.addEventListener('abort', active.onAbort, { once: true })
       this.activeTurns.set(active.registryKey, active)
