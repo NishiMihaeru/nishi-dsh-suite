@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
-import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.ts'
 import { AntigravitySearchBackend } from '../src/web-search-backend.ts'
 import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
@@ -102,7 +101,7 @@ test('the primary turn invocation passes --sandbox to the vendor CLI', async () 
       capturedArgv = argv
     }),
   } as any
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)))
@@ -139,7 +138,7 @@ test('argv mapping: base model gemini-3.7-flash + reasoningEffort high passes --
       capturedArgv = argv
     }),
   } as any
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-3.7-flash', reasoningEffort: 'high', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)))
@@ -161,7 +160,7 @@ test('argv mapping: legacy gemini-3.7-flash-low without explicit effort passes b
       capturedArgv = argv
     }),
   } as any
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash-low')
   const options = { provider: 'antigravity-cli', model: 'gemini-3.7-flash-low', messages: [] } as any
 
@@ -184,7 +183,7 @@ test('argv mapping: legacy low + explicit high passes base model and effort high
       capturedArgv = argv
     }),
   } as any
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash-low')
   const options = { provider: 'antigravity-cli', model: 'gemini-3.7-flash-low', reasoningEffort: 'high', messages: [] } as any
 
@@ -207,7 +206,7 @@ test('argv mapping: single custom-model-high without sibling variants leaves cus
       capturedArgv = argv
     }),
   } as any
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   await adapter.resolveModel('antigravity-cli', 'custom-model-high')
   const options = { provider: 'antigravity-cli', model: 'custom-model-high', messages: [] } as any
 
@@ -230,7 +229,7 @@ test('argv mapping: a legacy id maps without a prior catalog call, so an expired
   } as any
   // Nothing warms the catalog first: this is a turn taken on a cold adapter,
   // or after `modelCacheMs` expired between route resolution and the turn.
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = {
     provider: 'antigravity-cli',
     model: 'gemini-3.7-flash-low',
@@ -263,7 +262,7 @@ test('argv mapping: catalog discovery failure invokes the requested id rather th
       },
     },
   } as any
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = {
     provider: 'antigravity-cli',
     model: 'gemini-3.7-flash-low',

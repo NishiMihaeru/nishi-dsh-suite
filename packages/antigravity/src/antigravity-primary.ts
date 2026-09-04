@@ -25,7 +25,6 @@ import {
   unexpectedNativeTools,
   type VendorInvocation,
 } from './agy-vendor.js'
-import type { AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
 import {
   assertExecutableDecision,
   BRIDGE_SCHEMA,
@@ -207,7 +206,6 @@ export class AntigravityCliAdapter extends LlmAdapter {
   constructor(
     private readonly ctx: Context,
     private readonly config: AntigravityPrimaryConfig,
-    private readonly quotaHarvestCache: AntigravityQuotaHarvestCache,
   ) {
     super()
   }
@@ -801,15 +799,6 @@ export class AntigravityCliAdapter extends LlmAdapter {
     }, lifetime)
     this.turnChildren.add(child)
 
-    // Opportunistic, best-effort: while this child is alive, try to read its
-    // quota from the loopback ports it happens to expose (see
-    // quota-harvest-cache.ts for why, and for the PID-scoped trust boundary
-    // this relies on). `harvest()` never throws or rejects by construction,
-    // and is deliberately NOT awaited -- the `.catch()` is defense in depth.
-    // Nothing about this call may affect the turn itself. With a persistent
-    // child this now runs once per conversation rather than once per step,
-    // which is strictly more of what the cache wants: a longer-lived PID.
-    void this.quotaHarvestCache.harvest(child.pid).catch(() => {})
     return child
   }
 
@@ -1074,9 +1063,8 @@ export class AntigravityCliAdapter extends LlmAdapter {
 export function createAntigravityPrimaryAdapter(
   ctx: Context,
   config: AntigravityPrimaryConfig,
-  quotaHarvestCache: AntigravityQuotaHarvestCache,
 ): AntigravityCliAdapter {
-  const adapter = new AntigravityCliAdapter(ctx, config, quotaHarvestCache)
+  const adapter = new AntigravityCliAdapter(ctx, config)
   ctx.effect(
     function* () {
       yield () => { void adapter.dispose() }

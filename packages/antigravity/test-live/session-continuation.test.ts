@@ -15,7 +15,6 @@ import {
   ANTIGRAVITY_PRIMARY_PROVIDER,
   createAntigravityPrimaryAdapter,
 } from '../src/antigravity-primary.js'
-import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.js'
 
 /**
  * The live counterpart of `test/session-reuse.test.ts`, and the Antigravity
@@ -146,7 +145,7 @@ async function collectStream(stream: AsyncIterable<StreamChunk>) {
 test('ANTIGRAVITY PRODUCTION: one live child serves both steps, and the model reads the tool result', async () => {
   const turnSpawns = { count: 0 }
   const ctx = createTestContext(turnSpawns)
-  const adapter = createAntigravityPrimaryAdapter(ctx as any, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx as any, testConfig)
   const sessionId = 'live-session-continuation' as any
 
   try {

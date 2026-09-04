@@ -7,49 +7,36 @@ Antigravity primary-provider plugin for Nishi DSH Suite, backed by the user's in
 - canonical provider id: `antigravity`;
 - primary model route: `antigravity-cli`;
 - native web-search backend: `agy search_web`;
-- local usage visibility, harvested from this package's own `agy` child.
+- local usage visibility, read from the vendor's own `/usage` command.
 
 ### Where quota comes from, and what it cannot see
 
-The vendor publishes no machine-readable quota surface: not a command, not a
-flag, not a file. The only one that exists is a private RPC of its language
-server. This route reads that RPC on processes it started itself, resolving
-loopback ports from those pids alone, and caches the reading for the usage
-collector. The call carries no credential: loopback, `Content-Type` and
-`Connect-Protocol-Version`, nothing else.
+`agy -p "/usage" --output-format json`. A published slash command, answered by
+the CLI without an agent turn: measured on `agy 1.1.25` it reports
+`num_turns: 0`, every usage counter at zero and no `conversation_id`, and
+leaves nothing in the vendor's `conversations/`. The payload carries the
+vendor's own groups and buckets, so the pool names in the UI are the vendor's
+words rather than this package's guess at them.
 
-It used to reach further: scanning every process on the machine for something
-Antigravity-shaped and lifting a `--csrf_token` out of its command line. That
-was removed on 2026-09-03. It contradicted this package's own posture that it
-reads no credential or token store, and both independent reviewers ranked
-removing it their second-highest simplification.
+Until 2026-09-04 this route believed no such surface existed and read a
+private RPC of the vendor's language server instead -- `/proc` descendant
+walks, socket inodes matched against `/proc/net/tcp`, and a PID-scoped trust
+boundary to make that defensible. That is deleted, ~800 lines of it, along
+with the earlier machine-wide process scan that lifted a `--csrf_token` out of
+other processes' command lines (removed 2026-09-03, for contradicting this
+package's own posture that it reads no credential store).
 
-There are two readings, in that order of preference. The cheap one is
-opportunistic: while a turn's child is alive it is asked, for free, since the
-turn is happening anyway. When there is no recent one, a child is spawned for
-the reading alone — the minimal stream-json shape with no model, no schema and
-no agent, in a scratch directory of its own, **with nothing written to its
-stdin**, which is what makes it cost no tokens: `agy` runs a turn per line of
-stdin and there are no lines. One such child at a time, at most one per
-minute, disposed through the grace path.
+Three things the transport does not change. A bucket with no finite remaining
+fraction is skipped, and a reading with none left is reported unavailable
+rather than as full headroom. The read is single-flighted and floored at one
+process per minute, because it is a subprocess every time (~3.2 s median) and
+a usage panel refreshes far more often than a bucket moves. And the figure can
+still be confidently wrong: a quota summary can report headroom while
+generation returns 429.
 
-That closed the cost this section used to state — there is no longer a blind
-window before the first turn — and it was probed rather than assumed, because
-"the listener exists" was never the question. **The question was whether a
-turn-free answer is TRUE**, and the live suite now reads one account both ways
-minutes apart and gets the same figure to the second decimal.
-
-Two limits remain, and they are the vendor's rather than this route's. The
-figure never reflects what the Antigravity IDE or desktop app consumed. And
-the RPC's own content is unreliable: after an upstream failure every bucket can
-come back with no remaining-fraction field at all — before AND after a
-completed turn — which surfaces as an honest unsupported row rather than as
-invented headroom, because the parser skips a bucket with no usable fraction
-and reports nothing when none survive.
-
-The distinction between provider id and route is intentional: `antigravity` is the provider identity, while `antigravity-cli` is the DSH model route retained for saved-session compatibility.
-
-Vendor-specific delegation was removed in `0.1.0-rc.3`. Project Memory remains on the normal DSH primary plane and this package does not own or prefix its own memory implementation.
+It also cannot see what the account spends elsewhere -- the IDE, the desktop
+app, another machine. It is this account's quota as the vendor reports it, not
+this package's accounting of it.
 
 ### Model catalog and reasoning efforts
 

@@ -19,7 +19,6 @@ import {
   AntigravityCliAdapter,
   createAntigravityPrimaryAdapter,
 } from '../src/antigravity-primary.js'
-import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.js'
 
 function findOnPath(name: string): string | null {
   const pathEnv = process.env.PATH || ''
@@ -148,7 +147,7 @@ async function collectStreamText(stream: AsyncIterable<StreamChunk>): Promise<{
 
 test('ANTIGRAVITY PRODUCTION: 1. Model Catalog Discovery through DSH LLM Service', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
   try {
     const models = await adapter.listModels(ANTIGRAVITY_PRIMARY_PROVIDER)
     assert.ok(models.length > 0, 'Must discover at least one model')
@@ -163,7 +162,7 @@ test('ANTIGRAVITY PRODUCTION: 1. Model Catalog Discovery through DSH LLM Service
 
 test('ANTIGRAVITY PRODUCTION: 2. Real Turn through DSH Adapter', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
   try {
     const options: GenerateOptions = {
       provider: ANTIGRAVITY_PRIMARY_PROVIDER,
@@ -181,7 +180,7 @@ test('ANTIGRAVITY PRODUCTION: 2. Real Turn through DSH Adapter', async () => {
 
 test('ANTIGRAVITY PRODUCTION: 3. DSH Tool Loop', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
   try {
     const tools = [{
       name: 'lookup_user_status',
@@ -228,7 +227,7 @@ test('ANTIGRAVITY PRODUCTION: 3. DSH Tool Loop', async () => {
 
 test('ANTIGRAVITY PRODUCTION: 4. Shared Project Memory', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
   try {
     const options: GenerateOptions = {
       provider: ANTIGRAVITY_PRIMARY_PROVIDER,
@@ -244,7 +243,7 @@ test('ANTIGRAVITY PRODUCTION: 4. Shared Project Memory', async () => {
 
 test('ANTIGRAVITY PRODUCTION: 5. Session Reopen from DSH Durable History', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
   try {
     const sessionNonce = `NONCE-${Date.now()}-${Math.random().toString(36).slice(2)}`
     const reopenedOptions: GenerateOptions = {
@@ -264,7 +263,7 @@ test('ANTIGRAVITY PRODUCTION: 5. Session Reopen from DSH Durable History', async
 
 test('ANTIGRAVITY PRODUCTION: 6. Model Switch across DSH Primary Models', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
   try {
     const models = await adapter.listModels(ANTIGRAVITY_PRIMARY_PROVIDER)
     const hasClaude = models.some(m => m.id === 'claude-sonnet-4-6')
@@ -303,7 +302,7 @@ test('ANTIGRAVITY PRODUCTION: 7. Workspace and Native Tool Isolation', async () 
 
 test('ANTIGRAVITY PRODUCTION: 8. Failure and Unsupported Request Semantics', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig, noopQuotaHarvestCache())
+  const adapter = createAntigravityPrimaryAdapter(ctx, testConfig)
   try {
     await assert.rejects(async () => {
       for await (const _ of adapter.stream({ provider: ANTIGRAVITY_PRIMARY_PROVIDER, model: 'gemini-3.7-flash-medium', temperature: 0.5, messages: [userText('test')] })) {}

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
-import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.ts'
 import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
 /**
@@ -94,7 +93,7 @@ test('the real captured envelope shape is parsed: progress line skipped, tab-sep
   const stdout = 'Fetching available models...\n'
     + '{"conversation_id":"","status":"SUCCESS","response":"claude-3-5-sonnet\\tClaude 3.5 Sonnet\\ngpt-4o\\tGPT-4o"}\n'
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -113,7 +112,7 @@ test('the envelope path accepts ids from any vendor family, with no hardcoded pr
     ].join('\n'),
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -132,7 +131,7 @@ test('CHARACTERIZATION (inverted): a well-formed but out-of-family id is now acc
     response: ['mistral-large-2\tMistral Large 2', 'claude-3-opus\tClaude 3 Opus'].join('\n'),
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -151,7 +150,7 @@ test('CHARACTERIZATION (inverted): duplicate ids in the envelope response collap
     response: ['claude-3-opus\tFirst', 'claude-3-opus\tSecond'].join('\n'),
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -170,7 +169,7 @@ test('a non-SUCCESS envelope status fails loudly instead of falling back to the 
     // Should never be reached: a definitive status signal is authoritative.
     { stdout: 'claude-3-opus\tClaude 3 Opus', stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   await assert.rejects(adapter.listModels('antigravity-cli'), (error: unknown) => {
     assert.ok(error instanceof LlmError)
@@ -190,7 +189,7 @@ test('an envelope with no parseable JSON object falls back to the text path', as
     { stdout: 'Fetching available models...\nnot json at all\n', stderr: '', exitCode: 0 },
     { stdout: 'claude-3-opus\tClaude 3 Opus', stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -211,7 +210,7 @@ test('parseCatalogEntries extracts id/name pairs from well-formed tab-separated 
     { stdout: '', stderr: '', exitCode: 1 }, // JSON path fails -> forces the text fallback
     { stdout: text, stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -232,7 +231,7 @@ test('CHARACTERIZATION (inverted): an out-of-family model line is now accepted b
     { stdout: '', stderr: '', exitCode: 1 },
     { stdout: text, stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -248,7 +247,7 @@ test('CHARACTERIZATION (inverted): duplicate ids across text lines collapse to t
     { stdout: '', stderr: '', exitCode: 1 },
     { stdout: text, stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -262,7 +261,7 @@ test('the "Fetching available models..." progress line is skipped without specia
     { stdout: '', stderr: '', exitCode: 1 },
     { stdout: text, stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -278,7 +277,7 @@ test('a line with no tab at all is skipped, regardless of its wording', async ()
     { stdout: '', stderr: '', exitCode: 1 },
     { stdout: text, stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -291,7 +290,7 @@ test('an entry with an empty id is rejected', async () => {
     { stdout: '', stderr: '', exitCode: 1 },
     { stdout: text, stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -304,7 +303,7 @@ test('an entry whose id contains internal whitespace is rejected', async () => {
     { stdout: '', stderr: '', exitCode: 1 },
     { stdout: text, stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -318,7 +317,7 @@ test('zero usable models raises ANTIGRAVITY_PROTOCOL rather than returning an em
     { stdout: 'Fetching available models...\nnot an envelope', stderr: '', exitCode: 0 }, // JSON path yields nothing
     { stdout: 'no models available', stderr: '', exitCode: 0 }, // text fallback also yields nothing parseable
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   await assert.rejects(adapter.listModels('antigravity-cli'), (error: unknown) => {
     assert.ok(error instanceof LlmError)
@@ -333,7 +332,7 @@ test('an envelope that parses with SUCCESS but zero usable entries falls back to
     { stdout, stderr: '', exitCode: 0 },
     { stdout: 'claude-3-opus\tClaude 3 Opus', stderr: '', exitCode: 0 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
 
@@ -347,7 +346,7 @@ test('resolveModel resolves through the same catalog and falls back to the raw i
     response: 'claude-3-opus\tClaude 3 Opus',
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const known = await adapter.resolveModel('antigravity-cli', 'claude-3-opus')
   assert.equal(known.name, 'Claude 3 Opus')
@@ -369,7 +368,7 @@ test('vendor envelope with gemini-3.7-flash-low/medium/high lists single gemini-
     ].join('\n'),
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
   const modelIds = models.map(m => String(m.id))
@@ -393,7 +392,7 @@ test('resolveModel(base) returns reasoning efforts ids [low, medium, high] and d
     ].join('\n'),
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const resolved = await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash')
   assert.equal(String(resolved.id), 'gemini-3.7-flash')
@@ -414,7 +413,7 @@ test('resolveModel(legacy medium id) succeeds, preserves requested id, and sets 
     ].join('\n'),
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const resolved = await adapter.resolveModel('antigravity-cli', 'gemini-3.7-flash-medium')
   assert.equal(String(resolved.id), 'gemini-3.7-flash-medium')
@@ -429,7 +428,7 @@ test('single model id ending in -high without sibling variants remains unchanged
     response: 'custom-model-high\tCustom Model High',
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
   assert.deepEqual(models.map(m => String(m.id)), ['custom-model-high'])
@@ -453,7 +452,7 @@ test('unrelated normal model remains alongside grouped reasoning models', async 
     ].join('\n'),
   })
   const ctx = modelCatalogCtx([{ stdout, stderr: '', exitCode: 0 }])
-  const adapter = new AntigravityCliAdapter(ctx, config, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, config)
 
   const models = await adapter.listModels('antigravity-cli')
   const modelIds = models.map(m => String(m.id)).sort()

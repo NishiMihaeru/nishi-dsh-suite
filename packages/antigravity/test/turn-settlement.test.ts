@@ -4,7 +4,6 @@ import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { VendorFailure } from 'nishi-dsh-core/runtime'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
-import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.ts'
 import { stamped } from './turn-stamp.ts'
 import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
@@ -173,7 +172,7 @@ for (const settlement of SETTLEMENTS) {
       conversation_id: 'c1',
       ...(settlement.status === undefined ? {} : { status: settlement.status }),
     })
-    const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+    const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
     try {
       await assert.rejects(drain(adapter.stream(request())), (error: unknown) => {
         assert.ok(error instanceof LlmError)
@@ -192,7 +191,7 @@ for (const settlement of SETTLEMENTS) {
 test('a cancelled turn does not leak the vendor error text it carries', async () => {
   const marker = '/home/secret-user/private token=agy_fake_sk_0011'
   const { ctx } = ctxFor({ conversation_id: 'c1', status: 'CANCELED', error: marker })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   try {
     await assert.rejects(drain(adapter.stream(request())), (error: unknown) => {
       assert.ok(error instanceof LlmError)
@@ -214,7 +213,7 @@ test('a cancelled turn does not leak the vendor error text it carries', async ()
 for (const status of ['ERROR', 'CANCELED', 'WAITING'] as const) {
   test(`a ${status} turn abandons the live conversation`, async () => {
     const { ctx, spawns } = ctxFor({ conversation_id: 'c1', status })
-    const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+    const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
     try {
       await assert.rejects(drain(adapter.stream(request())))
       assert.equal(spawns.length, 1)

@@ -4,7 +4,6 @@ import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { VendorFailure } from 'nishi-dsh-core/runtime'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
-import { noopQuotaHarvestCache } from '../src/quota-harvest-cache.ts'
 import { AntigravitySearchBackend, AntigravityWebSearchBackendError } from '../src/web-search-backend.ts'
 import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
@@ -189,7 +188,7 @@ test('B3 (antigravity-primary.ts, stage model-discovery): model discovery failur
     { stdout: '', stderr: '', exitCode: 1 }, // JSON path fails -> forces the text fallback
     { stdout: '', stderr: MARKER, exitCode: 1 }, // text fallback also fails
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
 
   await assert.rejects(adapter.listModels('antigravity-cli'), (error: unknown) => {
     assert.ok(error instanceof LlmError)
@@ -212,7 +211,7 @@ test('B3 (antigravity-primary.ts, stage model-discovery): model discovery failur
 test('B4 (antigravity-primary.ts, stage turn): a turn exiting before a result event surfaces ANTIGRAVITY_CLI, with no vendor text and a small message', async () => {
   const hugeMarker = `${MARKER} ${'x'.repeat(200_000)}`
   const ctx = turnCtx({ lines: [], stderr: hugeMarker, exitCode: 1 })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
@@ -237,7 +236,7 @@ test('B4 (antigravity-primary.ts, stage turn): a turn exiting before a result ev
 test('C1 (antigravity-primary.ts, resultFailure, stage turn): an ordinary turn result reporting failure surfaces ANTIGRAVITY_CLI with no vendor text', async () => {
   const resultLine = JSON.stringify({ event: 'result', result: { status: 'FAILED', error: MARKER } })
   const ctx = turnCtx({ lines: [resultLine], stderr: '', exitCode: 0 })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
@@ -263,7 +262,7 @@ test('C1 (antigravity-primary.ts, resultFailure, stage turn): an ordinary turn r
 test('network-unavailable recognizer authors its own message and drops the surrounding vendor text', async () => {
   const stderr = `connect failed: ECONNREFUSED at ${SECRET_PATH} token=${FAKE_TOKEN}`
   const ctx = turnCtx({ lines: [], stderr, exitCode: 1 })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
@@ -308,7 +307,7 @@ test('model-unsupported recognizer authors its own message for the confirmed rea
     { stdout: '', stderr: '', exitCode: 1 },
     { stdout: '', stderr: REAL_MODEL_UNSUPPORTED_STDERR, exitCode: 1 },
   ])
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
 
   await assert.rejects(adapter.listModels('antigravity-cli'), (error: unknown) => {
     assert.ok(error instanceof LlmError)
@@ -325,7 +324,7 @@ test('model-unsupported recognizer authors its own message for the confirmed rea
 
 test('model-unsupported recognizer also fires at the turn-exit site when no reasoningEffort was requested', async () => {
   const ctx = turnCtx({ lines: [], stderr: REAL_MODEL_UNSUPPORTED_STDERR, exitCode: 1 })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   // No reasoningEffort set, so the earlier effort-unsupported branch (UNSUPPORTED
   // code) is skipped entirely and this falls through to the generic VendorFailure path.
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
@@ -358,7 +357,7 @@ test('turn-timeout recognizer names the production timeout path instead of repor
     result: { status: 'ERROR', error: `${REAL_TURN_TIMEOUT_ERROR} at ${SECRET_PATH}`, response: '' },
   })
   const ctx = turnCtx({ lines: [resultLine], stderr: '', exitCode: 0 })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {
@@ -380,7 +379,7 @@ test('vendor-cancelled-turn recognizer names the vendor\'s own turn-cleanup canc
     result: { status: 'ERROR', error: `context canceled token=${FAKE_TOKEN}`, response: '' },
   })
   const ctx = turnCtx({ lines: [resultLine], stderr: '', exitCode: 0 })
-  const adapter = new AntigravityCliAdapter(ctx, primaryConfig, noopQuotaHarvestCache())
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   const options = { provider: 'antigravity-cli', model: 'gemini-1.5-pro', messages: [] } as any
 
   await assert.rejects(drain(adapter.stream(options)), (error: unknown) => {

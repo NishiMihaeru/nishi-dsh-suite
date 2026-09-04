@@ -42,6 +42,19 @@ export interface AntigravityNumericWindowObservation {
   readonly remainingPercent?: number;
   readonly resetsAtMs?: number;
   readonly windowDurationMs?: number;
+  /**
+   * The pool this window belongs to, as the VENDOR names it.
+   *
+   * Optional because it was unavailable for as long as quota came off a
+   * private RPC, which is why {@link poolLabel} below derives one by
+   * stripping cadence words from a window label and falling back to a bucket
+   * id. That derivation is a guess with a good track record, not a fact: on
+   * the published `/usage` payload it would render `gemini-weekly` as
+   * "gemini" where the vendor itself says "Gemini Models". When these two
+   * fields are present the guess is skipped entirely.
+   */
+  readonly poolLabel?: string;
+  readonly poolId?: string;
 }
 
 export interface AntigravityNumericUsageObservation {
@@ -172,10 +185,18 @@ export function normalizeAntigravityCapability(observation: unknown, observedAtM
         // The pool's display name is the vendor's business, not the
         // browser's: before rc.3 the client guessed it by matching
         // 'gemini' / 'claude' / 'gpt' against window labels, which meant
-        // every new vendor pool needed a browser edit.
-        const label = poolLabel(scopeId, String(wObj.label ?? ''));
+        // every new vendor pool needed a browser edit. Taking the vendor's
+        // own group name when the source supplies one finishes that move --
+        // the derivation below is now the fallback for a source that cannot.
+        const given = typeof wObj.poolLabel === 'string' && wObj.poolLabel.trim().length > 0
+          ? wObj.poolLabel.trim()
+          : undefined;
+        const label = given ?? poolLabel(scopeId, String(wObj.label ?? ''));
         if (label !== undefined) scope.label = label;
-        scope.id = poolScopeId(scopeId, label);
+        const givenId = typeof wObj.poolId === 'string' && wObj.poolId.trim().length > 0
+          ? wObj.poolId.trim()
+          : undefined;
+        scope.id = givenId ?? poolScopeId(scopeId, label);
       }
       const win: LimitWindow = {
         id: `antigravity-${scopeId}`,

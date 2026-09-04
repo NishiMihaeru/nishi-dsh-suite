@@ -4,43 +4,38 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
-import { createAntigravityPrimaryAdapter } from '../src/antigravity-primary.js'
-import { createColdQuotaHarvest } from '../src/quota-cold-harvest.js'
-import { AntigravityOwnChildQuotaSource, AntigravityQuotaHarvestCache } from '../src/quota-harvest-cache.js'
-import { createHostPlatformDiscovery } from '../src/usage-source.js'
+import LlmRuntime from '@deepseek-ai/dsh-llm'
+import { AntigravityUsageCommandSource } from '../src/usage-command.js'
 import { AntigravityUsageCollector } from '../src/usage.js'
 
 /**
- * Does the narrowed quota path produce a number at all -- with a turn, and
- * without one?
+ * Does the PUBLISHED quota channel answer on the real CLI, and is it still
+ * free?
  *
- * This route used to find quota by scanning every process on the machine for
- * something Antigravity-shaped and lifting a CSRF token out of its command
- * line. That was removed; the only reading left is harvested from the `agy`
- * child this package spawns for a turn, on loopback ports resolved from that
- * one pid. Nothing in the focused suite can tell whether a REAL vendor child
- * exposes such a listener at all, or whether the private RPC still answers on
- * it, and the whole capability is best-effort by construction -- so without
- * this suite the difference between "narrowed" and "quietly dead" is
- * invisible.
+ * This route used to reach quota through a private RPC of the vendor's
+ * language server: a `/proc` descendant walk, socket inodes matched against
+ * `/proc/net/tcp`, and a PID-scoped trust boundary invented to make reading
+ * an undocumented loopback port defensible. All of it is gone, replaced by
+ * `agy -p "/usage" --output-format json` (`agy-cli-contract.md`, finding 17).
+ *
+ * Two things need a live check, and neither is visible to the focused suite.
+ *
+ * **That the command still answers.** It is a slash command intercepted
+ * client-side in print mode, which is a vendor behaviour rather than a
+ * documented API shape; if a release stopped answering it headless, the
+ * capability would go quietly unavailable and nothing else would notice.
+ *
+ * **That it still costs nothing.** The whole argument for reading quota on
+ * demand -- rather than only while a turn is already running -- is that this
+ * command bills no tokens and starts no conversation. That is a measured
+ * property of the vendor, not a guarantee, so it is asserted rather than
+ * assumed: `num_turns` at zero and every usage counter at zero.
  *
  * Deliberately asserts the capability rather than a figure: which pools exist
  * and how much is left of them is the account's business and changes between
- * runs. What is asserted is that a turn produces a cached reading, and that
- * the collector turns it into an AVAILABLE snapshot with at least one window
- * a consumer could render -- a labelled `usedPercent` in range, which is the
- * shape the collector converts the vendor's remaining fraction into.
+ * runs.
  *
- * The second scenario is the cold path: quota used to be unavailable until a
- * turn had run, and a child spawned for the reading alone closes that. It is
- * the one that most needs a live check, because everything it rests on is
- * vendor behaviour with no documented surface -- a listener that comes up
- * before any stdin, a private RPC that answers before login finishes, and a
- * child that must cost nothing.
- *
- * Run with: `pnpm test:live:quota`. One turn on the cheapest model, plus one
- * turnless child.
+ * Run with: `pnpm test:live:quota`. No turn, no tokens.
  */
 
 function findOnPath(name: string): string | null {
@@ -70,7 +65,10 @@ function createTestContext() {
         windowsHide: true,
         stdio: [spec.stdio?.stdin === 'pipe' ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       })
+      let stdout = ''
       let stderr = ''
+      child.stdout?.setEncoding('utf8')
+      child.stdout?.on('data', chunk => { stdout += chunk })
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', chunk => { stderr += chunk })
       const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>(resolve => {
@@ -82,7 +80,7 @@ function createTestContext() {
         stdout: child.stdout,
         stderr: child.stderr,
         collected: {
-          stdout: { readFrom() { return { text: '', nextOffset: 0, lossy: false } } },
+          stdout: { readFrom() { return { text: stdout, nextOffset: stdout.length, lossy: false } } },
           stderr: { readFrom() { return { text: stderr, nextOffset: stderr.length, lossy: false } } },
         },
         done,
@@ -95,111 +93,58 @@ function createTestContext() {
   return ctx
 }
 
-const config = {
-  executable: 'agy',
-  env: {},
-  modelCacheMs: 30_000,
-  catalogTimeoutMs: 30_000,
-  turnTimeoutMs: 180_000,
-  disposeGraceMs: 2_000,
-  stderrMaxBytes: 64_000,
-  contextWindowTokens: 200_000,
-  sessionIdleMs: 120_000,
-}
+const sourceConfig = { executable: 'agy', env: {}, disposeGraceMs: 2_000 }
 
-test('ANTIGRAVITY QUOTA: a real turn harvests a quota reading from its own child', async () => {
-  const platformDiscovery = createHostPlatformDiscovery()
-  const cache = new AntigravityQuotaHarvestCache({
-    discoverListeners: pid => platformDiscovery.discoverListeners(pid),
-  })
+test('ANTIGRAVITY QUOTA: the published /usage command produces a renderable snapshot with no turn', async () => {
   const ctx = createTestContext()
-  const adapter = createAntigravityPrimaryAdapter(ctx as any, config as any, cache)
+  const source = new AntigravityUsageCommandSource(ctx as any, sourceConfig)
+  const started = Date.now()
+  const snapshot = await new AntigravityUsageCollector(source).collect(Date.now())
+  const elapsed = Date.now() - started
 
-  try {
-    // The harvest is fire-and-forget from inside the turn, so the turn itself
-    // is ordinary: one cheap question, no tools.
-    const options = {
-      provider: 'antigravity-cli',
-      model: 'gemini-3.7-flash-low',
-      sessionId: 'live-quota' as any,
-      messages: [createUserMessage({ content: [{ type: 'text', text: 'Reply with the single word: ready.' }] })],
-    } as unknown as GenerateOptions
+  assert.equal(snapshot.status, 'AVAILABLE')
+  assert.ok(snapshot.windows.length > 0, 'the published channel returned no window a consumer could render')
 
-    for await (const _chunk of adapter.stream(options)) { /* drain */ }
-
-    // The harvest races the turn deliberately -- it must never delay one -- so
-    // give its bounded retry loop a moment to land before reading.
-    for (let waited = 0; waited < 5_000 && cache.read() === undefined; waited += 250) {
-      await new Promise(resolve => setTimeout(resolve, 250))
-    }
-
-    const harvested = cache.read()
-    assert.ok(
-      harvested,
-      'no quota reading was harvested from the turn\'s own agy child: either the child exposes no '
-      + 'loopback listener, or the RetrieveUserQuotaSummary RPC no longer answers on it. The whole '
-      + 'usage capability on this route is that reading.',
-    )
-
-    const snapshot = await new AntigravityUsageCollector(new AntigravityOwnChildQuotaSource(cache)).collect(1)
-    assert.equal(snapshot.status, 'AVAILABLE', `collector did not serve the harvested reading: ${JSON.stringify(snapshot)}`)
-    assert.ok(snapshot.windows.length > 0, 'an AVAILABLE snapshot with no window is not a reading')
-    // The normalized window reports consumption as a percentage, not the
-    // vendor's own remaining fraction: the collector converts. Asserting the
-    // shape the CONSUMER sees is the point -- a window the browser surface
-    // cannot render is not a working capability.
-    const window = snapshot.windows[0] as any
-    assert.ok(
-      typeof window.usedPercent === 'number' && window.usedPercent >= 0 && window.usedPercent <= 100,
-      `window carries no usable usedPercent: ${JSON.stringify(window)}`,
-    )
-    assert.ok(typeof window.label === 'string' && window.label.length > 0, 'window has no label to show')
-    console.log(
-      `[quota] ${snapshot.windows.length} window(s); first: ${window.label} `
-      + `usedPercent=${window.usedPercent} kind=${window.kind}`,
-    )
-  } finally {
-    await adapter.dispose()
+  for (const window of snapshot.windows) {
+    assert.ok(Number.isFinite(window.usedPercent), `window ${window.id} carries no finite usedPercent`)
+    assert.ok(window.usedPercent >= 0 && window.usedPercent <= 100, `window ${window.id} out of range`)
+    assert.ok(window.label.length > 0, `window ${window.id} has no label`)
+    // The pool name is the vendor's own group, not a cadence-stripped guess
+    // at one -- that is the display improvement this transport brought, and
+    // a regression to "gemini" would show up right here.
+    assert.equal(window.scope.kind, 'BUCKET')
+    assert.ok((window.scope.label ?? '').length > 0, `window ${window.id} has an unnamed pool`)
   }
+
+  const pools = new Set(snapshot.windows.map(w => w.scope.id))
+  const ids = snapshot.windows.map(w => w.id)
+  assert.equal(new Set(ids).size, ids.length, 'two windows shared an id; cadences must stay distinct')
+
+  console.log(
+    `[quota] ${snapshot.windows.length} window(s) across ${pools.size} pool(s) in ${elapsed}ms; `
+    + `first: ${snapshot.windows[0].scope.label} / ${snapshot.windows[0].label} `
+    + `usedPercent=${snapshot.windows[0].usedPercent.toFixed(2)}`,
+  )
 })
 
-test('ANTIGRAVITY QUOTA: a cold read produces a number with no turn at all', async () => {
-  const platformDiscovery = createHostPlatformDiscovery()
-  const cache = new AntigravityQuotaHarvestCache({
-    discoverListeners: pid => platformDiscovery.discoverListeners(pid),
+test('ANTIGRAVITY QUOTA: the reading is free -- no turn, no tokens, no conversation', async () => {
+  const agy = findOnPath('agy') ?? 'agy'
+  const stdout = await new Promise<string>((resolve, reject) => {
+    const child = spawn(agy, ['-p', '/usage', '--output-format', 'json'], { windowsHide: true })
+    let out = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', chunk => { out += chunk })
+    child.on('error', reject)
+    child.on('close', () => resolve(out))
   })
-  const ctx = createTestContext()
-  // No adapter, no turn, no session: this scenario exists to prove the
-  // reading needs none of them.
-  const source = new AntigravityOwnChildQuotaSource(
-    cache,
-    createColdQuotaHarvest(ctx as any, {
-      executable: config.executable,
-      env: config.env,
-      disposeGraceMs: config.disposeGraceMs,
-    }, cache),
-  )
 
-  const startedAt = Date.now()
-  const snapshot = await new AntigravityUsageCollector(source).collect(1)
-  const elapsedMs = Date.now() - startedAt
-
-  assert.equal(
-    snapshot.status,
-    'AVAILABLE',
-    'a cold quota read produced nothing: either the vendor no longer exposes its loopback listener '
-    + `before stdin, or the RPC no longer answers on it. Snapshot: ${JSON.stringify(snapshot)}`,
-  )
-  assert.ok(snapshot.windows.length > 0, 'an AVAILABLE snapshot with no window is not a reading')
-  const window = snapshot.windows[0] as any
-  assert.ok(
-    typeof window.usedPercent === 'number' && window.usedPercent >= 0 && window.usedPercent <= 100,
-    `window carries no usable usedPercent: ${JSON.stringify(window)}`,
-  )
-  // Bounded rather than merely eventual: this is on the path of a person
-  // opening a usage panel. Measured at ~1.8s against agy 1.1.25; the ceiling
-  // here is deliberately loose enough not to be a flake and tight enough to
-  // notice the vendor making it slow.
-  assert.ok(elapsedMs < 15_000, `a cold quota read took ${elapsedMs}ms, which is past its own deadline`)
-  console.log(`[quota] cold read in ${elapsedMs}ms; ${snapshot.windows.length} window(s); first: ${window.label} usedPercent=${window.usedPercent}`)
+  const envelope = JSON.parse(stdout) as Record<string, any>
+  assert.equal(envelope.status, 'SUCCESS')
+  assert.equal(envelope.num_turns, 0, 'the slash command started an agent turn; it is no longer free')
+  assert.equal(envelope.conversation_id, '', 'the slash command left a conversation behind')
+  for (const [field, value] of Object.entries(envelope.usage ?? {})) {
+    assert.equal(value, 0, `the slash command billed ${field}`)
+  }
+  assert.equal(envelope.command?.name, 'usage')
+  assert.ok(Array.isArray(envelope.command?.data?.groups), 'the payload no longer carries groups')
 })

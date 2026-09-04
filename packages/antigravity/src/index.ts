@@ -25,9 +25,7 @@ import {
 } from './antigravity-primary.js'
 import { AntigravitySearchBackend } from './web-search-backend.js'
 import { AntigravityUsageCollector } from './usage.js'
-import { createHostPlatformDiscovery } from './usage-source.js'
-import { createColdQuotaHarvest } from './quota-cold-harvest.js'
-import { AntigravityOwnChildQuotaSource, AntigravityQuotaHarvestCache } from './quota-harvest-cache.js'
+import { AntigravityUsageCommandSource } from './usage-command.js'
 
 export const name = 'antigravity'
 export const inject = ['nishiProviders', 'subprocess', 'llm']
@@ -134,15 +132,6 @@ interface ResolvedAntigravityConfig extends SharedProviderDefaults {
  * of cross-instance state this package otherwise avoids.
  */
 function buildAntigravityDescriptor(): ProviderDescriptor<ResolvedAntigravityConfig> {
-  const platformDiscovery = createHostPlatformDiscovery()
-  const quotaHarvestCache = new AntigravityQuotaHarvestCache({
-    // PID-scoped only: this resolves listeners for one PID this package
-    // itself just spawned, never by scanning other processes' command
-    // lines. See quota-harvest-cache.ts's module doc for the full trust
-    // argument.
-    discoverListeners: (pid) => platformDiscovery.discoverListeners(pid),
-  })
-
   return {
     id: 'antigravity',
     presentation: {
@@ -157,26 +146,30 @@ function buildAntigravityDescriptor(): ProviderDescriptor<ResolvedAntigravityCon
     executable: ANTIGRAVITY_DESCRIPTOR,
     model: {
       routes: [ANTIGRAVITY_PRIMARY_PROVIDER],
-      create: (ctx, config) => createAntigravityPrimaryAdapter(ctx, config, quotaHarvestCache),
+      create: (ctx, config) => createAntigravityPrimaryAdapter(ctx, config),
     },
     usage: {
       /**
-       * Antigravity publishes no machine-readable quota surface at all -- the
-       * vendor documents none, and the only one that exists is a private RPC
-       * of its language server. This route therefore reads quota from the one
-       * process it is entitled to inspect: its own `agy` child, harvested
-       * opportunistically while a turn is already running. Before the first
-       * turn there is no number, and the normalizer turns that into an honest
-       * `UNSUPPORTED_NUMERIC_USAGE` row rather than an error or a fabrication.
+       * Quota comes from `agy -p "/usage" --output-format json`: a published
+       * slash command, answered without an agent turn, billing nothing, and
+       * carrying the vendor's own group and bucket names.
+       *
+       * It replaced ~800 lines that reached the same numbers over a private
+       * RPC of the vendor's language server -- a `/proc` descendant walk,
+       * socket inodes matched against `/proc/net/tcp`, and a PID-scoped trust
+       * boundary that existed only to make reading an undocumented loopback
+       * port defensible. Finding 5 of `agy-cli-contract.md` had concluded no
+       * published channel existed; finding 17 found this one.
+       *
+       * A reading with no bucket carrying a remaining fraction stays an
+       * honest `UNAVAILABLE` rather than invented headroom, which is the one
+       * property of the old path worth keeping unchanged.
        */
-      create: (ctx, config) => new AntigravityUsageCollector(new AntigravityOwnChildQuotaSource(
-        quotaHarvestCache,
-        createColdQuotaHarvest(ctx, {
-          executable: config.executable,
-          env: config.env,
-          disposeGraceMs: config.disposeGraceMs,
-        }, quotaHarvestCache),
-      )),
+      create: (ctx, config) => new AntigravityUsageCollector(new AntigravityUsageCommandSource(ctx, {
+        executable: config.executable,
+        env: config.env,
+        disposeGraceMs: config.disposeGraceMs,
+      })),
     },
     webSearch: {
       create: (ctx, config) => new AntigravitySearchBackend(ctx, {
