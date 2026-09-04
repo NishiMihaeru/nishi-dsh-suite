@@ -153,9 +153,9 @@ Project Memory and DSH-native child-agent delegation are external to this provid
 
 ## Current DSH declaration
 
-The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
+The Antigravity manifest declares its provider-specific DSH peers at `0.1.2-rc.1` (`dsh-invariants`, `dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`).
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Antigravity's own evidence for it is executable, not inherited: **143 unit tests plus 18 live scenarios** (8 primary, 4 agent-loop, 2 quota, 1 session continuation, 1 agent allowlist, 1 native search, 1 routed search), all on the alpha.1 baseline. All seven suites were re-run against the real binary on the current tree, on `agy 1.1.25` after the vendor self-updated from `1.1.24` mid-pass, each read from its own exit code.
+`0.1.2-rc.1` is the only supported DSH generation for this suite. Antigravity's live evidence below was gathered on the **alpha.1** baseline and has not been repeated on rc.1; what rc.1 carries is the unit suite. On alpha.1 it was **143 unit tests plus 18 live scenarios** (8 primary, 4 agent-loop, 2 quota, 1 session continuation, 1 agent allowlist, 1 native search, 1 routed search), all on the alpha.1 baseline. All seven suites were re-run against the real binary on the current tree, on `agy 1.1.25` after the vendor self-updated from `1.1.24` mid-pass, each read from its own exit code.
 
 ## Validation status — PENDING PROVIDER STAGE
 

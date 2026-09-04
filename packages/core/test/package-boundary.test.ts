@@ -6,8 +6,8 @@ import * as ts from 'typescript'
 
 const SUBAGENT_PACKAGE = '@deepseek-ai/dsh-subagent'
 const AUTHORIZATION_PACKAGE = '@deepseek-ai/dsh-authorization'
-const SUPPORTED_DSH_PEER_RANGE = '0.1.2-alpha.1'
-const LOCAL_DSH_DEV_BASELINE = '0.1.2-alpha.1'
+const SUPPORTED_DSH_PEER_RANGE = '0.1.2-rc.1'
+const LOCAL_DSH_DEV_BASELINE = '0.1.2-rc.1'
 const RETIRED_DSH_PACKAGES = [
   '@deepseek-ai/dsh-host-apiproxy',
   '@deepseek-ai/dsh-client-runtime',

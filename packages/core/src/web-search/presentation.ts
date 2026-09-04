@@ -1,4 +1,5 @@
-import type { GenericCallView, JsonValue, ToolResult, WebSearchResultView, WebSource } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, ToolResult, WebSearchResultView, WebSource } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { PrimarySearchSource, PrimaryWebSearchResult } from './types.js'
 
 export const WEB_SEARCH_MAX_RESULTS = 8

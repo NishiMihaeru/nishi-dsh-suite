@@ -2,11 +2,11 @@
 
 Nishi DSH Suite is a modular extension suite for DeepSeek Harness. The current development family is `0.1.0-rc.3` on Node.js 24.
 
-The only supported DeepSeek Harness generation is `0.1.2-alpha.1` (upstream tag `dsh-v0.1.2-alpha.1`, commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and every earlier DSH generation are **not supported**: no compatibility claim, no fixes, no new evidence.
+The only supported DeepSeek Harness generation is `0.1.2-rc.1` (upstream tag `dsh-v0.1.2-rc.1`). `0.1.2-alpha.1` and every earlier DSH generation are **not supported**: no compatibility claim, no fixes, no new evidence.
 
-The workspace builds and tests against alpha.1: Core and Project Memory develop against `0.1.2-alpha.1`, resolved from a local checkout of the upstream commit above, since alpha.1 is not on npm.
+The workspace builds and tests against rc.1, resolved from npm like any other dependency. The local-checkout override that alpha.1 forced — alpha.1 was never published — is gone.
 
-Every declared range says the same thing — Foundation peers, provider peers and the Suite's own DSH dependency are all `0.1.2-alpha.1`. Each provider moved on its own executable evidence rather than by inheriting the Foundation's. Those ranges cannot be installed from npm until upstream publishes alpha.1, which blocks publication, not development; see `docs/README.md`.
+Every declared range says the same thing — Foundation peers, provider peers and the Suite's own DSH dependency are all `0.1.2-rc.1`, and all of them install from npm. What the rc.1 move carries is a green `pnpm verify:local` (592 unit tests); what it does not carry is any re-run live vendor suite or product-level profile acceptance — those records were gathered on alpha.1. See `docs/README.md`.
 
 The product goal is simple: switching subscription providers should be a route change, not an environment change. DSH keeps the same tools, project memory, Usage & Limits surface, profile and session context while vendor-specific protocol code stays behind one provider-independent core contract.
 
@@ -82,7 +82,7 @@ The packaged Orchestrator preset provides:
 
 Vendor-specific delegation tools are removed in rc.3. Child route selection needs the host `subagent-model-selection` settings row (the official web-app bundle mounts it) and is off until the user authorizes exact provider/model pairs; see `packages/suite/README.md`.
 
-DSH `0.1.1-rc.2` did not reliably preserve third-party contributed preset roots, so the Suite uses an explicit managed bridge. Whether alpha.1 still has that limitation has not been re-checked — if it does not, the bridge is obsolete:
+DSH `0.1.1-rc.2` did not reliably preserve third-party contributed preset roots, so the Suite uses an explicit managed bridge. Whether that limitation still exists on rc.1 has not been re-checked — if it does not, the bridge is obsolete:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install

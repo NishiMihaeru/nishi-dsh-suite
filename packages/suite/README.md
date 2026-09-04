@@ -6,18 +6,18 @@ The current Suite family is `0.1.0-rc.3`, Node.js 24, and remains unpublished wh
 
 ## Compatibility status
 
-The only supported DeepSeek Harness generation is `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
+The only supported DeepSeek Harness generation is `0.1.2-rc.1`. `0.1.2-alpha.1` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
 
-The dependency graph implements that policy: the Suite carries `@deepseek-ai/dsh-authorization@0.1.2-alpha.1`, and the Codex, Antigravity and Claude manifests declare their provider-specific peers at the same version. Each provider moved on its own evidence rather than by inheriting the Foundation's.
+The dependency graph implements that policy: the Suite carries `@deepseek-ai/dsh-authorization@0.1.2-rc.1`, and the Codex, Antigravity and Claude manifests declare their provider-specific peers at the same version.
 
 The provider-independent Foundation packages are broader:
 
 ```text
-nishi-dsh-core:           0.1.2-alpha.1
-nishi-dsh-project-memory: 0.1.2-alpha.1
+nishi-dsh-core:           0.1.2-rc.1
+nishi-dsh-project-memory: 0.1.2-rc.1
 ```
 
-Their alpha.1 support was independently validated against official `dsh-v0.1.2-alpha.1` at exact commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`. That evidence does **not** make the complete Suite/provider graph alpha.1-compatible; each provider owns its own compatibility gate.
+That earlier independent validation was run against official `dsh-v0.1.2-alpha.1` and is history: it is not evidence for rc.1, and no runtime validation has been repeated since the baseline moved. Each provider owns its own compatibility gate.
 
 ## Installed rc.3 family
 
@@ -85,7 +85,7 @@ Two consequences worth knowing before turning this on. A child on a different ro
 
 ## Managed preset bridge
 
-DSH `0.1.1-rc.2` supported `$DSH_HOME/.agent-presets`, but its launcher did not reliably preserve third-party contributed preset roots, which is why this managed bridge exists. **Whether `0.1.2-alpha.1` still has that limitation has not been checked** — if it does not, this bridge is obsolete and should be removed rather than carried forward. Until someone verifies that, use the installed Suite command:
+DSH `0.1.1-rc.2` supported `$DSH_HOME/.agent-presets`, but its launcher did not reliably preserve third-party contributed preset roots, which is why this managed bridge exists. **Whether `0.1.2-rc.1` still has that limitation has not been checked** — if it does not, this bridge is obsolete and should be removed rather than carried forward. Until someone verifies that, use the installed Suite command:
 
 ```bash
 dsh plugin --profile web exec nishi-dsh-suite preset install

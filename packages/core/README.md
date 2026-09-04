@@ -40,7 +40,7 @@ Core RPC handlers depend on `@deepseek-ai/dsh-client-connection`'s carrier-neutr
 
 The registration seam calls the one supported shape:
 
-- DSH `0.1.2-alpha.1`: `rpc.handle(channel, handler)`.
+- DSH `0.1.2-rc.1`: `rpc.handle(channel, handler)`.
 
 `registerConnectionRpcChannel()` remains as a named seam, not because a second shape still exists — the rc.2 arity probe was removed with rc.2 support — but because it is the single place recording that Connection owns the returned disposer and Core must not add a second lifecycle owner.
 
@@ -78,17 +78,17 @@ Browser refreshes remain roster-generation-aware so stale async work cannot resu
 
 ## Supported DSH peer family
 
-The only supported DSH generation is `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
+The only supported DSH generation is `0.1.2-rc.1`. `0.1.2-rc.1` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
 
 Declared production DSH peers say exactly that:
 
 ```text
-0.1.2-alpha.1
+0.1.2-rc.1
 ```
 
 The devDependency graph matches. `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy` were dropped entirely: both were retired before alpha.1, so their only purpose was proving compatibility with a generation this suite no longer supports. They must still stay absent from `dependencies` and `peerDependencies`, and production source must not import them — that invariant outlives the fixtures.
 
-The alpha.1 side of the peer claim is accepted because the frozen Foundation was explicitly exercised against official `dsh-v0.1.2-alpha.1` at that commit; ordinary rc.2 workspace tests alone are not that evidence.
+The rc.1 peer claim rests on the whole workspace building, typechecking and unit-testing against registry `0.1.2-rc.1`. The earlier exact-commit alpha.1 runtime probe is history: it describes a baseline this package no longer targets and has not been repeated on rc.1.
 
 ## Current status — THAWED, PENDING RE-VALIDATION
 

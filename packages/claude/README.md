@@ -30,9 +30,9 @@ Generic usage caching/invalidation/projection belongs to Core; this package owns
 
 ## Current DSH declaration
 
-The Claude manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-invariants`, `dsh-subprocess`, `dsh-timeout`).
+The Claude manifest declares its provider-specific DSH peers at `0.1.2-rc.1` (`dsh-invariants`, `dsh-subprocess`, `dsh-timeout`).
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. The declared peers now say so, and the package's unit suite runs against alpha.1. That is weaker evidence than the other providers carry: Claude has had no live acceptance stage, and it declares neither a `model` nor a `webSearch` capability — it is a usage and account surface only. Treat alpha.1 support here as declared-and-unit-tested, not as accepted.
+`0.1.2-rc.1` is the only supported DSH generation for this suite. The declared peers now say so, and the package's unit suite runs against rc.1. That is weaker evidence than the other providers carry: Claude has had no live acceptance stage, and it declares neither a `model` nor a `webSearch` capability — it is a usage and account surface only. Treat rc.1 support here as declared-and-unit-tested, not as accepted.
 
 ## Validation status — PENDING PROVIDER STAGE
 

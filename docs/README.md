@@ -34,6 +34,7 @@ Not canonical: each is a durable read of something outside this tree, kept becau
 |---|---|
 | `verification/agy-cli-contract.md` | what `agy` publishes, what this suite depends on, and the findings each pass produced |
 | `verification/claude-code-cli-contract.md` | the Claude Code CLI surface a primary route would rest on, and the published terms that bound it. Pre-implementation: nothing in it ships |
+| `verification/grok-cli-contract.md` | the Grok Build CLI surface a `grok` route would rest on, its measured traps, and the `grok`-versus-opencode decision. Includes the xAI terms read (consumer ToS, AUP, Brand Guidelines) and what they settle. Pre-implementation: there is no `packages/grok` |
 | `verification/rc3-review.md` | maintainability review of `feat/core-provider-plugins-rc3` (the review is the file; session forensics and the bugfix queue are addenda). Not evidence, not architecture |
 | `prior-art.md` | how other tools drive vendor CLIs, the three tiers, and which items were taken into `ROADMAP.md` |
 
@@ -54,26 +55,21 @@ A vendor-contract document describes a vendor at a named version. When the insta
 The only supported DSH generation is:
 
 ```text
-dsh-v0.1.2-alpha.1
-cd5ef8148158c3a752a658978873241fdf8e2bbc
+dsh-v0.1.2-rc.1
 ```
 
-`0.1.1-rc.2` and every earlier DSH generation are **not supported**. They carry no compatibility claim, receive no fixes, and no new evidence will be produced against them. A defect reproduced only on an unsupported generation is not a defect of this suite.
+`0.1.2-alpha.1` and every earlier DSH generation are **not supported**. They carry no compatibility claim, receive no fixes, and no new evidence will be produced against them. A defect reproduced only on an unsupported generation is not a defect of this suite.
 
 This is a support-policy statement about which DSH generation the suite targets. It is not a claim that the tree already matches it. The following gaps are known, deliberate, and each must be closed by its own gated change, not by editing this document:
 
-- Every declared DSH range in this repository is now exactly `0.1.2-alpha.1` — Foundation peers, provider peers, the Suite's `dsh-authorization` dependency and `DSH_COMPATIBILITY_VERSION`. No rc.2 literal survives outside build output, two historical provenance lines — the migration baseline in the repository-root `THIRD_PARTY_NOTICES.md` and the derivation line in `packages/codex/THIRD_PARTY_NOTICES.md` — and one comment describing an rc.2 launcher bug that nobody has re-checked against alpha.1.
-- `0.1.2-alpha.1` is not published to npm — the newest published DSH is `0.1.1-rc.2` (dist-tag `next`), so alpha.1 is reachable only as the upstream commit above. The declared ranges are therefore uninstallable from the registry today. That is accepted deliberately: there are no consumers until upstream publishes alpha.1, so a range that describes reality beats one that installs but lies.
-- The local devDependency and test baseline **has moved to alpha.1**, and now matches the declared peer range for every package rather than only Foundation. Core and Project Memory develop and test against `0.1.2-alpha.1` (see *Local setup*). `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy` were dropped entirely rather than pinned to rc.2 — retired before alpha.1, they exist nowhere else. Provider packages also moved their peers to `0.1.2-alpha.1`, each on its own executable evidence.
+- Every declared DSH range in this repository is now exactly `0.1.2-rc.1` — Foundation peers, provider peers, the Suite's `dsh-authorization` dependency and `DSH_COMPATIBILITY_VERSION`. No alpha.1 or rc.2 literal survives outside build output and the historical provenance lines — the migration baseline in the repository-root `THIRD_PARTY_NOTICES.md` and the derivation line in `packages/codex/THIRD_PARTY_NOTICES.md` — plus one comment describing an rc.2 launcher bug that nobody has re-checked since.
+- **`0.1.2-rc.1` is published to npm**, which is what alpha.1 never was. The declared ranges are installable from the registry, `pnpm install` resolves `@deepseek-ai/dsh-*` from npm like any other dependency, and the local-checkout override hack that alpha.1 forced is gone.
+- The local devDependency and test baseline moved to rc.1 with the peers, so every package develops and tests against the generation it declares. `@deepseek-ai/dsh-client-runtime` and `@deepseek-ai/dsh-host-apiproxy` remain dropped entirely — retired before alpha.1, they exist nowhere else.
 - The rc2/alpha `Function.length` Connection compatibility shim in Core has been removed along with the rc.2 branch it selected; `registerConnectionRpcChannel()` remains only as a named seam recording that Connection owns the returned disposer.
 
-Provider packages do **not** inherit Foundation compatibility automatically. Alpha.1 support for Core and Project Memory rests on the disposable exact-commit probe recorded in `verification/README.md`; no provider package has ever been probed against alpha.1.
+**What the rc.1 move is and is not evidence for.** The whole workspace builds, typechecks and unit-tests green against rc.1 (`pnpm verify:local` exits `0`, 592 tests). Two real incompatibilities surfaced and were fixed: `deepFreeze` left `@deepseek-ai/dsh-llm` and `JsonValue` left `@deepseek-ai/dsh-tools`, both now imported from the new `@deepseek-ai/dsh-util-values`. **No live vendor suite and no product-level profile acceptance has been re-run on rc.1** — every such record in `verification/README.md` was gathered on the alpha.1 baseline and does not describe this tree.
 
-## Local setup
-
-The Foundation dev graph resolves `@deepseek-ai/dsh-*` through `pnpm-workspace.yaml` overrides pointing at a local upstream checkout at `.artifacts/upstream/dsh-alpha1` (tag `dsh-v0.1.2-alpha.1`, commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`), built. alpha.1 is not on npm, so there is nowhere else to get it. `.artifacts/` is git-ignored, so `pnpm install` fails without that checkout present and built.
-
-When upstream publishes alpha.1, drop the overrides and this section.
+Provider packages do **not** inherit Foundation compatibility automatically, and none has been probed against rc.1 beyond its unit suite.
 
 ## Compatibility discipline
 

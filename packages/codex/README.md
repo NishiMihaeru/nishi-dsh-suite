@@ -52,9 +52,9 @@ Foundation behavior is not duplicated here: generic provider registration, share
 
 ## Current DSH declaration
 
-The Codex manifest declares its provider-specific DSH peers at `0.1.2-alpha.1` (`dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`, `dsh-attachment`, `dsh-invariants` and `dsh-sdk-protocol`). Its direct `dsh-sdk-protocol` dependency is the same version.
+The Codex manifest declares its provider-specific DSH peers at `0.1.2-rc.1` (`dsh-llm`, `dsh-session`, `dsh-subprocess`, `dsh-timeout`, `dsh-attachment`, `dsh-invariants`, `dsh-sdk-protocol` and `dsh-util-values`). Its direct `dsh-sdk-protocol` dependency is the same version.
 
-`0.1.2-alpha.1` is the only supported DSH generation for this suite. Codex's own evidence for it is executable, not inherited: 81 unit tests plus a full 15-scenario live acceptance against real `codex-cli 0.150.0` processes, both on the alpha.1 baseline.
+`0.1.2-rc.1` is the only supported DSH generation for this suite. Codex's executable evidence — 15-scenario live acceptance against real `codex-cli 0.150.0` processes — was gathered on the **alpha.1** baseline and has not been repeated on rc.1; on rc.1 the package carries its unit suite only.
 
 ## Validation status — THAWED, PENDING RE-VALIDATION
 
@@ -64,7 +64,7 @@ That original acceptance therefore describes a tree this one no longer matches. 
 
 A defect found by a delegation run the same day is fixed: a turn whose first step ran on another provider and emitted tool calls used to fail on the step that consumed those results here, with `codex-plugin-dsh: the current Codex turn has no user input`. Such a turn now continues from the tool results — see *Codex tool-result continuation* in `docs/ARCHITECTURE.md` — with focused tests plus `pnpm --filter nishi-dsh-codex test:live:tool-result-continuation`, a live probe that asserts the model actually received the tool result.
 
-What is still missing is independent validation by a party that did not write the code, and a repeated exact-commit alpha.1 runtime probe.
+What is still missing is independent validation by a party that did not write the code, and a live acceptance re-run on the rc.1 baseline.
 
 Accepted evidence and verification history live in `docs/verification/README.md` and `docs/verification/gemini/LATEST.md`.
 

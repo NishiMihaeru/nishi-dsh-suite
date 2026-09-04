@@ -2,7 +2,7 @@
 
 Status: canonical `0.1.0-rc.3` architecture. This document describes the current tree, which is **no longer the frozen accepted checkpoint**: a follow-up audit of Core, Project Memory and Codex found and fixed defects in all three, so Foundation and Codex are thawed and pending re-validation. See *Current implementation state* at the end for exactly what changed and what evidence does and does not exist.
 
-The only supported DSH generation is official `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported** and carry no compatibility claim. The manifests, the dev graph and every test now say exactly that; `docs/README.md` owns the policy statement.
+The only supported DSH generation is official `0.1.2-rc.1`. `0.1.2-alpha.1` and earlier are **not supported** and carry no compatibility claim. The manifests, the dev graph and every test now say exactly that; `docs/README.md` owns the policy statement.
 
 ## Product contract
 
@@ -28,15 +28,15 @@ A new provider must not require provider-specific Core, Project Memory or browse
 5. `nishi-dsh-project-memory`
 6. `nishi-dsh-suite`
 
-Supported DSH generation: `0.1.2-alpha.1` only. rc.2 and earlier are unsupported.
+Supported DSH generation: `0.1.2-rc.1` only. alpha.1 and earlier are unsupported.
 
-Every declared DSH range in the repository is exactly `0.1.2-alpha.1` — Core and Project Memory peers, provider peers, and the Suite's own `dsh-authorization` dependency:
+Every declared DSH range in the repository is exactly `0.1.2-rc.1` — Core and Project Memory peers, provider peers, and the Suite's own `dsh-authorization` dependency:
 
 ```text
-0.1.2-alpha.1
+0.1.2-rc.1
 ```
 
-The rc.2 union was dropped from every declared contract (`build!: drop DSH 0.1.1-rc.2 from every declared contract`). Ranges that narrow are not installable from npm until upstream publishes alpha.1, which gates publication rather than development. The local devDependency and test graph has also moved: Core and Project Memory build and test against `0.1.2-alpha.1` resolved from the local upstream checkout, so the alpha.1 side of the claim rests on the full workspace suite rather than on a one-off probe. Provider packages moved to `0.1.2-alpha.1` peers too, each on its own executable evidence, and do not inherit alpha.1 compatibility automatically from Core/Project Memory.
+The rc.2 union was dropped from every declared contract (`build!: drop DSH 0.1.1-rc.2 from every declared contract`), and the alpha.1 pin was replaced by rc.1 once upstream published it. Unlike alpha.1, **rc.1 is on npm**, so the declared ranges install from the registry and the local-checkout override the alpha.1 baseline required is gone. The devDependency and test graph moved with the peers: the whole workspace builds and tests against `0.1.2-rc.1`. Two symbols moved upstream in that generation and are the only source changes it forced — `deepFreeze` out of `@deepseek-ai/dsh-llm` and `JsonValue` out of `@deepseek-ai/dsh-tools`, both now imported from `@deepseek-ai/dsh-util-values`. Provider packages carry rc.1 peers too and do not inherit compatibility automatically from Core/Project Memory; none has had a live suite re-run on rc.1.
 
 ## Core
 
@@ -537,7 +537,7 @@ The accepted follow-up review found no reason to replace these with a larger Fou
 25. A journal is claimed only after a lock-held read proves its owner dead; a stale pre-claim observation — including the fixed journal pathname being atomically replaced by a different regular file — is re-observed, never failed, and never lets an unrelated caller's operation fail. That re-observation is bounded and applies only to the unlocked pre-claim probe: replacement by a symlink or other non-regular entry still fails closed there, and any change to the journal after this process has durably claimed it still fails closed regardless of shape.
 26. Losing a recovery race is a normal outcome; only mutation of a claim this process already wrote fails closed.
 27. Every Project Memory read-modify-write path bounds the bytes it materializes, package-owned and user-owned files alike.
-28. `0.1.2-alpha.1` is the only supported DSH generation; rc.2 and earlier carry no compatibility claim. Every declared range, the dev graph and the whole test suite say exactly that. The ranges are not installable from npm until upstream publishes alpha.1, which gates publication rather than development.
+28. `0.1.2-rc.1` is the only supported DSH generation; alpha.1 and earlier carry no compatibility claim. Every declared range, the dev graph and the whole test suite say exactly that, and the ranges install from npm.
 29. Web search output is external, attacker-reachable text: every rendered `web_search` result leads with the untrusted-content notice and the registered system-prompt guidance says the same, so returned content is never presented to the model as instructions.
 30. Windows remains NOT TESTED.
 31. A producer-supplied context block a vendor input format cannot carry is projected to text, never rejected: rejecting it fails the live turn and, with no checkpoint written, every later replay of that session. Durable DSH history is never rewritten to satisfy a vendor format. This governs `user`/`system` context only; vendor-shaped assistant content is not given text stand-ins.

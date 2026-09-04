@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const VERSION = '0.1.0-rc.3'
-const DSH_VERSION = '0.1.2-alpha.1'
+const DSH_VERSION = '0.1.2-rc.1'
 const packages = [
   ['packages/core', 'nishi-dsh-core'],
   ['packages/codex', 'nishi-dsh-codex'],

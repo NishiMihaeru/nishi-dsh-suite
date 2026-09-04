@@ -35,17 +35,17 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-agent": "0.1.2-alpha.1",
-    "@deepseek-ai/dsh-atomic-write": "0.1.2-alpha.1",
-    "@deepseek-ai/dsh-llm": "0.1.2-alpha.1",
-    "@deepseek-ai/dsh-tools": "0.1.2-alpha.1"
+    "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-atomic-write": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-agent": "0.1.2-alpha.1",
-    "@deepseek-ai/dsh-atomic-write": "0.1.2-alpha.1",
-    "@deepseek-ai/dsh-llm": "0.1.2-alpha.1",
-    "@deepseek-ai/dsh-tools": "0.1.2-alpha.1",
+    "@deepseek-ai/dsh-agent": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-atomic-write": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
     "@types/node": "24.13.3",
     "tsx": "4.23.1",
     "typescript": "5.9.2"

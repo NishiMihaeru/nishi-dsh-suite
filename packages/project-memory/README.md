@@ -143,12 +143,12 @@ The transaction/lock generation fields are intentional correctness complexity: t
 
 ## Supported DSH peer family
 
-The only supported DSH generation is `0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`). `0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
+The only supported DSH generation is `0.1.2-rc.1`. `0.1.2-rc.1` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
 
 Declared production DSH peers say exactly that:
 
 ```text
-0.1.2-alpha.1
+0.1.2-rc.1
 ```
 
 The devDependency graph matches, so the package's whole suite runs against the generation it declares.

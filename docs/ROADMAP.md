@@ -1,6 +1,6 @@
 # Roadmap
 
-Status updated for `0.1.0-rc.3` after accepted Foundation revalidation against official DSH `dsh-v0.1.2-alpha.1` (`cd5ef8148158c3a752a658978873241fdf8e2bbc`), which is the only supported DSH generation; rc.2 and earlier are unsupported. `docs/README.md` owns that policy.
+Status updated for `0.1.0-rc.3`. The only supported DSH generation is official `dsh-v0.1.2-rc.1`; alpha.1 and earlier are unsupported. `docs/README.md` owns that policy.
 
 This file owns task status and order only. Architecture belongs in `ARCHITECTURE.md`; immediate execution details belong in `HANDOFF.md`; release/Market gates belong in `RELEASE.md`.
 
@@ -50,15 +50,15 @@ Accepted Foundation gates:
 
 Windows remains **NOT TESTED**. Unsupported process-identity seams remain conservative.
 
-Supported DSH generation: `0.1.2-alpha.1` only.
+Supported DSH generation: `0.1.2-rc.1` only.
 
 Foundation production DSH peers declare exactly that:
 
 ```text
-0.1.2-alpha.1
+0.1.2-rc.1
 ```
 
-The devDependency graph matches, so the alpha.1 claim rests on the whole workspace suite running against alpha.1, not on a one-off probe.
+The devDependency graph matches, so the rc.1 claim rests on the whole workspace suite running against rc.1. It does **not** rest on any live vendor suite or product profile run: none has been repeated since the move.
 
 ## Architectural overcomplexity disposition
 
@@ -400,20 +400,22 @@ The former fork-per-turn design got **zero** prompt-cache credit on every turn, 
 
 Note on cost framing: the measurements are token counts the vendor reports. ChatGPT/Codex subscription limits are message-weighted rather than token-metered, so a large cached-token saving does not automatically translate into the same saving on the user's `5h`/`Weekly` counters. Do not promise that it does.
 
-## 7b. DSH support boundary — alpha.1 only — DONE except the upstream blocker
+## 7b. DSH support boundary — rc.1 only — DONE
 
-`0.1.2-alpha.1` is the only supported DSH generation, and the repository now says so everywhere rather than only in policy.
+`0.1.2-rc.1` is the only supported DSH generation, and the repository now says so everywhere rather than only in policy. The alpha.1 stage this section used to describe is history; what closed it is that upstream published rc.1 to npm, which removed the blocker alpha.1 never cleared.
 
-- [x] Foundation devDependency/test baseline moved from rc.2 to alpha.1, resolved from the local upstream checkout through `pnpm-workspace.yaml` overrides;
-- [x] Core and Project Memory peers narrowed to `0.1.2-alpha.1`;
-- [x] provider peers (`codex`, `antigravity`, `claude`) moved to `0.1.2-alpha.1`, each on its own evidence — Codex 81 unit tests plus the full 15-scenario live acceptance suite, re-run on 2026-08-31 when the package stood at 78 tests, Antigravity 73 unit tests plus 10 live scenarios (8 primary, 1 native search, 1 routed search), Claude 6 unit tests only and correspondingly weaker;
+- [x] the whole workspace devDependency/test baseline moved rc.2 -> alpha.1 -> **rc.1**, and now resolves from npm rather than from a local upstream checkout;
+- [x] Core and Project Memory peers narrowed to `0.1.2-rc.1`;
+- [x] provider peers (`codex`, `antigravity`, `claude`) moved to `0.1.2-rc.1`. Their live evidence — Codex's 15-scenario acceptance, Antigravity's seven suites — was gathered on the **alpha.1** baseline and has not been repeated; on rc.1 each provider carries its unit suite only;
 - [x] the Suite's `dsh-authorization` dependency and `DSH_COMPATIBILITY_VERSION` moved;
 - [x] `registerConnectionRpcChannel()`'s `Function.length` arity probe removed with the rc.2 branch it selected; the named seam stays because it records that Connection owns the disposer;
 - [x] Core's retired rc.2 dev fixtures (`dsh-client-runtime`, `dsh-host-apiproxy`) dropped; the invariant that they stay out of `dependencies`/`peerDependencies` and out of production imports remains;
-- [ ] **blocked on upstream**: publish `0.1.2-alpha.1` to npm. Until then the declared ranges are uninstallable from the registry, which gates publication rather than development;
-- [ ] once published, replace the local-checkout overrides in `pnpm-workspace.yaml` with ordinary registry versions and delete the *Local setup* note in `docs/README.md`.
+- [x] **upstream blocker cleared**: upstream published `0.1.2-rc.1` to npm (alpha.1 never was), so the declared ranges install from the registry;
+- [x] the local-checkout overrides were removed from `pnpm-workspace.yaml` and the *Local setup* note deleted from `docs/README.md`;
+- [x] the two symbols rc.1 moved are handled: `deepFreeze` and `JsonValue` now come from `@deepseek-ai/dsh-util-values`;
+- [ ] **re-run the live vendor suites and one product-level profile acceptance on rc.1.** A live suite not repeated after the baseline changed is not evidence for the tree that changed.
 
-Three rc.2 literals survive on purpose, all of them historical facts rather than compatibility claims: the migration-baseline line in the repository-root `THIRD_PARTY_NOTICES.md`, the provenance line in `packages/codex/THIRD_PARTY_NOTICES.md`, which records what the code was derived from, and a comment in `packages/suite/cordis.patch.yml` describing an rc.2 launcher bug. That second one is worth re-checking: if alpha.1 preserves third-party preset roots, the Suite's managed preset bridge is obsolete and should be removed rather than carried forward.
+Three rc.2 literals survive on purpose, all of them historical facts rather than compatibility claims: the migration-baseline line in the repository-root `THIRD_PARTY_NOTICES.md`, the provenance line in `packages/codex/THIRD_PARTY_NOTICES.md`, which records what the code was derived from, and a comment in `packages/suite/cordis.patch.yml` describing an rc.2 launcher bug. That last one is worth re-checking: if rc.1 preserves third-party preset roots, the Suite's managed preset bridge is obsolete and should be removed rather than carried forward.
 
 ## 7c. Subagent model routes — composed, live validation pending
 

@@ -11,10 +11,10 @@
 
 import { createHash } from 'node:crypto'
 import {
-  deepFreeze,
   freezeMessage,
   type GenerateOptions,
 } from '@deepseek-ai/dsh-llm'
+import { deepFreeze } from '@deepseek-ai/dsh-util-values'
 import { projectedContentText } from './codex-plugin-dsh/content-projection.js'
 
 /**

@@ -14,29 +14,28 @@ Current development baseline:
 
 - Node `24.19.0` accepted Foundation baseline;
 - pnpm `11.21.0`;
-- Foundation devDependency graph: DSH `0.1.2-alpha.1`, resolved from the local upstream checkout (see *Local setup* in `docs/README.md`);
-- provider package peers: DSH `0.1.2-alpha.1`, each moved on its own executable evidence rather than by inheriting the Foundation's;
+- workspace devDependency graph: DSH `0.1.2-rc.1`, resolved from npm;
+- provider package peers: DSH `0.1.2-rc.1`; the executable evidence each provider moved on was gathered on the alpha.1 baseline and has not been repeated on rc.1;
 - Linux/CachyOS development environment;
 - Windows: **NOT TESTED**.
 
 Only supported DSH generation:
 
 ```text
-dsh-v0.1.2-alpha.1
-cd5ef8148158c3a752a658978873241fdf8e2bbc
+dsh-v0.1.2-rc.1
 ```
 
-`0.1.1-rc.2` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence. `docs/README.md` owns that policy.
+`0.1.2-alpha.1` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence. `docs/README.md` owns that policy.
 
 Every package publishes exactly:
 
 ```text
-0.1.2-alpha.1
+0.1.2-rc.1
 ```
 
-Those ranges cannot be installed from npm today, because upstream has not published alpha.1 — `0.1.1-rc.2` is the newest published DSH. This is a deliberate release-gate condition, not an oversight: **publication is blocked until upstream publishes `0.1.2-alpha.1`.** Until then the declared range is honest about what the code was built and tested against, which matters more than installability for a family with no consumers yet.
+Those ranges install from npm: upstream published `0.1.2-rc.1`, which removed the release gate alpha.1 imposed — alpha.1 was never published, so every declared range was uninstallable while it was the baseline.
 
-alpha.1 support for the Foundation rests on the disposable exact-commit probe against the official alpha.1 checkout/runtime, not on rc.2 workspace tests.
+The rc.1 claim rests on the full workspace suite building, typechecking and unit-testing green against registry rc.1 (`pnpm verify:local` exit `0`, 592 tests). It does **not** rest on any live vendor suite or product-level profile run: the alpha.1-era live records in `verification/README.md` describe a different baseline and are not evidence for this tree. Re-running them is a release gate, not a formality.
 
 ## rc.3 family
 
