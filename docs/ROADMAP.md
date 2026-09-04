@@ -381,7 +381,7 @@ Automatic failover remains deferred.
 
 ## 7. Install/profile lifecycle
 
-Supported install is a git checkout plus local tarballs (`pnpm pack:local`, `scripts/install-local-profile.mjs`). `nishi-dsh-*` is not an npm install; the previously published `0.1.0-rc.1` family is withdrawn. The only registry install is DeepSeek Harness. rc.3 packages are `private` and live on git `main`.
+Supported install is a git checkout plus local tarballs (`pnpm pack:local`, `scripts/install-local-profile.mjs`). `nishi-dsh-*` is not an npm install; previously published `0.1.0-rc.1` has no remaining versions on the registry. The only registry install is DeepSeek Harness. rc.3 packages are `private` and live on git `main`.
 
 - [ ] fresh disposable rc.3 local-tarball install;
 - [ ] same-profile reconciliation/update;

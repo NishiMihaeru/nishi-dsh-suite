@@ -15,7 +15,7 @@ Canonical sources:
 5. Historical PASS/live evidence validates only the exact implementation and DSH/vendor baseline it tested.
 
 ## Current project state
-- Development branch recorded by the handoff: `feat/core-provider-plugins-rc3`; family `0.1.0-rc.3`; seven packages; unpublished.
+- Git line: `main`; family `0.1.0-rc.3`; seven packages; `private`; unpublished. Previously published `0.1.0-rc.1` has no remaining npm versions (current family names and retired rc.1 names).
 - Supported DSH: only official `0.1.2-rc.1`, resolved from npm. Alpha.1 and earlier are unsupported.
 - Node contract is `>=24 <25`; accepted baseline recorded as Node `24.19.0`; pnpm `11.21.0`.
 - Foundation (Core + Project Memory) and Codex are thawed pending independent re-validation.
@@ -45,7 +45,7 @@ pnpm smoke:vendor-cli
 ```
 Read every real exit code; do not hide failures in a pipeline. Live suites spend maintainer quota and require confirmation before bulk execution.
 
-`nishi-dsh-*` is not installed from npm for now. All seven family packages are `private`. Supported install is `pnpm pack:local` plus `scripts/install-local-profile.mjs`. DSH itself (`@deepseek-ai/dsh-*`) still resolves from npm. Registry publication of rc.3 is deferred; `scripts/check-npm-names.mjs` is retained but is not a current gate.
+`nishi-dsh-*` is not installed from npm. All seven family packages are `private`. Supported install is `pnpm pack:local` plus `scripts/install-local-profile.mjs`. DSH itself (`@deepseek-ai/dsh-*`) still resolves from npm. Previously published `0.1.0-rc.1` has no remaining registry versions. Registry publication of rc.3 is deferred; `scripts/check-npm-names.mjs` is retained but is not a current gate.
 
 ## Known canonical-document drift to fix before release
 - Historical ROADMAP/verification checkpoints still say "six packages" where they describe an older tree; do not rewrite those evidence lines.
@@ -57,7 +57,7 @@ Read every real exit code; do not hide failures in a pipeline. Live suites spend
 - No silent cross-provider fallback for search.
 - Windows remains NOT TESTED; do not claim support without acceptance.
 - Core must not regain a credential-mutation/Model Accounts surface without a separately reviewed atomic-safe contract.
-- No publish, merge, tag, release, package deprecation, or Market submission without explicit maintainer approval.
+- No publish, tag, release, republish of `nishi-dsh-*`, or Market submission without explicit maintainer approval. The rc.3 line is already on git `main`.
 
 ## Durable implementation lessons
 - DSH history is authoritative. Any vendor conversation surviving multiple DSH steps must verify the exact delivered prefix and realign/rebuild when history changes.

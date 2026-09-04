@@ -95,7 +95,7 @@ Use `preset update` after a Suite update and `preset remove` before Suite remova
 
 ## Install
 
-This suite is **not** an npm package. `nishi-dsh-*` must not be installed from the registry (`dsh plugin add nishi-dsh-suite` from npm is not a supported path). The previously published `0.1.0-rc.1` family is withdrawn. The only registry install in this project is DeepSeek Harness itself (`@deepseek-ai/dsh-*` at `0.1.2-rc.1`).
+This suite is **not** an npm package. `nishi-dsh-*` must not be installed from the registry (`dsh plugin add nishi-dsh-suite` from npm is not a supported path). Previously published `0.1.0-rc.1` has **no remaining versions** on the registry (current family names and retired rc.1 names). The only registry install in this project is DeepSeek Harness itself (`@deepseek-ai/dsh-*` at `0.1.2-rc.1`).
 
 The git `main` line is the `0.1.0-rc.3` family.
 
@@ -137,7 +137,7 @@ None of that is independent validation by a party that did not write the code: t
 
 Provider-specific acceptance is still open, but not equally unstarted: Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity is frozen on its documented 2026-09-04 checkpoint (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Grok is implemented but still needs product-profile acceptance. Historical provider tests/live probes are checkpoint-specific evidence only and do not by themselves freeze a provider stage.
 
-`0.1.0-rc.3` is **unpublished** and **not ready to publish**. Do not install it from npm. Windows remains **NOT TESTED**. No publication, merge, tag or release is authorized without explicit maintainer approval.
+`0.1.0-rc.3` is **unpublished** and **not ready to publish**. Do not install it from npm. Windows remains **NOT TESTED**. No publication, tag or release is authorized without explicit maintainer approval. The rc.3 line is already on git `main`.
 
 ## Documentation
 

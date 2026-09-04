@@ -49,7 +49,7 @@ Exactly seven packages move together at `0.1.0-rc.3`:
 6. `nishi-dsh-project-memory`
 7. `nishi-dsh-suite`
 
-All seven are `private`. `nishi-dsh-*` is not installed from npm. The previously published `0.1.0-rc.1` family is withdrawn; rc.2 was never published. rc.3 is the git `main` line and installs from a checkout via `pnpm pack:local` and `scripts/install-local-profile.mjs`. The only registry dependency is DeepSeek Harness (`@deepseek-ai/dsh-*` `0.1.2-rc.1`).
+All seven are `private`. `nishi-dsh-*` is not installed from npm. Previously published `0.1.0-rc.1` has no remaining versions on the registry (current family names and retired rc.1 names); rc.2 was never published. rc.3 is the git `main` line and installs from a checkout via `pnpm pack:local` and `scripts/install-local-profile.mjs`. The only registry dependency is DeepSeek Harness (`@deepseek-ai/dsh-*` `0.1.2-rc.1`).
 
 ## Foundation state — THAWED, PENDING RE-VALIDATION
 
@@ -180,7 +180,7 @@ Current Market gates:
 - [ ] Antigravity frozen;
 - [ ] Claude frozen;
 - [ ] repository topic `dsh-plugin` added;
-- [x] nishi-dsh-* is not an npm install; previously published `0.1.0-rc.1` is withdrawn; only DeepSeek Harness comes from the registry;
+- [x] nishi-dsh-* is not an npm install; previously published `0.1.0-rc.1` has no remaining registry versions; only DeepSeek Harness comes from the registry;
 - [ ] final deterministic/local/live release gates PASS;
 - [ ] final local-tarball install/update/uninstall acceptance PASS;
 - [ ] Windows acceptance if a Windows compatibility claim is desired;
@@ -190,4 +190,4 @@ Current Market gates:
 
 **No rc.3 publication approval has been given.**
 
-Do not publish packages, merge the rc.3 feature branch, create a tag/release, or deprecate npm packages merely because technical gates pass. Request explicit maintainer approval after all required gates are complete.
+Do not publish rc.3 packages, create a tag/release, or republish `nishi-dsh-*` merely because technical gates pass. The rc.3 line is already on git `main`. Request explicit maintainer approval after all required gates are complete.

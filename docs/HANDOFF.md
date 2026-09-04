@@ -6,7 +6,7 @@ This is the only session handoff file. Update it in place when the active task c
 
 ## Immediate task
 
-**Current (2026-09-05):** `0.1.0-rc.3` is the git `main` line. `nishi-dsh-*` is not installed from npm; the previously published `0.1.0-rc.1` family is withdrawn. All seven packages are `private`. Install from a git checkout with `pnpm pack:local` and `node scripts/install-local-profile.mjs --profile <name>`. The only registry dependency is DeepSeek Harness (`@deepseek-ai/dsh-*`). Session-dump zips, empty superpowers scaffolding, and stale Antigravity `lib/` leftovers from deleted quota/MCP/subagent modules were removed.
+**Current (2026-09-05):** `0.1.0-rc.3` is the git `main` line. `nishi-dsh-*` is not installed from npm. Previously published `0.1.0-rc.1` has no remaining versions on the registry (current family names and retired rc.1 names unpublished 2026-09-04/05). All seven packages are `private`. Install from a git checkout with `pnpm pack:local` and `node scripts/install-local-profile.mjs --profile <name>`. The only registry dependency is DeepSeek Harness (`@deepseek-ai/dsh-*`). Session-dump zips, empty superpowers scaffolding, and stale Antigravity `lib/` leftovers from deleted quota/MCP/subagent modules were removed.
 
 The Codex-then-Antigravity bugfix queue in `docs/verification/rc3-review.md` addendum B is done on this tree (unit tests). Do not add a Codex rate-limit recognizer without a captured live App Server error string. Empty `subagent()` inherit is stock DSH and stays that way. Live Codex/Antigravity suites have not been re-run on this cut.
 
@@ -31,10 +31,10 @@ The retry is deliberately narrow and every boundary has a test: only the vendor'
 ## Current branch/state
 
 ```text
-feat/core-provider-plugins-rc3
+main
 ```
 
-Seven packages at `0.1.0-rc.3`, unpublished, `private`, not installed from npm. **Do not trust a commit count or a file list in this paragraph** — two sessions have been committing here on the same day and every previous count in this line went stale within hours. Read `git status` for what is uncommitted and `git log origin/feat/core-provider-plugins-rc3..HEAD` for what is unpushed; `origin` was last at `97ee80e`. What is durable: everything since that commit is unpushed, and **a second session is working in `packages/codex`** on the §7d stepped-turn transport, which landed in five parts during 2026-09-03 and whose live acceptance was still in progress. The documentation pass recorded below is docs-only and touches no package source, so it does not conflict with that work. Pushing this branch is all that has ever happened here: nothing is merged, tagged, released or published.
+HEAD `cad09e9` matches `origin/main`. Seven packages at `0.1.0-rc.3`, `private`, not installed from npm. Install from a checkout with `pnpm pack:local` and `scripts/install-local-profile.mjs`. The only registry install is DeepSeek Harness (`@deepseek-ai/dsh-*` `0.1.2-rc.1`). Previously published `0.1.0-rc.1` has no remaining versions on the registry (current family names and retired rc.1 names). rc.3 itself is unpublished.
 
 Only supported DSH generation:
 
@@ -44,7 +44,7 @@ dsh-v0.1.2-rc.1
 
 `0.1.2-alpha.1` and earlier are **not supported**. Every declared peer, the dev graph and the whole test suite say exactly that. `docs/README.md` owns the policy. rc.1 is published to npm, so `pnpm install` resolves `@deepseek-ai/dsh-*` from the registry and the local upstream checkout the alpha.1 baseline required is gone.
 
-Windows: **NOT TESTED**. No publish, merge, tag or release is authorized.
+Windows: **NOT TESTED**. No publish, tag or release is authorized. rc.3 is already on `main`.
 
 ## Read before editing
 

@@ -4,7 +4,7 @@ Canonical source: `docs/ARCHITECTURE.md`. Supporting contracts: root `README.md`
 
 ## Product and package boundary
 - Nishi DSH Suite development family is `0.1.0-rc.3` on Node.js 24 and contains seven packages: Core, Codex, Antigravity, Claude, Grok, Project Memory, and Suite.
-- The only supported DSH generation is official `0.1.2-rc.1`; `0.1.2-alpha.1` and earlier are unsupported. All declared ranges and the workspace graph use rc.1 from npm.
+- The only supported DSH generation is official `0.1.2-rc.1`; `0.1.2-alpha.1` and earlier are unsupported. All declared ranges and the workspace graph use rc.1 from npm. The Nishi family itself is `private` on git `main` and is not installed from npm; previously published `0.1.0-rc.1` has no remaining registry versions.
 - Switching primary providers must be a route change, not an environment change. Tools, Project Memory, Usage & Limits, profile, and session context remain provider-independent.
 - A new provider must not require provider-specific branches in Core, Project Memory, generic usage/search logic, or browser identity logic.
 
