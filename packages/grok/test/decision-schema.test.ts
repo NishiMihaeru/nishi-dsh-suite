@@ -24,40 +24,17 @@ const writeTool: ToolSchema = {
   parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
 }
 
-const compositeTool: ToolSchema = {
-  name: 'exotic',
-  description: 'Uses a keyword the subset cannot carry',
-  parameters: { type: 'object', properties: { value: { oneOf: [{ type: 'string' }] } } },
-}
-
 function properties(schema: unknown): Record<string, any> {
   return (schema as any).properties
 }
 
-test('a single-tool catalog pins the name and types the arguments without an anyOf wrapper', () => {
-  const schema = decisionSchemaFor([readTool], false) as any
-  const variant = properties(schema).tool_calls.items
-  assert.deepEqual(variant.properties.name.enum, ['memory_read'])
-  assert.deepEqual(variant.properties.arguments.required, ['topic'])
-  assert.equal(variant.anyOf, undefined)
-})
-
-test('annotation-only keywords are dropped rather than abandoning the tool', () => {
-  const schema = decisionSchemaFor([readTool], false) as any
-  const args = schema.properties.tool_calls.items.properties.arguments
-  assert.equal(args.properties.topic.pattern, undefined)
-  assert.equal(args.properties.topic.title, undefined)
-  assert.equal(args.properties.topic.type, 'string')
-})
-
-test('a composite keyword abandons that one tool, not the whole catalog', () => {
-  const schema = decisionSchemaFor([readTool, compositeTool], false) as any
-  const variants = schema.properties.tool_calls.items.anyOf
-  assert.equal(variants.length, 2)
-  const exotic = variants.find((variant: any) => variant.properties.name.enum[0] === 'exotic')
-  assert.deepEqual(exotic.properties.arguments, { type: 'object' })
-  const kept = variants.find((variant: any) => variant.properties.name.enum[0] === 'memory_read')
-  assert.deepEqual(kept.properties.arguments.required, ['topic'])
+test('a catalog pins tool names and leaves arguments untyped', () => {
+  const schema = decisionSchemaFor([readTool, writeTool], false) as any
+  const item = properties(schema).tool_calls.items
+  assert.deepEqual(item.properties.name.enum, ['memory_read', 'memory_write'])
+  assert.deepEqual(item.properties.arguments, { type: 'object' })
+  assert.equal(item.anyOf, undefined)
+  assert.equal(item.oneOf, undefined)
 })
 
 test('a catalog with no tools still forbids nothing beyond the decision shape', () => {
@@ -70,6 +47,21 @@ test('an auxiliary call cannot express a tool call at all', () => {
   const schema = decisionSchemaFor([readTool, writeTool], true) as any
   assert.deepEqual(schema.properties.kind.enum, ['message'])
   assert.equal(schema.properties.tool_calls, undefined)
+})
+
+test('a 29-tool catalog stays far under the 128 KiB argv ceiling', () => {
+  const tools = Array.from({ length: 29 }, (_, i) => ({
+    name: `tool_${i}`,
+    description: 'x'.repeat(400),
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' }, content: { type: 'string' } },
+      required: ['path'],
+    },
+  }))
+  const json = JSON.stringify(decisionSchemaFor(tools, false))
+  assert.ok(json.length < 8_192, `schema was ${json.length} bytes`)
+  assert.doesNotMatch(json, /anyOf/)
 })
 
 test('a decision stamped for another step is refused by name', () => {

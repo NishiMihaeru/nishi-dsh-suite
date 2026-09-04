@@ -9,7 +9,7 @@ Provider id `grok`; model route `grok-cli`.
 | Capability | State |
 |---|---|
 | Model route `grok-cli` | Present. One short-lived headless process per DSH step, continuing one vendor session. |
-| Usage and limits | **Absent, deliberately.** The vendor publishes no machine-readable quota channel: `/usage` is a TUI billing action, it is not in the session's advertised command list, and passing it to the headless entry sends it to the model as prose. Declaring nothing shows an honest row; inventing headroom is the one failure a quota display must not have. |
+| Usage and limits | Present. Quota is ACP `_x.ai/billing` over `grok agent stdio`: after `initialize`, no session, no turn. `/usage` is still a TUI-only action and is not this channel. A reading with no finite percentage inside an open period is `UNAVAILABLE`, not a meter of zero. |
 | Native web search | Absent for now. The vendor has a `web_search` tool, but this route denies web search as part of its isolation posture and a routed backend needs its own contract read first. |
 
 ## The transport
@@ -17,8 +17,8 @@ Provider id `grok`; model route `grok-cli`.
 Per DSH step, one process:
 
 ```text
-grok --prompt-json <ACP blocks> --output-format json --json-schema <decision schema>
-     --model <id> [--reasoning-effort <effort>] --system-prompt-override <DSH system>
+grok --prompt-file <envelope.json> --output-format json --json-schema <decision schema>
+     --model <id> [--reasoning-effort <effort>] --system-prompt-override <transport rules>
      --max-turns 4 --tools read_file --disallowed-tools read_file,Agent --deny MCPTool
      --disable-web-search --no-subagents --no-plan --no-auto-update
      (--session-id <uuid> | --resume <uuid>)
@@ -32,7 +32,7 @@ Five measured facts shape that line, all recorded in `docs/verification/grok-cli
 
 **`--tools ""` is a silent no-op.** An empty allowlist leaves the model holding the full 25-tool set, including shell and file write. Naming one real tool in the allowlist *and* the same tool in the denylist is what reaches an empty toolset; only the vendor's two MCP meta-tools survive, and `--deny MCPTool` gates those. `test/argv.test.ts` pins this, because the safe-looking spelling fails open.
 
-**The envelope is the message, not an attachment to it.** `--prompt-json` accepts exactly the ACP block set — `text`, `image`, `audio`, `resource_link`, `resource` — and has no `tool_result` block, so a DSH step travels as one JSON envelope in a `text` block. An embedded `resource` was tried first: it is readable in isolation, and it fails in front of an agent. Handed DSH's 29-tool catalog, the model treated a `dsh://` resource as something to open and spent its round calling DSH's own `read` on it. A capability probed on a bare prompt tells you what the vendor can do, not what a model will do when it is holding tools.
+**The envelope is the message, not an attachment to it.** It travels as `--prompt-file` containing an ACP `{type:"acp",content:[{type:"text",text:<envelope>}]}` object. `--prompt-json` is an argv slot, and Linux kills a single argument at 128 KiB (`E2BIG`); a DSH full envelope crosses that on an ordinary session. `--prompt-json @file` is not a file form (measured: invalid JSON). A `.json` `--prompt-file` is parsed as ACP and rejects any other object. An embedded ACP `resource` was tried first: it is readable in isolation, and it fails in front of an agent. Handed DSH's 29-tool catalog, the model treated a `dsh://` resource as something to open and spent its round calling DSH's own `read` on it. DSH's own system instruction rides in the envelope: there is no `--system-prompt-file`, so putting it on `--system-prompt-override` would just move the `E2BIG` to a different slot.
 
 **The vendor's own agent loop gets a few rounds, not one.** `--max-turns 1` looks like the exact stepped shape and is a trap: the vendor spends a round on its structured-output retry whenever the model first answers outside the schema, and the cap turns that ordinary hiccup into a dead step reported as `stopReason: "cancelled"` — which reaches the user as "the turn was cancelled" and names nothing fixable. The cap is `vendorTurnCap`, defaulting to 4, and an exhausted cap is classified from the vendor's own `Error: max turns reached` rather than from the overloaded stop reason.
 
@@ -46,6 +46,10 @@ The session UUID is minted by this package rather than issued by the vendor, so 
 
 The ACP `initialize` handshake (`grok agent stdio`) publishes every routable model with its real `totalContextTokens` and its reasoning-effort list, and reading it runs no turn, opens no session and spends no tokens. That is better instrumented than either sibling route: Antigravity has to configure a context window because `agy models` discloses none. The shape is undocumented, so `test/model-catalog.test.ts` pins a recorded handshake — a vendor rename must fail a test rather than leave a route silently uncompacting.
 
+## Usage & Limits is the same handshake plus one method
+
+`/usage` is documented as a TUI billing action and is not a headless channel: `grok -p "/usage"` reaches the model as prose. After the same turn-free `initialize`, `_x.ai/billing` returns `config.creditUsagePercent` and an open `currentPeriod`. That method is a vendor extension, so `test/usage-billing.test.ts` pins a recorded result the way the catalog test pins the handshake. Prepaid and on-demand fields have been seen only as `{val: 0}` with no unit and are not projected. The collector never reads `auth.json` and never talks to an xAI endpoint itself — Grok owns the call.
+
 ## Isolation and permissions
 
 DSH owns tools, permissions, durable history, workspace access, memory and execution. The vendor executes nothing on this route, which is why it never passes `--always-approve` or any permission-mode override: a transport that needed vendor auto-approval would be one managed policy away from not running, and a machine pinning `disable_bypass_permissions_mode = true` refuses that flag outright.
@@ -58,4 +62,4 @@ Nothing here bundles or redistributes the `grok` binary, and nothing reads its c
 
 ## Status
 
-Pre-acceptance. 59 focused tests, and `pnpm test:live:primary` passes 4/4 against real `grok 1.0.13`. The route has served a real DSH request in the `web` profile -- the first one failed, and findings 16 and 17 of the contract file are what it cost. No product-level profile acceptance run has been recorded yet.
+Pre-acceptance. Focused tests cover the primary route and the ACP billing usage source. `pnpm test:live:primary` passes 4/4 against real `grok 1.0.13`; `pnpm test:live:usage` is the turn-free billing probe. The route has served a real DSH request in the `web` profile -- the first one failed, and findings 16 and 17 of the contract file are what it cost. No product-level profile acceptance run has been recorded yet.

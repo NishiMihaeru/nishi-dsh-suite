@@ -21,7 +21,7 @@
  * @module nishi-dsh-grok/grok-primary
  */
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -42,6 +42,7 @@ import { assertExecutableDecision, decisionSchemaFor, readDecision, type Decisio
 import {
   agentStdioArgv,
   headlessTurnArgv,
+  isArgListTooLong,
   resolveVendorInvocation,
   type VendorInvocation,
 } from './grok-vendor.js'
@@ -49,10 +50,10 @@ import { decisionPayload, parseHeadlessResult, settlement, type HeadlessResult }
 import { parseCatalog, readAcpInitialize, type CatalogModel } from './model-catalog.js'
 import {
   deltaPromptBlocks,
+  promptFileBody,
   fullPromptBlocks,
   isOwnReply,
   messageDigest,
-  promptJson,
   requestSignature,
   transportSystemPrompt,
   type CallIdView,
@@ -204,7 +205,7 @@ export class GrokCliAdapter extends LlmAdapter {
     const turn = randomUUID()
 
     const { session, blocks } = this.prepareTurn(options, turn, auxiliary)
-    const outcome = await this.runTurn(options, session, blocks, auxiliary)
+    const outcome = await this.runTurn(options, session, blocks, auxiliary, turn)
 
     const settled = settlement(outcome.result, outcome.exitCode, outcome.stderrText)
     if (settled.kind !== 'success') {
@@ -214,7 +215,15 @@ export class GrokCliAdapter extends LlmAdapter {
 
     let decision: Decision
     try {
-      decision = readDecision(decisionPayload(outcome.result), turn)
+      const payload = decisionPayload(outcome.result)
+      if (payload === undefined && outcome.result.noStructuredOutput) {
+        throw new LlmError(
+          'Grok CLI turn ended without a schema-bound decision '
+          + '(the model answered outside the forced JSON schema).',
+          'GROK_PROTOCOL',
+        )
+      }
+      decision = readDecision(payload, turn)
       assertExecutableDecision(decision, requestedTools)
     } catch (error) {
       // The session is abandoned rather than continued: a step whose decision
@@ -401,22 +410,29 @@ export class GrokCliAdapter extends LlmAdapter {
     session: VendorSession,
     blocks: ReturnType<typeof fullPromptBlocks>,
     auxiliary: boolean,
+    turn: string,
   ): Promise<TurnOutcome> {
     const resume = session.delivered.length > 0
-    const argv = headlessTurnArgv({
-      promptJson: promptJson(blocks),
-      schemaJson: JSON.stringify(decisionSchemaFor(options.tools, auxiliary)),
-      model: options.model,
-      ...(options.reasoningEffort === undefined ? {} : { effort: String(options.reasoningEffort) }),
-      system: transportSystemPrompt(options.system),
-      sessionId: session.id,
-      resume,
-      turnCap: this.config.vendorTurnCap,
-    })
+    const promptPath = join(await this.workspace(), `prompt-${turn}.json`)
+    await writeFile(promptPath, promptFileBody(blocks), 'utf8')
+    try {
+      const argv = headlessTurnArgv({
+        promptFile: promptPath,
+        schemaJson: JSON.stringify(decisionSchemaFor(options.tools, auxiliary)),
+        model: options.model,
+        ...(options.reasoningEffort === undefined ? {} : { effort: String(options.reasoningEffort) }),
+        system: transportSystemPrompt(),
+        sessionId: session.id,
+        resume,
+        turnCap: this.config.vendorTurnCap,
+      })
 
-    const collected = await this.runCollected(argv, this.config.turnTimeoutMs, options.signal)
-    const result = parseHeadlessResult(collected.stdout)
-    return { result, exitCode: collected.exitCode, stderrText: collected.stderr }
+      const collected = await this.runCollected(argv, this.config.turnTimeoutMs, options.signal)
+      const result = parseHeadlessResult(collected.stdout)
+      return { result, exitCode: collected.exitCode, stderrText: collected.stderr }
+    } finally {
+      await rm(promptPath, { force: true }).catch(() => {})
+    }
   }
 
   private turnFailure(
@@ -496,22 +512,27 @@ export class GrokCliAdapter extends LlmAdapter {
     const cwd = await this.workspace()
     const signal = this.combinedSignal(parentSignal, timeoutMs)
     const invocation = await this.invocation(args, signal)
-    const child = this.ctx.subprocess.spawn({
-      argv: [...invocation.argv],
-      cwd,
-      stdio: {
-        stdin: 'ignore',
-        stdout: { maxBytes: MAX_TURN_STDOUT_BYTES },
-        stderr: { maxBytes: this.config.stderrMaxBytes },
-      },
-      graceMs: this.config.disposeGraceMs,
-      signal,
-      // Explicit entries only. The subprocess runtime merges them onto its own
-      // scrubbed parent base, so re-spreading that base here would turn every
-      // ambient entry into a deliberate caller opt-in -- which is the documented
-      // way a credential-shaped entry survives the scrub.
-      env: { ...invocation.env },
-    })
+    let child: SubprocessHandle
+    try {
+      child = this.ctx.subprocess.spawn({
+        argv: [...invocation.argv],
+        cwd,
+        stdio: {
+          stdin: 'ignore',
+          stdout: { maxBytes: MAX_TURN_STDOUT_BYTES },
+          stderr: { maxBytes: this.config.stderrMaxBytes },
+        },
+        graceMs: this.config.disposeGraceMs,
+        signal,
+        // Explicit entries only. The subprocess runtime merges them onto its own
+        // scrubbed parent base, so re-spreading that base here would turn every
+        // ambient entry into a deliberate caller opt-in -- which is the documented
+        // way a credential-shaped entry survives the scrub.
+        env: { ...invocation.env },
+      })
+    } catch (error) {
+      this.spawnFailure(error)
+    }
     this.activeChildren.add(child)
     try {
       const outcome = await child.done
@@ -526,9 +547,35 @@ export class GrokCliAdapter extends LlmAdapter {
         throw new LlmError(`Grok Build CLI command timed out after ${timeoutMs}ms`, 'GROK_CLI')
       }
       return { exitCode: outcome.exitCode, stdout, stderr }
+    } catch (error) {
+      this.spawnFailure(error)
     } finally {
       this.activeChildren.delete(child)
     }
+  }
+
+  /**
+   * Map a spawn-time OS error onto a named adapter failure.
+   *
+   * `E2BIG` is the one that has already killed a real session: Linux refuses a
+   * 128 KiB argv slot before `grok` starts, and the raw `spawn E2BIG` reached
+   * the user as an unexplained process crash. Anything else is rethrown as-is
+   * so a genuine programmer error is not relabelled.
+   */
+  private spawnFailure(error: unknown): never {
+    if (isArgListTooLong(error)) {
+      const failure = grokVendorFailure({
+        stage: 'turn',
+        stderrText: undefined,
+        category: 'spawn-too-big',
+      })
+      throw new LlmError(
+        'Grok Build CLI could not be spawned because the command line was too long.',
+        'GROK_CLI',
+        { cause: failure },
+      )
+    }
+    throw error
   }
 
   private async models(signal?: AbortSignal): Promise<readonly CatalogModel[]> {

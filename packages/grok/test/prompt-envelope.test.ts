@@ -3,10 +3,10 @@ import test from 'node:test'
 import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import {
   deltaPromptBlocks,
+  promptFileBody,
   fullPromptBlocks,
   isOwnReply,
   messageDigest,
-  promptJson,
   requestSignature,
   transportSystemPrompt,
 } from '../src/prompt-envelope.ts'
@@ -59,14 +59,20 @@ test('a full envelope is the message text, with nothing to fetch', () => {
   assert.doesNotMatch(JSON.stringify(blocks), /resource/)
 })
 
-test('a full envelope carries the whole history, the catalog, and the stamp', () => {
+test('a full envelope carries the whole history, the catalog, the stamp, and DSH system', () => {
   const tools = [{ name: 'memory_read', description: 'read', parameters: { type: 'object' } }]
-  const envelope = envelopeOf(fullPromptBlocks(options({ tools }), identity, 'T1'))
+  const envelope = envelopeOf(fullPromptBlocks(options({ tools, system: 'BE BRIEF' }), identity, 'T1'))
   assert.equal(envelope.kind, 'full')
   assert.equal(envelope.turn, 'T1')
+  assert.equal(envelope.system, 'BE BRIEF')
   assert.equal(envelope.messages.length, 1)
   assert.deepEqual(envelope.tools[0].name, 'memory_read')
   assert.equal(envelope.tools[0].input_schema.type, 'object')
+})
+
+test('a full envelope omits system when DSH did not send one', () => {
+  const envelope = envelopeOf(fullPromptBlocks(options(), identity, 'T1'))
+  assert.equal(envelope.system, undefined)
 })
 
 test('a delta envelope carries only the appended messages and no catalog', () => {
@@ -77,10 +83,15 @@ test('a delta envelope carries only the appended messages and no catalog', () =>
   assert.equal(envelope.tools, undefined)
 })
 
-test('the prompt argument is the ACP envelope the vendor parser accepts', () => {
-  const parsed = JSON.parse(promptJson(fullPromptBlocks(options(), identity, 'T1')))
+test('the prompt file is an ACP wrapper around the envelope, not the envelope alone', () => {
+  const blocks = fullPromptBlocks(options({ system: 'BE BRIEF' }), identity, 'T1')
+  const parsed = JSON.parse(promptFileBody(blocks))
   assert.equal(parsed.type, 'acp')
   assert.deepEqual(parsed.content.map((block: any) => block.type), ['text'])
+  const envelope = JSON.parse(parsed.content[0].text)
+  assert.equal(envelope.kind, 'full')
+  assert.equal(envelope.turn, 'T1')
+  assert.equal(envelope.system, 'BE BRIEF')
 })
 
 test('a tool call is serialized under the id the vendor itself minted', () => {
@@ -144,16 +155,16 @@ test('the signature changes when the catalog, system prompt, model or effort cha
 })
 
 test('the transport rules say the envelope is inline, never an attachment', () => {
-  const rules = transportSystemPrompt(undefined)
+  const rules = transportSystemPrompt()
   assert.match(rules, /inline in the message text/)
   assert.match(rules, /nothing to open, fetch, or read with a tool/)
   assert.doesNotMatch(rules, /attached/)
 })
 
-test('the transport rules keep DSH\'s system prompt beneath them, and stand alone without one', () => {
-  const withSystem = transportSystemPrompt('BE BRIEF')
-  assert.match(withSystem, /model backend for DeepSeek Harness/)
-  assert.match(withSystem, /# DSH system instruction\n\nBE BRIEF$/)
-  const without = transportSystemPrompt(undefined)
-  assert.doesNotMatch(without, /# DSH system instruction/)
+test('the transport rules stay off DSH\'s system prompt, which has no argv file form', () => {
+  const rules = transportSystemPrompt()
+  assert.match(rules, /model backend for DeepSeek Harness/)
+  assert.match(rules, /`system` field/)
+  assert.doesNotMatch(rules, /# DSH system instruction/)
+  assert.doesNotMatch(rules, /BE BRIEF/)
 })

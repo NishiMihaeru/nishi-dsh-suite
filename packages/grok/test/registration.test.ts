@@ -36,11 +36,11 @@ test('Grok package registers the grok-cli primary route', async () => {
   )
 })
 
-test('Grok declares no usage capability, because the vendor publishes no quota channel', async () => {
+test('Grok declares usage over ACP billing, and still no search', async () => {
   const fixture = fakeContext()
   await grok.apply(fixture.ctx, {})
   const entry = fixture.recorded[0]
-  assert.equal(entry.usage, undefined)
+  assert.equal(typeof entry.usage?.collector?.collect, 'function')
   assert.equal(entry.webSearch, undefined)
 })
 

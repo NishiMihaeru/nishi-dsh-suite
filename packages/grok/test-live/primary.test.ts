@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
@@ -31,15 +33,26 @@ import { headlessTurnArgv, VENDOR_META_TOOLS } from '../src/grok-vendor.js'
  *  4. that a second step delivered by `--resume` is SEEN -- the assertion is
  *     on a value the model could only have read from the tool result, never
  *     on the exit code -- and that the vendor's prefix cache engaged across
- *     the two processes, which is the whole reason this route has no live
- *     child.
+ *     the two processes, which is the whole reason this route holds no live
+ *     child. The catalog on that exchange is 29 tools, not one: a real DSH
+ *     session ended `end_turn` with no structured decision against a 29-way
+ *     `anyOf` schema, then died `E2BIG` on the rebuild. This is that shape
+ *     on the flat schema and `--prompt-file` path.
  *
  * Run with `pnpm test:live:primary`. It spends real vendor quota: four turns
- * on the cheaper model at the lowest effort.
+ * on `grok-4.5` at the lowest effort. Do not point `DSH_LIVE_GROK_MODEL` at
+ * `grok-4.6` for this suite.
  */
 
 const LIVE_MODEL = process.env.DSH_LIVE_GROK_MODEL ?? 'grok-4.5'
 const LIVE_EFFORT = process.env.DSH_LIVE_GROK_EFFORT ?? 'low'
+
+if (LIVE_MODEL === 'grok-4.6') {
+  throw new Error(
+    'test-live/primary.test.ts spends quota; grok-4.6 is not the model for this suite. '
+    + 'Unset DSH_LIVE_GROK_MODEL or set it to grok-4.5.',
+  )
+}
 
 function findOnPath(name: string): string | null {
   const pathEnv = process.env.PATH || ''
@@ -184,16 +197,19 @@ test('GROK LIVE: 1. the ACP handshake publishes a catalog, a window and efforts,
   }
 })
 
-test('GROK LIVE: 2. the shipped argv leaves the model no vendor tool but the MCP meta-tools', async () => {
+test('GROK LIVE: 2. the shipped argv leaves the model no vendor tool but the MCP meta-tools', { timeout: 300_000 }, async () => {
   // The shipped argv verbatim, with only the output format swapped: the
   // `system`/`init` line that reports the resolved toolset exists in the
   // Messages stream and not in the `json` envelope this route reads. Anything
   // else about the invocation is what the product sends.
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-grok-live-'))
+  const promptFile = join(dir, 'prompt.json')
+  await writeFile(promptFile, JSON.stringify({
+    type: 'acp',
+    content: [{ type: 'text', text: 'Reply with exactly: OK' }],
+  }), 'utf8')
   const argv = headlessTurnArgv({
-    promptJson: JSON.stringify({
-      type: 'acp',
-      content: [{ type: 'text', text: 'Reply with exactly: OK' }],
-    }),
+    promptFile,
     schemaJson: JSON.stringify({
       type: 'object',
       additionalProperties: false,
@@ -218,6 +234,7 @@ test('GROK LIVE: 2. the shipped argv leaves the model no vendor tool but the MCP
     child.once('error', reject)
     child.once('close', (code) => resolve(code))
   })
+  await rm(dir, { recursive: true, force: true }).catch(() => {})
   assert.equal(exitCode, 0, 'the isolation probe turn must succeed')
 
   const init = stdout
@@ -236,7 +253,7 @@ test('GROK LIVE: 2. the shipped argv leaves the model no vendor tool but the MCP
   )
 })
 
-test('GROK LIVE: 3. a turn answers under the forced schema', async () => {
+test('GROK LIVE: 3. a turn answers under the forced schema', { timeout: 300_000 }, async () => {
   const adapter = new GrokCliAdapter(createTestContext(), testConfig)
   try {
     const result = await collect(adapter.stream(request({
@@ -252,19 +269,46 @@ test('GROK LIVE: 3. a turn answers under the forced schema', async () => {
   }
 })
 
-test('GROK LIVE: 4. a tool result delivered by --resume is seen, and the prefix cache engages', async () => {
-  const adapter = new GrokCliAdapter(createTestContext(), testConfig)
-  const sessionId = 'live-tool-loop' as any
-  const tools = [{
+/**
+ * A 29-name catalog, the size that broke structured output in production.
+ *
+ * One real tool, the rest decoys with DSH-like names. The schema pins every
+ * name and types none of the arguments. If that shape is unenforceable the
+ * adapter throws `GROK_PROTOCOL` before any of the assertions below run.
+ */
+function fatCatalog() {
+  const decoys = [
+    'read', 'write', 'edit', 'bash', 'grep', 'glob', 'web_search', 'web_fetch',
+    'memory_read', 'memory_write', 'memory_edit', 'todo', 'task', 'plan',
+    'list_dir', 'search_replace', 'read_file', 'write_file', 'run_terminal_command',
+    'spawn_subagent', 'ask_user', 'browser', 'mcp_call', 'image_gen',
+    'notebook_edit', 'compact', 'switch_mode', 'enter_plan_mode',
+  ]
+  const lookup = {
     name: 'lookup_reactor_code',
-    description: 'Return the reactor code for a named reactor.',
+    description: 'Return the reactor code for a named reactor. Use this for reactor codes; do not guess.',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: { reactor: { type: 'string' } },
       required: ['reactor'],
     },
-  }]
+  }
+  return [
+    lookup,
+    ...decoys.map(name => ({
+      name,
+      description: `Decoy tool ${name}. Do not call this.`,
+      parameters: { type: 'object', additionalProperties: false, properties: {} },
+    })),
+  ]
+}
+
+test('GROK LIVE: 4. a 29-tool catalog still yields a structured call, resume sees the result, cache engages', { timeout: 600_000 }, async () => {
+  const adapter = new GrokCliAdapter(createTestContext(), testConfig)
+  const sessionId = 'live-tool-loop' as any
+  const tools = fatCatalog()
+  assert.equal(tools.length, 29)
 
   try {
     const first = await collect(adapter.stream(request({

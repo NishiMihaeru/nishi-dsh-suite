@@ -60,15 +60,25 @@ export interface VendorInvocation {
 }
 
 export interface HeadlessTurnArgs {
-  /** ACP content blocks for this step, already serialized. */
-  readonly promptJson: string
+  /**
+   * Path to the step's prompt file, already written.
+   *
+   * `--prompt-json` is an argv slot, and Linux kills a single argument at
+   * 128 KiB (`E2BIG`). A DSH full envelope -- history plus catalog -- crosses
+   * that on an ordinary session, which is how a rebuild after a failed
+   * decision died before `grok` even started. `--prompt-file` is the
+   * published file form; a `.json` path is parsed as ACP
+   * `{type:"acp",content:[...]}` (measured). `--prompt-json @file` is not a
+   * file form (measured: invalid JSON).
+   */
+  readonly promptFile: string
   /** The forced decision schema for this step's tool catalog, already serialized. */
   readonly schemaJson: string
   /** Vendor model id. */
   readonly model: string
   /** Reasoning effort, when the request or the route default names one. */
   readonly effort?: string
-  /** DSH's system prompt, which replaces the vendor agent's own. */
+  /** Transport rules, which replace the vendor agent's own system prompt. */
   readonly system?: string
   /** Client-minted session UUID. */
   readonly sessionId: string
@@ -104,8 +114,11 @@ export interface HeadlessTurnArgs {
  *   {@link ISOLATION_TOOL_NAME}), and `Agent` in the denylist is the
  *   published spelling for "spawn no subagents";
  * - `--deny MCPTool` gates the two meta-tools the allowlist cannot remove;
- * - `--system-prompt-override` makes DSH's system prompt authoritative
- *   instead of layering it under the vendor agent's own;
+ * - `--prompt-file` carries the envelope off argv; `--prompt-json` is the
+ *   slot that dies with `E2BIG` once a session has any real history;
+ * - `--system-prompt-override` carries the transport rules only -- there is
+ *   no `--system-prompt-file` (measured: unexpected argument), so DSH's own
+ *   system instruction rides in the envelope instead of this slot;
  * - `--no-auto-update` keeps a self-update out of a turn's critical path.
  *
  * Deliberately NOT passed: `--always-approve`/`--yolo`. This route executes
@@ -117,7 +130,7 @@ export interface HeadlessTurnArgs {
  */
 export function headlessTurnArgv(args: HeadlessTurnArgs): string[] {
   return [
-    '--prompt-json', args.promptJson,
+    '--prompt-file', args.promptFile,
     '--output-format', 'json',
     '--json-schema', args.schemaJson,
     '--model', args.model,
@@ -146,11 +159,11 @@ export function agentStdioArgv(): string[] {
  * `cmd.exe /d /v:off /s /c` invocation, the way every other subscription-CLI
  * provider in this suite does.
  *
- * Both of this package's invocation call sites -- the headless turn and the
- * ACP catalog handshake -- go through this one function, because a Windows
- * shim bug of exactly that shape has already happened once in this suite:
- * Codex had its `.cmd`/`.bat` wrapping applied on one vendor path and not the
- * other.
+ * All three of this package's invocation call sites -- the headless turn, the
+ * ACP catalog handshake, and the ACP billing read -- go through this one
+ * function, because a Windows shim bug of exactly that shape has already
+ * happened once in this suite: Codex had its `.cmd`/`.bat` wrapping applied
+ * on one vendor path and not the other.
  */
 export async function resolveVendorInvocation(
   ctx: Context,
@@ -178,4 +191,13 @@ export async function resolveVendorInvocation(
     ],
     env: { ...env, [windowsExecutableEnvVar]: `"${resolved}"` },
   }
+}
+
+/** Whether a spawn failure is Linux/Windows "argument list too long". */
+export function isArgListTooLong(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const code = 'code' in error ? error.code : undefined
+  if (code === 'E2BIG') return true
+  const message = error instanceof Error ? error.message : String(error)
+  return /\bE2BIG\b/.test(message)
 }

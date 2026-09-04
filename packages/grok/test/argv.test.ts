@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { headlessTurnArgv, ISOLATION_TOOL_NAME } from '../src/grok-vendor.ts'
+import { headlessTurnArgv, isArgListTooLong, ISOLATION_TOOL_NAME } from '../src/grok-vendor.ts'
 
 const base = {
-  promptJson: '{"type":"acp","content":[]}',
+  promptFile: '/tmp/dsh-grok/prompt.json',
   schemaJson: '{"type":"object"}',
   model: 'grok-4.6',
   sessionId: '00000000-0000-4000-8000-000000000000',
@@ -14,6 +14,10 @@ const base = {
 function flagValue(argv: readonly string[], flag: string): string | undefined {
   const index = argv.indexOf(flag)
   return index === -1 ? undefined : argv[index + 1]
+}
+
+function maxSlot(argv: readonly string[]): number {
+  return argv.reduce((max, slot) => Math.max(max, slot.length), 0)
 }
 
 /**
@@ -73,10 +77,11 @@ test('turn argv opens a client-minted session and later resumes it', () => {
   assert.ok(!continuing.includes('--session-id'))
 })
 
-test('turn argv carries the schema, the prompt, and the overridden system prompt', () => {
+test('turn argv carries the schema, a prompt file, and the overridden system prompt', () => {
   const argv = headlessTurnArgv({ ...base, system: 'SYSTEM', effort: 'low' })
   assert.equal(flagValue(argv, '--json-schema'), base.schemaJson)
-  assert.equal(flagValue(argv, '--prompt-json'), base.promptJson)
+  assert.equal(flagValue(argv, '--prompt-file'), base.promptFile)
+  assert.ok(!argv.includes('--prompt-json'), 'inline --prompt-json is the E2BIG slot')
   assert.equal(flagValue(argv, '--output-format'), 'json')
   assert.equal(flagValue(argv, '--system-prompt-override'), 'SYSTEM')
   assert.equal(flagValue(argv, '--reasoning-effort'), 'low')
@@ -86,4 +91,20 @@ test('turn argv omits the effort and system flags when the request names neither
   const argv = headlessTurnArgv(base)
   assert.ok(!argv.includes('--reasoning-effort'))
   assert.ok(!argv.includes('--system-prompt-override'))
+})
+
+test('turn argv keeps every slot well under the 128 KiB Linux argument ceiling', () => {
+  const argv = headlessTurnArgv({
+    ...base,
+    system: 'x'.repeat(4_000),
+    schemaJson: JSON.stringify({ type: 'object', properties: { kind: { type: 'string' } } }),
+  })
+  assert.ok(maxSlot(argv) < 16_384, `largest argv slot was ${maxSlot(argv)} bytes`)
+})
+
+test('E2BIG is recognised from Node spawn errors, not from unrelated messages', () => {
+  const error = Object.assign(new Error('spawn E2BIG'), { code: 'E2BIG' })
+  assert.equal(isArgListTooLong(error), true)
+  assert.equal(isArgListTooLong(new Error('spawn ENOENT')), false)
+  assert.equal(isArgListTooLong('nope'), false)
 })

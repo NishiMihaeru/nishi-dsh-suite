@@ -64,6 +64,17 @@ test('an incomplete ledger drops the total rather than reporting a confident und
   assert.equal(usage?.inputTokens, 10)
 })
 
+test('a structured-output string is parsed, because the vendor has been seen emitting both', () => {
+  const result = parseHeadlessResult(JSON.stringify({
+    text: '',
+    stopReason: 'end_turn',
+    structuredOutput: '{"kind":"message","text":"hi","turn":"T","tool_calls":[]}',
+  }))
+  assert.deepEqual(decisionPayload(result), {
+    kind: 'message', text: 'hi', turn: 'T', tool_calls: [],
+  })
+})
+
 test('both structured-output spellings are read, because the vendor uses one per format', () => {
   const camel = parseHeadlessResult(JSON.stringify({
     text: '', stopReason: 'end_turn', structuredOutput: { kind: 'message', turn: 'A' },

@@ -29,90 +29,6 @@ import { record } from './grok-vendor.js'
  */
 export const DECISION_TURN_FIELD = 'turn'
 
-/**
- * JSON Schema keywords kept when rewriting a DSH tool's parameter schema.
- *
- * Conservative by construction rather than by measurement: the vendor
- * documents `--json-schema` as constraining the model but publishes no
- * accepted subset, and this list has NOT been probed against `grok` the way
- * `agy`'s was. It is the same set that vendor accepted, which is a defensible
- * floor for an unprobed one -- a keyword this list drops can only make the
- * model's output more permissive, never invalid, because DSH validates the
- * arguments it receives with its own validator regardless.
- */
-const SCHEMA_KEYWORDS_KEPT = new Set([
-  'type', 'properties', 'required', 'items', 'enum', 'description',
-  'minimum', 'maximum', 'minLength', 'maxLength', 'minItems', 'maxItems',
-  'default', 'nullable',
-])
-
-/** Annotation-only keywords dropped from a node without giving up on it. */
-const SCHEMA_KEYWORDS_DROPPED = new Set([
-  '$schema', '$comment', '$id', 'title', 'examples', 'format', 'pattern',
-  'multipleOf', 'uniqueItems', 'readOnly', 'writeOnly', 'deprecated',
-])
-
-/**
- * Rewrite one DSH tool's parameter schema into the conservative subset, or
- * give up on that ONE tool.
- *
- * Giving up is per-tool rather than per-catalog on purpose: a composite
- * keyword (`$ref`, `oneOf`, `allOf`, `if`) cannot be dropped without changing
- * what the schema means, but letting one exotic tool disable argument typing
- * for every other tool beside it would be worse. An abandoned tool falls back
- * to an untyped `{"type":"object"}` -- loose for that tool alone.
- */
-function toVendorSchema(value: unknown): unknown | undefined {
-  if (typeof value === 'boolean') return value
-  const node = record(value)
-  if (node === undefined) return undefined
-
-  const out: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(node)) {
-    if (SCHEMA_KEYWORDS_DROPPED.has(key)) continue
-
-    // `const` is `enum` with one member; expressing it that way keeps the
-    // constraint instead of abandoning the tool over spelling.
-    if (key === 'const') {
-      out.enum = [entry]
-      continue
-    }
-
-    if (key === 'additionalProperties') {
-      // Only the boolean form survives: an object-valued schema here is a
-      // constraint this subset cannot carry.
-      if (typeof entry !== 'boolean') return undefined
-      out[key] = entry
-      continue
-    }
-
-    if (!SCHEMA_KEYWORDS_KEPT.has(key)) return undefined
-
-    if (key === 'properties') {
-      const properties = record(entry)
-      if (properties === undefined) return undefined
-      const mapped: Record<string, unknown> = {}
-      for (const [name, child] of Object.entries(properties)) {
-        const converted = toVendorSchema(child)
-        if (converted === undefined) return undefined
-        mapped[name] = converted
-      }
-      out[key] = mapped
-      continue
-    }
-
-    if (key === 'items') {
-      const converted = toVendorSchema(entry)
-      if (converted === undefined) return undefined
-      out[key] = converted
-      continue
-    }
-
-    out[key] = entry
-  }
-  return out
-}
-
 /** The decision schema for a request that declares no tools. */
 export const DECISION_SCHEMA = {
   type: 'object',
@@ -160,32 +76,43 @@ const MESSAGE_ONLY_SCHEMA = {
   required: ['kind', 'text', 'turn'],
 } as const
 
+function callItemSchema(toolNames: readonly string[] | undefined): unknown {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      id: { type: 'string' },
+      name: toolNames !== undefined && toolNames.length > 0
+        ? { type: 'string', enum: [...toolNames] }
+        : { type: 'string' },
+      arguments: { type: 'object' },
+    },
+    required: ['id', 'name', 'arguments'],
+  }
+}
+
 /**
  * The structured-output schema for one exact tool catalog.
  *
- * Each call variant pins `name` to one tool and `arguments` to that tool's own
- * declared parameter schema, so a call missing a required field is
- * unexpressible rather than merely discouraged. `anyOf` with an `enum`-of-one
- * discriminator is used rather than `oneOf` with `const` for the same reason
- * the sibling package uses it -- it is the spelling a vendor subset is most
- * likely to accept -- and a single-tool catalog skips the wrapper entirely.
+ * Names are pinned when the catalog is known, so an undeclared tool is
+ * unexpressible. Argument objects stay untyped: `--json-schema` is a bounded
+ * retry loop, not constrained decoding, and a per-tool `anyOf` catalog -- the
+ * spelling copied from `agy` before this vendor's subset was probed -- is
+ * what a real DSH session ended `end_turn` with no `structuredOutput` on.
+ * Live turns with this flat shape succeed. DSH still validates arguments
+ * with its own validator before a tool runs.
+ *
+ * The schema is also an argv slot (`--json-schema` does not accept a path,
+ * measured on `grok 1.0.13`), so it has to stay small. A 29-way `anyOf` of
+ * full parameter schemas is how that slot dies with `E2BIG`.
  */
 export function decisionSchemaFor(
   tools: readonly ToolSchema[] | undefined,
   messageOnly: boolean,
 ): unknown {
   if (messageOnly) return MESSAGE_ONLY_SCHEMA
-  if (tools === undefined || tools.length === 0) return DECISION_SCHEMA
-  const variants = tools.map(tool => ({
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      id: { type: 'string' },
-      name: { type: 'string', enum: [tool.name] },
-      arguments: toVendorSchema(tool.parameters) ?? { type: 'object' },
-    },
-    required: ['id', 'name', 'arguments'],
-  }))
+  const names = (tools ?? []).map(tool => tool.name)
+  if (names.length === 0) return DECISION_SCHEMA
   return {
     type: 'object',
     additionalProperties: false,
@@ -195,7 +122,7 @@ export function decisionSchemaFor(
       turn: { type: 'string' },
       tool_calls: {
         type: 'array',
-        items: variants.length === 1 ? variants[0] : { anyOf: variants },
+        items: callItemSchema(names),
       },
     },
     required: ['kind', 'text', 'turn', 'tool_calls'],

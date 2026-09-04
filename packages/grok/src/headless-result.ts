@@ -134,7 +134,17 @@ export function parseHeadlessResult(stdout: string): HeadlessResult {
  * is still refused unless it was authored for this step.
  */
 export function decisionPayload(result: HeadlessResult): unknown {
-  if (record(result.structuredOutput) !== undefined) return result.structuredOutput
+  const structured = result.structuredOutput
+  if (record(structured) !== undefined) return structured
+  if (typeof structured === 'string' && structured.trim().length > 0) {
+    try {
+      const parsed: unknown = JSON.parse(structured)
+      if (record(parsed) !== undefined) return parsed
+    } catch {
+      // Fall through to the reply text: a string that is not the decision
+      // object is not a source, it is noise.
+    }
+  }
   const text = result.text.trim()
   if (text.length === 0) return undefined
   try {

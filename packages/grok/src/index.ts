@@ -1,22 +1,21 @@
 /**
  * Grok primary provider plugin: the Grok Build CLI bridge.
  *
- * One capability, declared because the vendor actually has it: the `grok-cli`
- * primary model route. Two are deliberately absent.
+ * Two capabilities, declared because the vendor actually has them: the
+ * `grok-cli` primary model route, and Usage & Limits from ACP `_x.ai/billing`.
  *
- * There is no usage capability, and that is a finding rather than an omission.
- * This vendor publishes no machine-readable quota channel at all: `/usage` is
- * a TUI billing action, it is absent from the session's advertised command
- * list, and passing it to the headless entry sends it to the model as prose
- * (measured: the turn ended `cancelled` after 13,420 input tokens). Declaring
- * an absent capability is a legal, documented state -- Usage & Limits shows an
- * honest row rather than an invented number -- and inventing headroom is the
- * one failure a quota display must not have.
+ * `/usage` is still not a quota channel — it is a TUI billing action, absent
+ * from the session's advertised command list, and passing it to the headless
+ * entry sends it to the model as prose (measured: the turn ended `cancelled`
+ * after 13,420 input tokens). The machine-readable channel is the vendor
+ * extension `_x.ai/billing`, answered after `initialize` with no session and
+ * no turn. A reading with no finite percentage inside an open period stays
+ * an honest `UNAVAILABLE` rather than invented headroom.
  *
- * There is no search capability yet either. The vendor has a native
- * `web_search` tool, so a routed backend is expressible, but this route
- * currently denies web search outright as part of its isolation posture and a
- * search backend needs its own contract read before it is claimed.
+ * There is no search capability yet. The vendor has a native `web_search`
+ * tool, so a routed backend is expressible, but this route currently denies
+ * web search outright as part of its isolation posture and a search backend
+ * needs its own contract read before it is claimed.
  *
  * @module nishi-dsh-grok
  */
@@ -31,6 +30,8 @@ import {
   type VendorExecutableDescriptor,
 } from 'nishi-dsh-core/runtime'
 import { GrokCliAdapter, GROK_PRIMARY_PROVIDER } from './grok-primary.js'
+import { GrokUsageCollector } from './usage.js'
+import { GrokUsageBillingSource } from './usage-billing.js'
 
 export const name = 'grok'
 export const inject = ['nishiProviders', 'subprocess', 'llm']
@@ -146,6 +147,26 @@ const grokDescriptor: ProviderDescriptor<ResolvedGrokConfig> = {
       vendorTurnCap: config.vendorTurnCap,
     }),
   },
+  usage: {
+    /**
+     * Quota comes from ACP `_x.ai/billing` over `grok agent stdio`: after
+     * `initialize`, no session, no turn, the weekly credit percentage and
+     * its open period. `/usage` is still a TUI-only action and is not this
+     * channel.
+     *
+     * A reading with no finite percentage inside an open period stays an
+     * honest `UNAVAILABLE` rather than invented headroom. Prepaid/on-demand
+     * fields are not projected: they have been seen only as `{val: 0}` with
+     * no unit.
+     */
+    create: (ctx, config) => new GrokUsageCollector(new GrokUsageBillingSource(ctx, {
+      executable: config.executable,
+      env: config.env,
+      disposeGraceMs: config.disposeGraceMs,
+      timeoutMs: config.catalogTimeoutMs,
+      stderrMaxBytes: config.stderrMaxBytes,
+    })),
+  },
 }
 
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
@@ -170,3 +191,5 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
 }
 
 export { GrokCliAdapter, GROK_PRIMARY_PROVIDER } from './grok-primary.js'
+export { GrokUsageCollector, GrokUsageSourceError } from './usage.js'
+export { GrokUsageBillingSource, GROK_BILLING_METHOD } from './usage-billing.js'

@@ -57,6 +57,14 @@ const GROK_STDERR_RECOGNIZERS: readonly VendorStderrRecognizer[] = [
     pattern: /disabled by managed policy/i,
     message: () => 'Grok Build CLI refused a flag its managed policy disables.',
   },
+  {
+    // Node's spawn, not vendor-authored: Linux `MAX_ARG_STRLEN` is 128 KiB
+    // per argument. The route now keeps the prompt off argv; this names the
+    // leftover if a future flag grows a slot again.
+    category: 'spawn-too-big',
+    pattern: /\bE2BIG\b/,
+    message: () => 'Grok Build CLI could not be spawned because the command line was too long.',
+  },
 ]
 
 export interface GrokVendorFailureSpec {

@@ -18,7 +18,7 @@ The product goal is simple: switching subscription providers should be a route c
 - `nishi-dsh-codex` — provider id `codex`, route `codex-app-server`, Codex App Server adapter, primary-history bridge, native search backend and rate-limits source;
 - `nishi-dsh-antigravity` — provider id `antigravity`, route `antigravity-cli`, official `agy` primary adapter with two tool transports (an MCP bridge by default, a forced output schema on request), native `search_web` backend and local usage visibility;
 - `nishi-dsh-claude` — provider id `claude`, usage-only through the installed official Claude CLI; no model route and no search backend;
-- `nishi-dsh-grok` — provider id `grok`, route `grok-cli`, primary adapter over the installed official Grok Build CLI: one short-lived headless process per DSH step continuing one vendor session, with no usage capability because the vendor publishes no machine-readable quota channel;
+- `nishi-dsh-grok` — provider id `grok`, route `grok-cli`, primary adapter over the installed official Grok Build CLI: one short-lived headless process per DSH step continuing one vendor session, with Usage & Limits from ACP `_x.ai/billing`;
 - `nishi-dsh-project-memory` — provider-agnostic project memory, context injection, `memory_read` / `memory_write` / `memory_edit`, plus `/memory` and `/consolidate`;
 - `nishi-dsh-suite` — Market-facing composition bundle and managed Orchestrator preset bridge.
 

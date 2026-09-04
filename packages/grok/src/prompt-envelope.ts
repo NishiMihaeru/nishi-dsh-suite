@@ -33,16 +33,21 @@ const PROTOCOL = 'dsh-grok-primary-v1'
 export type AcpBlock = { readonly type: 'text'; readonly text: string }
 
 /**
- * The transport rules, prepended to DSH's own system prompt.
+ * The transport rules for `--system-prompt-override`.
  *
  * They live in the system slot rather than in each user turn because they are
  * prefix for every step of a session and therefore cacheable, and because a
  * rule quoted inside conversation data is a rule the model may reasonably
  * treat as data. `--system-prompt-override` replaces the vendor agent's own
- * prompt outright, so this is the whole instruction the model runs under.
+ * prompt outright, so this is the whole instruction that slot carries.
+ *
+ * DSH's own system prompt is not concatenated here: the vendor has no
+ * `--system-prompt-file` (measured: unexpected argument), and Linux kills a
+ * single argv slot at 128 KiB. DSH's instruction therefore rides in the
+ * `full` envelope, next to the catalog, which already has a file form.
  */
-export function transportSystemPrompt(dshSystem: string | undefined): string {
-  const rules = [
+export function transportSystemPrompt(): string {
+  return [
     'You are a model backend for DeepSeek Harness (DSH), not an autonomous coding agent.',
     '',
     '- Your Grok tool allowlist is empty. DSH owns tools, permissions, durable history,',
@@ -54,11 +59,12 @@ export function transportSystemPrompt(dshSystem: string | undefined): string {
     `- Every envelope carries a \`${DECISION_TURN_FIELD}\` field. Copy its value into the`,
     `  \`${DECISION_TURN_FIELD}\` field of your reply, unchanged. It identifies which envelope you`,
     '  are answering; a reply carrying any other value is discarded.',
-    '- A `full` envelope opens the conversation: its `messages` field is the DSH history so far',
-    '  and its `tools` field is the DSH tool catalog.',
+    '- A `full` envelope opens the conversation: its `messages` field is the DSH history so far,',
+    '  its `tools` field is the DSH tool catalog, and its `system` field (when present) is',
+    '  DSH\'s instruction for this conversation.',
     '- A `delta` envelope carries only what DSH appended since your previous reply. The tool',
-    '  catalog from the `full` envelope stays in force. Your own earlier replies are your own',
-    '  turns in this conversation -- read them there, they are not repeated.',
+    '  catalog and system instruction from the `full` envelope stay in force. Your own earlier',
+    '  replies are your own turns in this conversation -- read them there, they are not repeated.',
     '- Describe calls to DSH tools in `tool_calls`; never execute a Grok tool for them.',
     '- Every tool call needs an id unique in this whole conversation.',
     '- Tool arguments must satisfy that tool\'s `input_schema` exactly. Never send an empty object',
@@ -72,11 +78,6 @@ export function transportSystemPrompt(dshSystem: string | undefined): string {
     '- An answer written to the user is a reply like any other: it goes in the `text` field of a',
     '  kind=message reply. Prose outside the schema never reaches DSH, however finished the work is.',
   ].join('\n')
-
-  const system = dshSystem === undefined || dshSystem.length === 0 ? '' : dshSystem
-  return system.length === 0
-    ? rules
-    : `${rules}\n\n# DSH system instruction\n\n${system}`
 }
 
 function serializeContentBlock(block: ContentBlock, view: CallIdView): unknown {
@@ -150,8 +151,10 @@ export function fullPromptBlocks(
   turn: string,
   includeTools = true,
 ): AcpBlock[] {
+  const system = options.system
   return envelopeBlocks('full', {
     [DECISION_TURN_FIELD]: turn,
+    ...(typeof system === 'string' && system.length > 0 ? { system } : {}),
     messages: options.messages.map(message => serializeMessage(message, view)),
     ...includeTools
       ? {
@@ -177,8 +180,21 @@ export function deltaPromptBlocks(
   })
 }
 
-/** Serialize blocks into the `--prompt-json` argument the vendor accepts. */
-export function promptJson(blocks: readonly AcpBlock[]): string {
+/**
+ * Body of the `--prompt-file` for one step.
+ *
+ * `--prompt-file` is the published file form, but a `.json` path is not a
+ * raw prompt: measured on `grok 1.0.13`, the vendor parses it as ACP
+ * (`{"type":"acp","content":[...]}`) and rejects any other JSON object
+ * with `JSON object must have a "type" field`. `--prompt-json @file` is
+ * still invalid JSON, not a file form. Plain `.txt` is a prompt string.
+ * This route writes the ACP object so the model still sees one text block
+ * -- the envelope -- without putting it on argv.
+ */
+export function promptFileBody(blocks: readonly AcpBlock[]): string {
+  if (blocks.length !== 1 || blocks[0]?.type !== 'text') {
+    throw new LlmError('Grok CLI prompt file must be exactly one text envelope', 'GROK_PROTOCOL')
+  }
   return JSON.stringify({ type: 'acp', content: blocks })
 }
 
