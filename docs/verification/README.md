@@ -65,6 +65,20 @@ One session, driven through the browser UI of `dsh --profile web` (`@deepseek-ai
 
 Two things this run did NOT establish. Usage & Limits with all providers mounted is only half-served — Codex reports live figures, Antigravity reports unavailable, which is its documented pre-turn state — so that row stays open. And this is one session, driven by the same party that wrote the code; it is acceptance evidence, not independent validation. (The Antigravity half of that usage row is no longer structural: turn-free quota, added 2026-09-03, removes the pre-turn blind window the row was documenting. The row still needs a real all-providers run to close.)
 
+
+## Antigravity product-level acceptance in the real `web` profile, 2026-09-04
+
+One session in `dsh --profile web`, on the tree carrying the stale-decision repair, closing the three §6 rows Antigravity still owed. Evidence is the durable session log (`session-2633306f`) and process observation, never the model's own account.
+
+- **Turn 1, `antigravity-cli` / `gemini-3.7-flash` high, four steps**, `request/context` recording `contextWindow: 200000`. `web_search` returned live grounded content with `nodejs.org` and `wikipedia.org` sources; `memory_write` stored `ACCEPT_AGY_7C41B9E2D5A8`. Call ids are DSH-minted throughout (`agy-7bc506b9-<n>-<vendor id>`).
+- **The routed search is attributed by process.** An `agy` child ran in `/tmp/dsh-web-search-agy-k8O8Ud` for the call's duration and no `codex exec --cd /tmp/dsh-web-search-codex-*` existed at any point -- the mirror image of 2026-09-03, where the Codex backend served it and no `agy` process existed. Both providers were mounted and both register a search backend, so the choice is the product's and the evidence is not the shape of the output.
+- **Turn 2 switched model inside the conversation** to `gemini-3.8-flash`, recorded in `model/selection` and `request/header`. The conversation survived rather than merely the turn: asked not to search again, the model answered `v24.20.0` from turn 1's search, and `memory_read` returned the marker verbatim.
+- **Usage & Limits with all providers mounted now passes.** The header served all three buckets on a freshly booted profile with **no session open and no turn run** -- `Antigravity · Claude and GPT models` `5h 0% / Weekly 3%`, `Antigravity · Gemini Models` `5h 3% / Weekly 1%`, `Codex` `5h 0% / Weekly 67%`. On 2026-09-03 the Antigravity half read *unavailable*, its documented pre-turn state; the turnless harvest is what changed.
+- **No residue.** After the profile was stopped, no `dsh --profile web`, no `agy` child and no search workspace process remained.
+
+Two observations this run produced that are not Antigravity's, recorded because acceptance runs are where they surface. The first `memory_write` failed on topic `verification_marker` and the model recovered by renaming it `marker`: the topic contract is `^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`, so the underscore was **correctly** rejected -- but `sanitizeToolError` reports every cause as `Project memory write failed for topic "..."`, so an invalid identifier is indistinguishable from a storage fault, and the model guessed its way out rather than being told. The second is cosmetic: the message flow rendered a `Failed` chip next to the search row while the durable log records that call as `isError: false` with full content, the failure belonging to the adjacent `memory_write`.
+
+As with every entry here: one session, driven by the party that wrote the code. Acceptance evidence, not independent validation.
 ## Codex stepped-turn transport, live acceptance 2026-09-03
 
 The transport changed, so every Codex live suite was re-run rather than carried forward. All green against real `codex-cli 0.150.0`: `primary` 1/1, `acceptance` 9/9 (all 15 scenarios), `inject-items` 1/1, `tool-result-continuation` 1/1, `web-search` 1/1, `web-search-routed` 1/1. The search suites need `DSH_LIVE_CODEX_SEARCH_MODEL`; `gpt-5.6-sol` was used.
