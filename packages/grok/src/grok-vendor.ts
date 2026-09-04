@@ -148,6 +148,109 @@ export function headlessTurnArgv(args: HeadlessTurnArgs): string[] {
   ]
 }
 
+/**
+ * The built-in this route allows on a hidden search turn. Primary isolation
+ * names `read_file` in both flags to reach an empty toolset; a search turn
+ * names `web_search` in the allowlist only. Putting it in the denylist too
+ * would recreate the primary posture and leave the model with nothing to
+ * search with.
+ */
+export const SEARCH_TOOL_NAME = 'web_search'
+
+/**
+ * Built-ins a search turn may advertise on `system`/`init.tools`, and nothing
+ * else. The two MCP meta-tools survive every allowlist (finding 2); they are
+ * inert here because the turn registers no MCP server and `--deny MCPTool`
+ * gates them. `web_search` is the one tool the turn is for.
+ */
+export const SEARCH_INIT_ALLOWLIST: ReadonlySet<string> = new Set([
+  SEARCH_TOOL_NAME,
+  ...VENDOR_META_TOOLS,
+])
+
+/**
+ * Vendor agent rounds allowed inside one hidden search turn.
+ *
+ * The measured search on `grok 1.0.13` used two: the `web_search` call and
+ * the schema-bound answer. The extra room is the same structured-output retry
+ * that made the primary cap not `1`.
+ */
+export const SEARCH_VENDOR_TURN_CAP = 6
+
+/**
+ * Agent model for the hidden search turn, independent of the session's
+ * primary. Search quality is the native `web_search` tool plus a schema
+ * wrapper; `grok-4.5` is enough, measured. A 4.6 session must not spend 4.6
+ * on that wrapper.
+ */
+export const SEARCH_MODEL = 'grok-4.5'
+
+/**
+ * Reasoning effort for the hidden search turn.
+ *
+ * Effort is the agent's thinking budget, not the search index. The query is
+ * supplied verbatim, native `web_search` is required, and empty structured
+ * sources are filled from the tool's own citations -- so high/xhigh buys
+ * latency and tokens, not better hits. Live evidence is `low`.
+ */
+export const SEARCH_EFFORT = 'low'
+
+/** Args for one hidden native-search invocation. */
+export interface HeadlessSearchArgs {
+  readonly promptFile: string
+  readonly schemaJson: string
+  readonly model: string
+  readonly effort?: string
+  readonly system?: string
+  readonly sessionId: string
+  readonly turnCap: number
+}
+
+/**
+ * Argv for one routed `web_search` turn.
+ *
+ * This is a different process from the primary route, with a different
+ * isolation posture: the primary denies web search outright, and this turn
+ * is the one place the vendor is allowed to run `web_search`. Measured on
+ * `grok 1.0.13` / `grok-4.5`:
+ *
+ * - `--tools web_search --disallowed-tools Agent,web_fetch --deny MCPTool`
+ *   left `system`/`init.tools` as `search_tool`, `use_tool`, `web_search`;
+ * - `web_search` is a published read-only tool and ran without
+ *   `--always-approve` (a managed policy can refuse that flag);
+ * - the client tool's result is `{type:"WebSearch", citations: string[]}`,
+ *   and `usage.server_tool_use.web_search_requests` stayed 0 -- that counter
+ *   is backend-hosted search only, so a `json` envelope cannot prove this
+ *   path ran;
+ * - `--json-schema` still bound when `--output-format streaming-messages-json`
+ *   was also set. The docs say the schema flag implies `json`; the explicit
+ *   format flag won, and `structured_output` rode the terminal `result` line.
+ *   The Messages stream is what this backend reads, so both flags stay.
+ *
+ * Deliberately NOT passed: `--disable-web-search`, `--always-approve`/`--yolo`.
+ * `--verbatim` keeps the query from being rewritten by the vendor's prompt
+ * shaping. A fresh `--session-id` every call; search never resumes a session.
+ */
+export function headlessSearchArgv(args: HeadlessSearchArgs): string[] {
+  return [
+    '--prompt-file', args.promptFile,
+    '--output-format', 'streaming-messages-json',
+    '--json-schema', args.schemaJson,
+    '--model', args.model,
+    ...(args.effort === undefined ? [] : ['--reasoning-effort', args.effort]),
+    ...(args.system === undefined ? [] : ['--system-prompt-override', args.system]),
+    '--max-turns', String(args.turnCap),
+    '--tools', SEARCH_TOOL_NAME,
+    '--disallowed-tools', 'Agent,web_fetch',
+    '--deny', 'MCPTool',
+    '--no-subagents',
+    '--no-plan',
+    '--no-auto-update',
+    '--verbatim',
+    '--session-id', args.sessionId,
+  ]
+}
+
 /** Argv for the turn-free ACP handshake that reads the model catalog. */
 export function agentStdioArgv(): string[] {
   return ['agent', 'stdio']

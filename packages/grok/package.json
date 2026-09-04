@@ -1,7 +1,7 @@
 {
   "name": "nishi-dsh-grok",
   "version": "0.1.0-rc.3",
-  "description": "Grok provider plugin for Nishi DSH Suite, routing DSH turns through the user's installed official Grok Build CLI",
+  "description": "Grok provider plugin for Nishi DSH Suite with Grok Build CLI routing, native web search, and local usage visibility",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -21,6 +21,10 @@
       "types": "./lib/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./web-search-backend": {
+      "types": "./lib/web-search-backend.d.ts",
+      "default": "./lib/web-search-backend.js"
+    },
     "./package.json": "./package.json"
   },
   "repository": {
@@ -37,7 +41,9 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:live:primary": "tsx --test test-live/primary.test.ts",
-    "test:live:usage": "tsx --test test-live/usage.test.ts"
+    "test:live:usage": "tsx --test test-live/usage.test.ts",
+    "test:live:web-search": "tsx --test test-live/web-search.test.ts",
+    "test:live:web-search-routed": "tsx --test test-live/web-search-routed.test.ts"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",

@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { headlessTurnArgv, isArgListTooLong, ISOLATION_TOOL_NAME } from '../src/grok-vendor.ts'
+import {
+  headlessSearchArgv,
+  headlessTurnArgv,
+  isArgListTooLong,
+  ISOLATION_TOOL_NAME,
+  SEARCH_EFFORT,
+  SEARCH_MODEL,
+  SEARCH_TOOL_NAME,
+  SEARCH_VENDOR_TURN_CAP,
+} from '../src/grok-vendor.ts'
 
 const base = {
   promptFile: '/tmp/dsh-grok/prompt.json',
@@ -107,4 +116,53 @@ test('E2BIG is recognised from Node spawn errors, not from unrelated messages', 
   assert.equal(isArgListTooLong(error), true)
   assert.equal(isArgListTooLong(new Error('spawn ENOENT')), false)
   assert.equal(isArgListTooLong('nope'), false)
+})
+
+const searchBase = {
+  promptFile: '/tmp/dsh-grok/search-prompt.json',
+  schemaJson: '{"type":"object"}',
+  model: SEARCH_MODEL,
+  effort: SEARCH_EFFORT,
+  sessionId: '00000000-0000-4000-8000-000000000001',
+  turnCap: SEARCH_VENDOR_TURN_CAP,
+}
+
+/**
+ * Search isolation is the inverse of primary isolation: the primary names the
+ * same tool in both flags to reach an empty set, and a search turn names
+ * `web_search` in the allowlist only. Putting it in the denylist too would
+ * leave the model with nothing to search with. `--tools ""` is still the
+ * fail-open spelling and must not appear here either.
+ */
+test('search argv allowlists web_search and does not empty the toolset', () => {
+  const argv = headlessSearchArgv(searchBase)
+  assert.equal(flagValue(argv, '--tools'), SEARCH_TOOL_NAME)
+  assert.notEqual(flagValue(argv, '--tools'), '', 'an empty allowlist is the fail-open spelling')
+  assert.equal(flagValue(argv, '--disallowed-tools'), 'Agent,web_fetch')
+  assert.ok(!flagValue(argv, '--disallowed-tools')?.split(',').includes(SEARCH_TOOL_NAME))
+})
+
+test('search argv is a Messages stream with a schema, not the primary json envelope', () => {
+  const argv = headlessSearchArgv(searchBase)
+  assert.equal(flagValue(argv, '--output-format'), 'streaming-messages-json')
+  assert.equal(flagValue(argv, '--json-schema'), searchBase.schemaJson)
+  assert.equal(flagValue(argv, '--prompt-file'), searchBase.promptFile)
+  assert.ok(!argv.includes('--prompt-json'))
+  assert.equal(flagValue(argv, '--session-id'), searchBase.sessionId)
+  assert.ok(!argv.includes('--resume'))
+  assert.equal(flagValue(argv, '--max-turns'), String(SEARCH_VENDOR_TURN_CAP))
+  assert.equal(flagValue(argv, '--model'), SEARCH_MODEL)
+  assert.equal(flagValue(argv, '--reasoning-effort'), SEARCH_EFFORT)
+})
+
+test('search argv never disables web search and never asks to bypass permissions', () => {
+  const argv = headlessSearchArgv(searchBase)
+  assert.ok(!argv.includes('--disable-web-search'))
+  assert.ok(!argv.includes('--always-approve'))
+  assert.ok(!argv.includes('--yolo'))
+  assert.ok(!argv.includes('--permission-mode'))
+  assert.ok(!argv.includes('bypassPermissions'))
+  assert.equal(flagValue(argv, '--deny'), 'MCPTool')
+  assert.ok(argv.includes('--no-subagents'))
+  assert.ok(argv.includes('--verbatim'))
 })

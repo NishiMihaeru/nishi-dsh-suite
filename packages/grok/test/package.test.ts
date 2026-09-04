@@ -27,6 +27,7 @@ test('Grok source never opts into a vendor permission bypass', async () => {
     await readFile(new URL('../src/index.ts', import.meta.url), 'utf8'),
     await readFile(new URL('../src/grok-primary.ts', import.meta.url), 'utf8'),
     await readFile(new URL('../src/grok-vendor.ts', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/web-search-backend.ts', import.meta.url), 'utf8'),
   ].join('\n')
   assert.doesNotMatch(source, /'--always-approve'/)
   assert.doesNotMatch(source, /'--yolo'/)
@@ -40,6 +41,7 @@ test('Grok source never reads the vendor credential store', async () => {
     await readFile(new URL('../src/model-catalog.ts', import.meta.url), 'utf8'),
     await readFile(new URL('../src/usage.ts', import.meta.url), 'utf8'),
     await readFile(new URL('../src/usage-billing.ts', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/web-search-backend.ts', import.meta.url), 'utf8'),
   ].join('\n')
   assert.doesNotMatch(source, /auth\.json/)
   assert.doesNotMatch(source, /XAI_API_KEY/)

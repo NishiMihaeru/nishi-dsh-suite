@@ -1,8 +1,9 @@
 /**
  * Grok primary provider plugin: the Grok Build CLI bridge.
  *
- * Two capabilities, declared because the vendor actually has them: the
- * `grok-cli` primary model route, and Usage & Limits from ACP `_x.ai/billing`.
+ * Three capabilities, declared because the vendor actually has them: the
+ * `grok-cli` primary model route, Usage & Limits from ACP `_x.ai/billing`,
+ * and a native `web_search` backend for Core's routed search tool.
  *
  * `/usage` is still not a quota channel — it is a TUI billing action, absent
  * from the session's advertised command list, and passing it to the headless
@@ -12,10 +13,15 @@
  * no turn. A reading with no finite percentage inside an open period stays
  * an honest `UNAVAILABLE` rather than invented headroom.
  *
- * There is no search capability yet. The vendor has a native `web_search`
- * tool, so a routed backend is expressible, but this route currently denies
- * web search outright as part of its isolation posture and a search backend
- * needs its own contract read before it is claimed.
+ * Search is a separate hidden headless turn, not the primary process. The
+ * primary argv still passes `--disable-web-search` as part of its isolation
+ * posture. The search backend allowlists `web_search` only, reads the
+ * Messages stream so native search can be proven (the `json` envelope's
+ * `web_search_requests` counter stays 0 on the client-side tool), and never
+ * passes `--always-approve`. The search agent is pinned to `grok-4.5` at
+ * `low` effort regardless of the session's primary model: the native tool
+ * does the retrieval, and a 4.6/xhigh session must not spend that on a
+ * schema wrapper.
  *
  * @module nishi-dsh-grok
  */
@@ -32,6 +38,7 @@ import {
 import { GrokCliAdapter, GROK_PRIMARY_PROVIDER } from './grok-primary.js'
 import { GrokUsageCollector } from './usage.js'
 import { GrokUsageBillingSource } from './usage-billing.js'
+import { GrokSearchBackend } from './web-search-backend.js'
 
 export const name = 'grok'
 export const inject = ['nishiProviders', 'subprocess', 'llm']
@@ -65,6 +72,12 @@ export const DEFAULT_GROK_CONTEXT_WINDOW_TOKENS = 200_000
  * user as "the turn was cancelled" and says nothing about the cap.
  */
 export const DEFAULT_GROK_VENDOR_TURN_CAP = 4
+/**
+ * Timeout for one native Grok `web_search` run. It lives here rather than on
+ * the core's web-search tool because the vendor's own knobs belong to the
+ * vendor's plugin; the tool keeps its separate per-call timeout.
+ */
+export const DEFAULT_GROK_SEARCH_TIMEOUT_MS = 60_000
 
 /** Identity and lookup facts for the Grok Build CLI executable. */
 const GROK_DESCRIPTOR: VendorExecutableDescriptor = {
@@ -94,6 +107,7 @@ export interface Config {
   stderrMaxBytes?: number
   contextWindowTokens?: number
   vendorTurnCap?: number
+  searchTimeoutMs?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -106,6 +120,7 @@ export const Config: Schema<Config> = Schema.object({
   stderrMaxBytes: Schema.number().default(DEFAULT_GROK_STDERR_MAX_BYTES),
   contextWindowTokens: Schema.number().default(DEFAULT_GROK_CONTEXT_WINDOW_TOKENS),
   vendorTurnCap: Schema.number().default(DEFAULT_GROK_VENDOR_TURN_CAP),
+  searchTimeoutMs: Schema.number().default(DEFAULT_GROK_SEARCH_TIMEOUT_MS),
 })
 
 /** Config after merge-and-validate: every field present, `executable` Grok-specific. */
@@ -113,6 +128,7 @@ interface ResolvedGrokConfig extends SharedProviderDefaults {
   readonly executable: string
   readonly contextWindowTokens: number
   readonly vendorTurnCap: number
+  readonly searchTimeoutMs: number
 }
 
 const grokDescriptor: ProviderDescriptor<ResolvedGrokConfig> = {
@@ -167,6 +183,15 @@ const grokDescriptor: ProviderDescriptor<ResolvedGrokConfig> = {
       stderrMaxBytes: config.stderrMaxBytes,
     })),
   },
+  webSearch: {
+    create: (ctx, config) => new GrokSearchBackend(ctx, {
+      executable: config.executable,
+      env: config.env,
+      timeoutMs: config.searchTimeoutMs,
+      disposeGraceMs: config.disposeGraceMs,
+      stderrMaxBytes: config.stderrMaxBytes,
+    }),
+  },
 }
 
 export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void> {
@@ -185,7 +210,18 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
     throw new Error('grok: vendorTurnCap must be a positive integer')
   }
 
-  const config: ResolvedGrokConfig = { ...shared, executable, contextWindowTokens, vendorTurnCap }
+  const searchTimeoutMs = rawConfig.searchTimeoutMs ?? DEFAULT_GROK_SEARCH_TIMEOUT_MS
+  if (!Number.isSafeInteger(searchTimeoutMs) || searchTimeoutMs < 1) {
+    throw new Error('grok: searchTimeoutMs must be a positive integer')
+  }
+
+  const config: ResolvedGrokConfig = {
+    ...shared,
+    executable,
+    contextWindowTokens,
+    vendorTurnCap,
+    searchTimeoutMs,
+  }
 
   await registerProvider(ctx, grokDescriptor, config)
 }
@@ -193,3 +229,9 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
 export { GrokCliAdapter, GROK_PRIMARY_PROVIDER } from './grok-primary.js'
 export { GrokUsageCollector, GrokUsageSourceError } from './usage.js'
 export { GrokUsageBillingSource, GROK_BILLING_METHOD } from './usage-billing.js'
+export {
+  GrokSearchBackend,
+  GrokWebSearchBackendError,
+  SEARCH_VENDOR_TURN_CAP,
+} from './web-search-backend.js'
+export { SEARCH_EFFORT, SEARCH_MODEL } from './grok-vendor.js'

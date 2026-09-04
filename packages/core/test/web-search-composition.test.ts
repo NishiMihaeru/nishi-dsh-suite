@@ -27,8 +27,10 @@ test('the routed web_search tool names no provider and imports no provider packa
 
   assert.doesNotMatch(source, /nishi-dsh-codex/, 'the core resolves backends through the registry')
   assert.doesNotMatch(source, /nishi-dsh-antigravity/)
+  assert.doesNotMatch(source, /nishi-dsh-grok/)
   assert.doesNotMatch(source, /codex/i, 'no provider may be named in the core')
   assert.doesNotMatch(source, /antigravity/i)
+  assert.doesNotMatch(source, /grok/i)
 })
 
 test('there is exactly one web_search tool and no fallback search engine', async () => {
@@ -60,9 +62,12 @@ test('the registered system-prompt guidance warns that search results are untrus
 test('provider packages do not register the model-facing web_search tool', async () => {
   const codex = await readFile(new URL('../../codex/src/index.ts', import.meta.url), 'utf8')
   const antigravity = await readFile(new URL('../../antigravity/src/index.ts', import.meta.url), 'utf8')
+  const grok = await readFile(new URL('../../grok/src/index.ts', import.meta.url), 'utf8')
 
   assert.doesNotMatch(codex, /name:\s*['"]web_search['"]/)
   assert.doesNotMatch(antigravity, /name:\s*['"]web_search['"]/)
+  assert.doesNotMatch(grok, /name:\s*['"]web_search['"]/)
   assert.match(codex, /webSearch:/, 'a provider contributes a backend, not a tool')
   assert.match(antigravity, /webSearch:/)
+  assert.match(grok, /webSearch:/)
 })

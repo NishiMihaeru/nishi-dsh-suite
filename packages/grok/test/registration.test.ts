@@ -36,12 +36,12 @@ test('Grok package registers the grok-cli primary route', async () => {
   )
 })
 
-test('Grok declares usage over ACP billing, and still no search', async () => {
+test('Grok declares usage over ACP billing, and a native search backend', async () => {
   const fixture = fakeContext()
   await grok.apply(fixture.ctx, {})
   const entry = fixture.recorded[0]
   assert.equal(typeof entry.usage?.collector?.collect, 'function')
-  assert.equal(entry.webSearch, undefined)
+  assert.equal(typeof entry.webSearch?.search, 'function')
 })
 
 test('Grok presentation carries no vendor logo path', async () => {
@@ -62,7 +62,7 @@ test('Grok package exposes the independent plugin surface', () => {
   assert.equal(typeof grok.apply, 'function')
 })
 
-test('Grok rejects an empty executable and a non-positive context window', async () => {
+test('Grok rejects an empty executable and a non-positive context window or search timeout', async () => {
   const fixture = fakeContext()
   await assert.rejects(
     () => grok.apply(fixture.ctx, { executable: '  ' }),
@@ -71,5 +71,9 @@ test('Grok rejects an empty executable and a non-positive context window', async
   await assert.rejects(
     () => grok.apply(fixture.ctx, { contextWindowTokens: 0 }),
     /contextWindowTokens must be a positive integer/,
+  )
+  await assert.rejects(
+    () => grok.apply(fixture.ctx, { searchTimeoutMs: 0 }),
+    /searchTimeoutMs must be a positive integer/,
   )
 })
