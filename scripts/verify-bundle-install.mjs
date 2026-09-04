@@ -9,6 +9,7 @@ const LOCAL_FAMILY_PACKAGES = [
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-claude',
+  'nishi-dsh-grok',
 ]
 
 function usage(message) {

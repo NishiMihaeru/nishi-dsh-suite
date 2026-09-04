@@ -11,6 +11,7 @@ const expectedRows = new Map([
   ['nishi-codex', 'nishi-dsh-codex'],
   ['nishi-antigravity', 'nishi-dsh-antigravity'],
   ['nishi-claude', 'nishi-dsh-claude'],
+  ['nishi-grok', 'nishi-dsh-grok'],
   ['nishi-core', 'nishi-dsh-core'],
 ])
 

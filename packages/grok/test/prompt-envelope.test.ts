@@ -1,0 +1,144 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import type { GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import {
+  deltaPromptBlocks,
+  fullPromptBlocks,
+  isOwnReply,
+  messageDigest,
+  promptJson,
+  requestSignature,
+  transportSystemPrompt,
+} from '../src/prompt-envelope.ts'
+import { GROK_PRIMARY_PROVIDER } from '../src/provider-id.ts'
+
+const identity = (id: string) => id
+
+function userMessage(id: string, text: string): Message {
+  return { id, role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] } as any
+}
+
+function ownReply(id: string, text: string): Message {
+  return {
+    id,
+    role: 'assistant',
+    source: { kind: 'model', provider: GROK_PRIMARY_PROVIDER, model: 'grok-4.6' },
+    content: [{ type: 'text', text }],
+  } as any
+}
+
+function options(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
+  return {
+    provider: GROK_PRIMARY_PROVIDER,
+    model: 'grok-4.6',
+    messages: [userMessage('m1', 'hello')],
+    ...overrides,
+  } as GenerateOptions
+}
+
+function envelopeOf(blocks: readonly any[]): any {
+  const resource = blocks.find(block => block.type === 'resource')
+  assert.ok(resource, 'every envelope travels as an embedded ACP resource')
+  return JSON.parse(resource.resource.text)
+}
+
+test('a full envelope rides an ACP resource block, not JSON quoted into prose', () => {
+  const blocks = fullPromptBlocks(options(), identity, 'T1')
+  assert.equal(blocks[0].type, 'text')
+  const resource = blocks[1] as any
+  assert.equal(resource.type, 'resource')
+  assert.equal(resource.resource.mimeType, 'application/json')
+  assert.equal(resource.resource.uri, 'dsh://envelope/full/T1')
+})
+
+test('a full envelope carries the whole history, the catalog, and the stamp', () => {
+  const tools = [{ name: 'memory_read', description: 'read', parameters: { type: 'object' } }]
+  const envelope = envelopeOf(fullPromptBlocks(options({ tools }), identity, 'T1'))
+  assert.equal(envelope.kind, 'full')
+  assert.equal(envelope.turn, 'T1')
+  assert.equal(envelope.messages.length, 1)
+  assert.deepEqual(envelope.tools[0].name, 'memory_read')
+  assert.equal(envelope.tools[0].input_schema.type, 'object')
+})
+
+test('a delta envelope carries only the appended messages and no catalog', () => {
+  const envelope = envelopeOf(deltaPromptBlocks([userMessage('m2', 'more')], identity, 'T2'))
+  assert.equal(envelope.kind, 'delta')
+  assert.equal(envelope.turn, 'T2')
+  assert.equal(envelope.messages.length, 1)
+  assert.equal(envelope.tools, undefined)
+})
+
+test('the prompt argument is the ACP envelope the vendor parser accepts', () => {
+  const parsed = JSON.parse(promptJson(fullPromptBlocks(options(), identity, 'T1')))
+  assert.equal(parsed.type, 'acp')
+  assert.deepEqual(parsed.content.map((block: any) => block.type), ['text', 'resource'])
+})
+
+test('a tool call is serialized under the id the vendor itself minted', () => {
+  const message = {
+    id: 'm3',
+    role: 'assistant',
+    source: { kind: 'model', provider: GROK_PRIMARY_PROVIDER, model: 'grok-4.6' },
+    content: [{ type: 'tool-call', id: 'grok-abc-1', name: 'memory_read', arguments: '{}' }],
+  } as any as Message
+  const view = (dshId: string) => (dshId === 'grok-abc-1' ? 'call_1' : dshId)
+  const envelope = envelopeOf(deltaPromptBlocks([message], view, 'T'))
+  assert.equal(envelope.messages[0].content[0].id, 'call_1')
+})
+
+test('an image block is refused as unsupported rather than dropped silently', () => {
+  const message = {
+    id: 'm4',
+    role: 'user',
+    source: { kind: 'user' },
+    content: [{ type: 'image', attachment: {} }],
+  } as any as Message
+  assert.throws(
+    () => deltaPromptBlocks([message], identity, 'T'),
+    (error: any) => error.code === 'UNSUPPORTED',
+  )
+})
+
+test('the digest changes when content is rewritten under a carried-over id', () => {
+  const before = messageDigest(userMessage('m1', 'hello'))
+  const after = messageDigest(userMessage('m1', 'hello, rewritten'))
+  assert.notEqual(before, after)
+})
+
+test('the digest changes when only source changes', () => {
+  const a = messageDigest(userMessage('m1', 'hello'))
+  const b = messageDigest({ ...userMessage('m1', 'hello'), source: { kind: 'tool', callId: 'c1' } } as any)
+  assert.notEqual(a, b)
+})
+
+test('only this route\'s own assistant replies count as already heard', () => {
+  assert.equal(isOwnReply(ownReply('m5', 'hi')), true)
+  assert.equal(isOwnReply(userMessage('m6', 'hi')), false)
+  assert.equal(
+    isOwnReply({ ...ownReply('m7', 'hi'), source: { kind: 'model', provider: 'codex-app-server', model: 'x' } } as any),
+    false,
+    'a reply replayed from another provider is news to this session',
+  )
+})
+
+test('the signature changes when the catalog, system prompt, model or effort changes', () => {
+  const base = requestSignature(options())
+  assert.notEqual(base, requestSignature(options({ model: 'grok-4.5' })))
+  assert.notEqual(base, requestSignature(options({ system: 'x' })))
+  assert.notEqual(base, requestSignature(options({ reasoningEffort: 'low' as any })))
+  assert.notEqual(
+    base,
+    requestSignature(options({ tools: [{ name: 't', description: 'd', parameters: {} }] })),
+  )
+  assert.equal(base, requestSignature(options({ messages: [userMessage('m9', 'other')] })),
+    'appending history must not rebuild the session')
+})
+
+test('the transport rules keep DSH\'s system prompt beneath them, and stand alone without one', () => {
+  const withSystem = transportSystemPrompt('BE BRIEF')
+  assert.match(withSystem, /model backend for DeepSeek Harness/)
+  assert.match(withSystem, /# DSH system instruction\n\nBE BRIEF$/)
+  const without = transportSystemPrompt(undefined)
+  assert.doesNotMatch(without, /# DSH system instruction/)
+})

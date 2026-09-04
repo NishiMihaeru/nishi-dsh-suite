@@ -22,5 +22,8 @@
     - id: nishi-claude
       name: 'nishi-dsh-claude'
 
+    - id: nishi-grok
+      name: 'nishi-dsh-grok'
+
     - id: nishi-core
       name: 'nishi-dsh-core'

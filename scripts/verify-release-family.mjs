@@ -8,6 +8,7 @@ const packages = [
   ['packages/codex', 'nishi-dsh-codex'],
   ['packages/antigravity', 'nishi-dsh-antigravity'],
   ['packages/claude', 'nishi-dsh-claude'],
+  ['packages/grok', 'nishi-dsh-grok'],
   ['packages/project-memory', 'nishi-dsh-project-memory'],
   ['packages/suite', 'nishi-dsh-suite'],
 ]

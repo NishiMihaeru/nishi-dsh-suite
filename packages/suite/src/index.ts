@@ -6,5 +6,6 @@ export const NISHI_DSH_SUITE_PACKAGES = Object.freeze([
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-claude',
+  'nishi-dsh-grok',
   'nishi-dsh-project-memory',
 ] as const)

@@ -16,9 +16,10 @@ const PROVIDER_PACKAGES = [
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-claude',
+  'nishi-dsh-grok',
 ] as const
-const PROVIDER_IDS = ['codex', 'antigravity', 'claude'] as const
-const PROVIDER_RELATIVE_IMPORT_FRAGMENTS = ['../codex', '../antigravity', '../claude'] as const
+const PROVIDER_IDS = ['codex', 'antigravity', 'claude', 'grok'] as const
+const PROVIDER_RELATIVE_IMPORT_FRAGMENTS = ['../codex', '../antigravity', '../claude', '../grok'] as const
 
 interface CoreManifest {
   dependencies?: Record<string, string>

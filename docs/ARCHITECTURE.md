@@ -25,8 +25,9 @@ A new provider must not require provider-specific Core, Project Memory or browse
 2. `nishi-dsh-codex`
 3. `nishi-dsh-antigravity`
 4. `nishi-dsh-claude`
-5. `nishi-dsh-project-memory`
-6. `nishi-dsh-suite`
+5. `nishi-dsh-grok`
+6. `nishi-dsh-project-memory`
+7. `nishi-dsh-suite`
 
 Supported DSH generation: `0.1.2-rc.1` only. alpha.1 and earlier are unsupported.
 
@@ -351,6 +352,23 @@ Two consequences are worth stating rather than discovering.
 A base id resolved without an explicit effort reports `high` as its default, and DSH materializes adapter defaults into the request header, so a plain `gemini-3.7-flash` turn runs at High. That is a deliberate choice of the strongest tier over the cheapest, taken by the maintainer on 2026-08-31; a route that names its own effort overrides it.
 
 The catalog no longer advertises the suffixed ids, so a subagent allowlist entry naming one — including entries recorded in sessions from before the collapse — will not appear in `list_subagent_models`, even though the adapter still accepts it if a child names it exactly. Allowlists written against the current catalog use base ids.
+
+## Grok steps, and the live child that is not needed
+
+The `grok-cli` route is one short-lived headless process per DSH step, continuing one vendor session. That is not a weaker version of the Antigravity design; it is what this vendor's own contract makes correct, and the difference is measured rather than assumed (`verification/grok-cli-contract.md`).
+
+`packages/antigravity` holds a live `agy` child per DSH session because a fresh process cannot reach the vendor's prefix cache, and everything expensive in that adapter follows from keeping one alive: full/delta envelope negotiation against a process, delivered-prefix matching to decide whether that process may still serve a request, cumulative-usage subtraction because `agy` counts a conversation rather than a turn, an idle reaper, and a per-turn stamp because `structured_output` is never cleared between the turns of one child. On `grok 1.0.13`, a second turn issued by a **new** process under `--resume` reported 140 uncached input tokens against 4,480 read from cache, and reported that turn's own spend. So the cache survives the process boundary, there is nothing to subtract, and a decision cannot go stale inside a result envelope that was created for one invocation.
+
+What survives is the discipline, not the machinery. DSH's history is authoritative and is rewritten behind the adapter's back, so a vendor session is continued only by a request whose messages start with exactly the digests already delivered and whose model, effort, system prompt and tool catalog still match what the session was opened with; anything else opens a new session from DSH's own copy. The session UUID is minted by DSH rather than issued by the vendor, which neither Codex nor `agy` allows. An auxiliary call gets a throwaway session and a schema with no `tool_calls` property, for the same reason it does on the Antigravity route.
+
+The tool transport is the forced output schema, per-tool typed, and the reply carries a per-step stamp — kept even though this vendor has not been seen going stale, because the failure it guards is silent and the schema costs three lines. Tool results travel back as embedded ACP `resource` blocks addressed by call id: `--prompt-json` accepts exactly the ACP block set and has no `tool_result` block, and a resource was measured being read back verbatim, which is a better signal than JSON quoted into a user message.
+
+Isolation is two flags, and the reason it is two rather than one is the single most dangerous fact in this vendor's surface. `--tools ""` reads as total isolation and is a silent no-op: it leaves the model holding the full 25-tool set including shell and file write. Naming one real built-in in `--tools` and the same name in `--disallowed-tools` reaches an empty toolset, leaving only the vendor's two always-on MCP meta-tools, which `--deny MCPTool` then gates. That pair is pinned by a unit test and asserted live against `system`/`init.tools`, because a refactor toward the obvious spelling would fail open. The route never passes `--always-approve`: it executes every tool in DSH, and a transport needing vendor auto-approval is one managed policy away from not running.
+
+Two things this route does not have. There is no usage capability, because the vendor publishes no machine-readable quota channel at all — `/usage` is a TUI billing action, absent from the session's advertised command list, and passing it to the headless entry sends it to the model as prose. Declaring the capability absent is a legal state and shows an honest row; inventing headroom is the one failure a quota display must not have. And there is no search backend yet, although the vendor has a native `web_search` tool, because this route currently denies web search as part of its isolation posture.
+
+The model catalog is the cheapest in the family: the ACP `initialize` handshake publishes every routable model with its real `totalContextTokens` and its reasoning-effort list, at no turn, no session and no token cost. Antigravity has to configure a context window because `agy models` discloses none. That surface is undocumented, so it is pinned against a recorded handshake — the same class of dependency as Codex's `dynamicTools`, and owed the same test.
+
 
 ## Project Memory
 

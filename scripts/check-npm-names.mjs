@@ -4,6 +4,7 @@ const names = [
   'nishi-dsh-codex',
   'nishi-dsh-antigravity',
   'nishi-dsh-claude',
+  'nishi-dsh-grok',
   'nishi-dsh-project-memory',
   'nishi-dsh-suite',
 ]

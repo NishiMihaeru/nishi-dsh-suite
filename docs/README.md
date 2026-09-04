@@ -34,7 +34,7 @@ Not canonical: each is a durable read of something outside this tree, kept becau
 |---|---|
 | `verification/agy-cli-contract.md` | what `agy` publishes, what this suite depends on, and the findings each pass produced |
 | `verification/claude-code-cli-contract.md` | the Claude Code CLI surface a primary route would rest on, and the published terms that bound it. Pre-implementation: nothing in it ships |
-| `verification/grok-cli-contract.md` | the Grok Build CLI surface a `grok` route would rest on, its measured traps, and the `grok`-versus-opencode decision. Includes the xAI terms read (consumer ToS, AUP, Brand Guidelines) and what they settle. Pre-implementation: there is no `packages/grok` |
+| `verification/grok-cli-contract.md` | the Grok Build CLI surface a `grok` route would rest on, its measured traps, and the `grok`-versus-opencode decision. Includes the xAI terms read (consumer ToS, AUP, Brand Guidelines) and what they settle. `packages/grok` was built on it; the rows describe the vendor, not the package |
 | `verification/rc3-review.md` | maintainability review of `feat/core-provider-plugins-rc3` (the review is the file; session forensics and the bugfix queue are addenda). Not evidence, not architecture |
 | `prior-art.md` | how other tools drive vendor CLIs, the three tiers, and which items were taken into `ROADMAP.md` |
 

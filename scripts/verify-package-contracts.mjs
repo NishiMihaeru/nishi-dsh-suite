@@ -6,6 +6,7 @@ const packageDirs = [
   'codex',
   'antigravity',
   'claude',
+  'grok',
   'project-memory',
   'suite',
 ]
