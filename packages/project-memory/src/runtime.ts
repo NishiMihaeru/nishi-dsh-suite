@@ -67,20 +67,40 @@ function isProjectContextMessage(msg: any): boolean {
   )
 }
 
-function hasVisibleProjectContext(agent: any): boolean {
-  const nodes = agent?.session?.surface?.nodes
-  const events = agent?.session?.events
-  if (!nodes || !Array.isArray(nodes) || !events) return false
-  for (const seq of nodes) {
-    const event = events[seq]
-    if (
-      event?.type === 'user/message' &&
-      isProjectContextMessage(event.data)
-    ) {
-      return true
-    }
+/**
+ * The rendered context text carried by a project-context message, or null when
+ * the message is not one. Identity is the payload, not the mere presence of a
+ * marker: a stale copy on the surface must not suppress a changed one.
+ */
+function projectContextText(msg: any): string | null {
+  if (!isProjectContextMessage(msg)) return null
+  const content = msg.content
+  if (!Array.isArray(content) || content.length !== 1) return null
+  const part = content[0]
+  if (part?.type !== 'text' || typeof part.text !== 'string') return null
+  return part.text
+}
+
+/**
+ * Text of the newest project-context message on the model-visible surface, or
+ * null when none is visible.
+ *
+ * `Session` keeps its log private: `surface.nodes` yields absolute seqs that
+ * only `session.eventAt` resolves. Reading the newest entry backwards is what
+ * makes the caller's comparison a freshness check -- an earlier copy that a
+ * later injection superseded is not what the model currently sees.
+ */
+function visibleProjectContext(agent: any): string | null {
+  const session = agent?.session
+  const nodes = session?.surface?.nodes
+  if (!Array.isArray(nodes) || typeof session.eventAt !== 'function') return null
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const event = session.eventAt(nodes[i])
+    if (event?.type !== 'user/message') continue
+    const text = projectContextText(event.data)
+    if (text !== null) return text
   }
-  return false
+  return null
 }
 
 /** Internal runtime registration for project-memory context injection at agent/pre-step. */
@@ -111,8 +131,6 @@ export function registerProjectContextRuntime(ctx: Context): void {
 
       payload.signal?.throwIfAborted()
       if (payload.step === 1 && decision.messages.length === 0) return decision
-      if (hasVisibleProjectContext(payload.agent)) return decision
-      if (decision.messages.some(isProjectContextMessage)) return decision
 
       const rawCwd = payload.agent?.session?.header?.cwd
       if (typeof rawCwd !== 'string' || rawCwd.trim().length === 0 || !isAbsolute(rawCwd)) {
@@ -133,6 +151,14 @@ export function registerProjectContextRuntime(ctx: Context): void {
 
       const rendered = renderDshProjectContext(projectContext)
       if (!rendered) return decision
+
+      // Re-inject only what the model is not already looking at. Comparing the
+      // rendered payload rather than the marker keeps an edited DSH.md or
+      // MEMORY.md reaching the model, while an unchanged one costs nothing:
+      // every injected message is appended to the surface and therefore
+      // re-sent with every later request in the session.
+      if (visibleProjectContext(payload.agent) === rendered) return decision
+      if (decision.messages.some((msg) => projectContextText(msg) === rendered)) return decision
 
       const contextMessage = createUserMessage({
         source: {
