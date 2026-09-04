@@ -16,11 +16,7 @@
  *
  * @module nishi-dsh-grok/model-catalog
  */
-import {
-  scrubbedParentEnv,
-  type SubprocessHandle,
-  type SubprocessSpawnSpec,
-} from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { disposeVendorChild, outputLines } from 'nishi-dsh-core/runtime'
 import { record } from './grok-vendor.js'
 
@@ -157,7 +153,8 @@ export async function readAcpInitialize(spec: AcpHandshakeSpec): Promise<unknown
     },
     graceMs: spec.disposeGraceMs,
     signal,
-    env: { ...scrubbedParentEnv(), ...spec.env },
+    // Explicit entries only; the subprocess runtime owns the scrubbed base.
+    env: { ...spec.env },
   })
 
   const stdin = child.stdin

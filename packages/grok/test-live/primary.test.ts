@@ -120,6 +120,7 @@ const testConfig = {
   disposeGraceMs: 3_000,
   stderrMaxBytes: 64_000,
   contextWindowTokens: 200_000,
+  vendorTurnCap: 4,
 } as const
 
 interface Collected {
@@ -203,6 +204,7 @@ test('GROK LIVE: 2. the shipped argv leaves the model no vendor tool but the MCP
     effort: LIVE_EFFORT,
     sessionId: crypto.randomUUID(),
     resume: false,
+    turnCap: 4,
   })
   const format = argv.indexOf('--output-format')
   argv[format + 1] = 'streaming-messages-json'

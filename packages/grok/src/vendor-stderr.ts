@@ -37,6 +37,16 @@ const GROK_STDERR_RECOGNIZERS: readonly VendorStderrRecognizer[] = [
     message: (match) => `Grok Build CLI could not reach the network (${match[1] ?? match[0]}).`,
   },
   {
+    // Measured on `grok 1.0.13` while diagnosing the first real DSH request:
+    // the vendor exhausts `--max-turns` and reports it as
+    // `stopReason: "cancelled"` with this line on stderr. Without the
+    // recogniser the two endings are indistinguishable, and the wrong one
+    // reaches the user as "the turn was cancelled".
+    category: 'turn-cap',
+    pattern: /max turns reached/i,
+    message: () => 'Grok Build CLI used up the agent rounds this step allows before answering.',
+  },
+  {
     // Measured on `grok 1.0.13`: `grok agent --always-approve stdio` exits
     // printing exactly this, because `/etc/grok/requirements.toml` on that
     // machine pins `disable_bypass_permissions_mode = true`. This route never

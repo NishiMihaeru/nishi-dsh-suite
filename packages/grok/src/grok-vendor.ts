@@ -74,6 +74,8 @@ export interface HeadlessTurnArgs {
   readonly sessionId: string
   /** Whether this invocation continues that session rather than opening it. */
   readonly resume: boolean
+  /** Ceiling on the vendor's own agent rounds for this step; see {@link headlessTurnArgv}. */
+  readonly turnCap: number
 }
 
 /**
@@ -90,8 +92,14 @@ export interface HeadlessTurnArgs {
  *
  * - `--output-format json` is the one envelope this package parses, and
  *   `--json-schema` implies it anyway;
- * - `--max-turns 1` bounds the vendor's own agent loop to a single model
- *   round, which is the stepped shape DSH wants: DSH owns the loop;
+ * - `--max-turns` bounds the vendor's own agent loop, because DSH owns the
+ *   loop. It is deliberately NOT `1`: the vendor spends a round when the model
+ *   answers outside the schema and its structured-output retry has to ask
+ *   again, and a cap of one turns that ordinary hiccup into a dead step. It was
+ *   `1`, and the first real DSH request measured the cost -- the model spent
+ *   its only round deciding to fetch the attached envelope, the vendor stderr
+ *   read `Error: max turns reached`, and the step died reporting
+ *   `stopReason: "cancelled"`;
  * - `--tools`/`--disallowed-tools` are the isolation posture (see
  *   {@link ISOLATION_TOOL_NAME}), and `Agent` in the denylist is the
  *   published spelling for "spawn no subagents";
@@ -115,7 +123,7 @@ export function headlessTurnArgv(args: HeadlessTurnArgs): string[] {
     '--model', args.model,
     ...(args.effort === undefined ? [] : ['--reasoning-effort', args.effort]),
     ...(args.system === undefined ? [] : ['--system-prompt-override', args.system]),
-    '--max-turns', '1',
+    '--max-turns', String(args.turnCap),
     '--tools', ISOLATION_TOOL_NAME,
     '--disallowed-tools', `${ISOLATION_TOOL_NAME},Agent`,
     '--deny', 'MCPTool',

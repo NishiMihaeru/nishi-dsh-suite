@@ -22,17 +22,15 @@ import { GROK_PRIMARY_PROVIDER } from './provider-id.js'
  */
 const PROTOCOL = 'dsh-grok-primary-v1'
 
-/** One ACP content block, in the vendor's own vocabulary. */
-export type AcpBlock =
-  | { readonly type: 'text'; readonly text: string }
-  | {
-    readonly type: 'resource'
-    readonly resource: {
-      readonly uri: string
-      readonly mimeType: string
-      readonly text: string
-    }
-  }
+/**
+ * One ACP content block, in the vendor's own vocabulary.
+ *
+ * Only `text` is constructed. The vendor also accepts `image`, `audio`,
+ * `resource_link` and `resource`; the last was tried and withdrawn (see
+ * {@link fullPromptBlocks}), and images are refused as unsupported until this
+ * route carries them properly.
+ */
+export type AcpBlock = { readonly type: 'text'; readonly text: string }
 
 /**
  * The transport rules, prepended to DSH's own system prompt.
@@ -50,7 +48,9 @@ export function transportSystemPrompt(dshSystem: string | undefined): string {
     '- Your Grok tool allowlist is empty. DSH owns tools, permissions, durable history,',
     '  workspace access, memory, and execution; never attempt Grok-native filesystem, shell,',
     '  web, MCP, plugin, skill, or subagent tools.',
-    '- Each user turn carries one DSH envelope as an attached JSON resource.',
+    '- Each user turn IS one DSH envelope: a single JSON object, inline in the message text.',
+    '  It is already in front of you. There is nothing to open, fetch, or read with a tool,',
+    '  and no file exists for it.',
     `- Every envelope carries a \`${DECISION_TURN_FIELD}\` field. Copy its value into the`,
     `  \`${DECISION_TURN_FIELD}\` field of your reply, unchanged. It identifies which envelope you`,
     '  are answering; a reply carrying any other value is discarded.',
@@ -124,32 +124,25 @@ function serializeMessage(message: Message, view: CallIdView): unknown {
 }
 
 function envelopeBlocks(kind: 'full' | 'delta', body: Record<string, unknown>): AcpBlock[] {
-  const text = kind === 'full'
-    ? 'A DSH `full` envelope is attached as a JSON resource. Answer it under the active schema.'
-    : 'A DSH `delta` envelope is attached as a JSON resource. Answer it under the active schema.'
-  return [
-    { type: 'text', text },
-    {
-      type: 'resource',
-      resource: {
-        uri: `dsh://envelope/${kind}/${String(body[DECISION_TURN_FIELD])}`,
-        mimeType: 'application/json',
-        text: JSON.stringify({ protocol: PROTOCOL, kind, ...body }),
-      },
-    },
-  ]
+  return [{ type: 'text', text: JSON.stringify({ protocol: PROTOCOL, kind, ...body }) }]
 }
 
 /**
  * The envelope opening a vendor session: the whole request, once.
  *
- * It travels as an embedded ACP `resource` rather than as JSON quoted into a
- * text block, which is what the sibling Antigravity route has to do. That is a
- * measured choice: a `resource` block carrying `uri`, `mimeType` and `text`
- * was read back verbatim by the model on `grok 1.0.13`
- * (`grok-cli-contract.md`, finding 7), and `--prompt-json` accepts exactly the
- * ACP block set -- `text`, `image`, `audio`, `resource_link`, `resource` -- and
- * has no `tool_result` block to use instead (finding 6).
+ * It travels as one `text` block, and the alternative is worth recording
+ * because it was tried and measured. `--prompt-json` accepts exactly the ACP
+ * block set -- `text`, `image`, `audio`, `resource_link`, `resource` -- with no
+ * `tool_result` block (finding 6), and an embedded `resource` carrying `uri`,
+ * `mimeType` and `text` WAS read back verbatim by the model in isolation
+ * (finding 7). It failed on the first real DSH request anyway: handed a
+ * 29-tool agent catalog, the model treated a `dsh://` resource as something to
+ * open and spent its round calling DSH's own `read` on it -- and with a
+ * one-round cap that killed the step. Raising the cap alone was not enough:
+ * the model then answered with a `read` call and a stamp it had invented,
+ * which is the signature of a payload it never actually saw. The same envelope
+ * as plain text answered correctly, with the right stamp, at a cap of one.
+ * A resource is readable; a resource in front of an agent is a thing to fetch.
  */
 export function fullPromptBlocks(
   options: GenerateOptions,

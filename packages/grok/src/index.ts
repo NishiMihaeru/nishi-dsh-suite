@@ -53,6 +53,17 @@ export const DEFAULT_GROK_STDERR_MAX_BYTES = 64_000
  * fold, while not compacting at all costs the session.
  */
 export const DEFAULT_GROK_CONTEXT_WINDOW_TOKENS = 200_000
+/**
+ * Vendor agent rounds allowed inside one DSH step.
+ *
+ * DSH owns the loop, so this is a backstop rather than a budget: one round
+ * answers, and the rest exist because the vendor spends a round on its own
+ * structured-output retry when the model first answers outside the schema.
+ * It was `1`, and the first real DSH request died on it -- the vendor reported
+ * `stopReason: "cancelled"` with `Error: max turns reached`, which reaches a
+ * user as "the turn was cancelled" and says nothing about the cap.
+ */
+export const DEFAULT_GROK_VENDOR_TURN_CAP = 4
 
 /** Identity and lookup facts for the Grok Build CLI executable. */
 const GROK_DESCRIPTOR: VendorExecutableDescriptor = {
@@ -81,6 +92,7 @@ export interface Config {
   disposeGraceMs?: number
   stderrMaxBytes?: number
   contextWindowTokens?: number
+  vendorTurnCap?: number
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -92,12 +104,14 @@ export const Config: Schema<Config> = Schema.object({
   disposeGraceMs: Schema.number().default(DEFAULT_GROK_DISPOSE_GRACE_MS),
   stderrMaxBytes: Schema.number().default(DEFAULT_GROK_STDERR_MAX_BYTES),
   contextWindowTokens: Schema.number().default(DEFAULT_GROK_CONTEXT_WINDOW_TOKENS),
+  vendorTurnCap: Schema.number().default(DEFAULT_GROK_VENDOR_TURN_CAP),
 })
 
 /** Config after merge-and-validate: every field present, `executable` Grok-specific. */
 interface ResolvedGrokConfig extends SharedProviderDefaults {
   readonly executable: string
   readonly contextWindowTokens: number
+  readonly vendorTurnCap: number
 }
 
 const grokDescriptor: ProviderDescriptor<ResolvedGrokConfig> = {
@@ -129,6 +143,7 @@ const grokDescriptor: ProviderDescriptor<ResolvedGrokConfig> = {
       disposeGraceMs: config.disposeGraceMs,
       stderrMaxBytes: config.stderrMaxBytes,
       contextWindowTokens: config.contextWindowTokens,
+      vendorTurnCap: config.vendorTurnCap,
     }),
   },
 }
@@ -144,7 +159,12 @@ export async function apply(ctx: Context, rawConfig: Config = {}): Promise<void>
     throw new Error('grok: contextWindowTokens must be a positive integer')
   }
 
-  const config: ResolvedGrokConfig = { ...shared, executable, contextWindowTokens }
+  const vendorTurnCap = rawConfig.vendorTurnCap ?? DEFAULT_GROK_VENDOR_TURN_CAP
+  if (!Number.isSafeInteger(vendorTurnCap) || vendorTurnCap < 1) {
+    throw new Error('grok: vendorTurnCap must be a positive integer')
+  }
+
+  const config: ResolvedGrokConfig = { ...shared, executable, contextWindowTokens, vendorTurnCap }
 
   await registerProvider(ctx, grokDescriptor, config)
 }

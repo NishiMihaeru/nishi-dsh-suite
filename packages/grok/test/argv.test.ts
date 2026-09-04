@@ -8,6 +8,7 @@ const base = {
   model: 'grok-4.6',
   sessionId: '00000000-0000-4000-8000-000000000000',
   resume: false,
+  turnCap: 4,
 }
 
 function flagValue(argv: readonly string[], flag: string): string | undefined {
@@ -48,8 +49,18 @@ test('turn argv never asks the vendor to bypass its own permissions', () => {
   assert.ok(!argv.includes('bypassPermissions'))
 })
 
-test('turn argv bounds the vendor agent loop to one model round', () => {
-  assert.equal(flagValue(headlessTurnArgv(base), '--max-turns'), '1')
+/**
+ * The cap is a backstop, not a budget, and it is deliberately not `1`.
+ *
+ * It was `1`, and the first real DSH request died on it: the model spent its
+ * only round deciding to fetch the envelope, the vendor's stderr read
+ * `Error: max turns reached`, and the step surfaced as `stopReason:
+ * "cancelled"` -- which reaches a user as "the turn was cancelled" and names
+ * nothing that could be fixed.
+ */
+test('turn argv bounds the vendor agent loop, with room for its own schema retry', () => {
+  assert.equal(flagValue(headlessTurnArgv(base), '--max-turns'), '4')
+  assert.equal(flagValue(headlessTurnArgv({ ...base, turnCap: 2 }), '--max-turns'), '2')
 })
 
 test('turn argv opens a client-minted session and later resumes it', () => {

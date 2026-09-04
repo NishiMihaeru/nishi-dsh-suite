@@ -19,12 +19,12 @@ Per DSH step, one process:
 ```text
 grok --prompt-json <ACP blocks> --output-format json --json-schema <decision schema>
      --model <id> [--reasoning-effort <effort>] --system-prompt-override <DSH system>
-     --max-turns 1 --tools read_file --disallowed-tools read_file,Agent --deny MCPTool
+     --max-turns 4 --tools read_file --disallowed-tools read_file,Agent --deny MCPTool
      --disable-web-search --no-subagents --no-plan --no-auto-update
      (--session-id <uuid> | --resume <uuid>)
 ```
 
-Four measured facts shape that line, all recorded in `docs/verification/grok-cli-contract.md`:
+Five measured facts shape that line, all recorded in `docs/verification/grok-cli-contract.md`:
 
 **`--resume` keeps the prefix cache across processes.** A second turn in a new process reported 140 uncached input tokens against 4,480 read from cache. The sibling Antigravity route holds a live vendor child per DSH session precisely because a fresh `agy` process cannot do this; here there is no live child, no delta-versus-full negotiation with a process, and no idle reaper.
 
@@ -32,7 +32,9 @@ Four measured facts shape that line, all recorded in `docs/verification/grok-cli
 
 **`--tools ""` is a silent no-op.** An empty allowlist leaves the model holding the full 25-tool set, including shell and file write. Naming one real tool in the allowlist *and* the same tool in the denylist is what reaches an empty toolset; only the vendor's two MCP meta-tools survive, and `--deny MCPTool` gates those. `test/argv.test.ts` pins this, because the safe-looking spelling fails open.
 
-**Tool results travel as typed ACP resources.** `--prompt-json` accepts exactly the ACP block set — `text`, `image`, `audio`, `resource_link`, `resource` — and has no `tool_result` block. A DSH envelope therefore rides an embedded `resource` with its own `uri` and `mimeType`, which the model was measured reading back verbatim, rather than as JSON quoted into a user message.
+**The envelope is the message, not an attachment to it.** `--prompt-json` accepts exactly the ACP block set — `text`, `image`, `audio`, `resource_link`, `resource` — and has no `tool_result` block, so a DSH step travels as one JSON envelope in a `text` block. An embedded `resource` was tried first: it is readable in isolation, and it fails in front of an agent. Handed DSH's 29-tool catalog, the model treated a `dsh://` resource as something to open and spent its round calling DSH's own `read` on it. A capability probed on a bare prompt tells you what the vendor can do, not what a model will do when it is holding tools.
+
+**The vendor's own agent loop gets a few rounds, not one.** `--max-turns 1` looks like the exact stepped shape and is a trap: the vendor spends a round on its structured-output retry whenever the model first answers outside the schema, and the cap turns that ordinary hiccup into a dead step reported as `stopReason: "cancelled"` — which reaches the user as "the turn was cancelled" and names nothing fixable. The cap is `vendorTurnCap`, defaulting to 4, and an exhausted cap is classified from the vendor's own `Error: max turns reached` rather than from the overloaded stop reason.
 
 ## Session continuation
 
@@ -56,4 +58,4 @@ Nothing here bundles or redistributes the `grok` binary, and nothing reads its c
 
 ## Status
 
-Pre-acceptance. The transport is covered by focused tests and was probed end to end against real `grok 1.0.13`; no live suite and no product-level profile acceptance has been run for this route yet.
+Pre-acceptance. 59 focused tests, and `pnpm test:live:primary` passes 4/4 against real `grok 1.0.13`. The route has served a real DSH request in the `web` profile -- the first one failed, and findings 16 and 17 of the contract file are what it cost. No product-level profile acceptance run has been recorded yet.

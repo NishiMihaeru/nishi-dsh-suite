@@ -21,6 +21,15 @@ export interface HeadlessResult {
   readonly usage: TokenUsage | undefined
   /** The vendor's own error message, when the envelope is the error shape. */
   readonly errorMessage: string | undefined
+  /**
+   * Whether the vendor reported that the model produced no schema-bound output.
+   *
+   * Only whether, never what: the field is vendor-authored text and never
+   * reaches a diagnostic. It is worth reading because it separates "the model
+   * answered outside the schema" from every other way a turn can end without a
+   * decision, and that distinction decides whether asking again would help.
+   */
+  readonly noStructuredOutput: boolean
 }
 
 function numeric(value: unknown): number | undefined {
@@ -109,6 +118,8 @@ export function parseHeadlessResult(stdout: string): HeadlessResult {
     structuredOutput: envelope.structuredOutput ?? envelope.structured_output,
     usage: usageFrom(envelope.usage, incomplete),
     errorMessage,
+    noStructuredOutput: typeof envelope.structuredOutputError === 'string'
+      && envelope.structuredOutputError.length > 0,
   }
 }
 
@@ -133,6 +144,9 @@ export function decisionPayload(result: HeadlessResult): unknown {
   }
 }
 
+/** The vendor's stderr wording for an exhausted `--max-turns`, measured on 1.0.13. */
+const MAX_TURNS_REACHED = /max turns reached/i
+
 /** How one turn ended, in terms this route acts on. */
 export type Settlement =
   | { readonly kind: 'success' }
@@ -148,14 +162,18 @@ export type Settlement =
  * rather than collapsing into one failure, because they are not the same
  * event: a cancellation is not a failure of the turn, an output-cap stop is a
  * recoverable signal DSH already understands, and `max_turn_requests` on a
- * route that pins `--max-turns 1` means the model tried to run the vendor's
- * own agent loop instead of answering.
+ * route that caps the vendor's rounds at a handful means the model tried to
+ * run the vendor's own agent loop instead of answering.
  *
  * An absent or unrecognised stop reason settles as failed: an ending this
  * route cannot name, over input the vendor has already consumed, must not read
  * as success.
  */
-export function settlement(result: HeadlessResult, exitCode: number | null): Settlement {
+export function settlement(
+  result: HeadlessResult,
+  exitCode: number | null,
+  stderrText?: string,
+): Settlement {
   if (result.errorMessage !== undefined) return { kind: 'failed', category: 'vendor-error' }
   switch (result.stopReason) {
     case 'end_turn':
@@ -163,7 +181,16 @@ export function settlement(result: HeadlessResult, exitCode: number | null): Set
     case 'max_tokens':
       return { kind: 'max-tokens' }
     case 'cancelled':
-      return { kind: 'cancelled' }
+      // `cancelled` is the vendor's word for two different endings, and only
+      // one of them is a cancellation. Exhausting `--max-turns` reports
+      // `stopReason: "cancelled"` with `Error: max turns reached` on stderr --
+      // measured on `grok 1.0.13` while diagnosing the first real DSH request.
+      // Reporting that as ABORTED tells the DSH loop the user stopped the
+      // turn, which is a lie about who ended it and hides the one condition
+      // this route can actually do something about.
+      return MAX_TURNS_REACHED.test(stderrText ?? '')
+        ? { kind: 'failed', category: 'turn-cap' }
+        : { kind: 'cancelled' }
     case 'refusal':
       return { kind: 'failed', category: 'refusal' }
     case 'max_turn_requests':

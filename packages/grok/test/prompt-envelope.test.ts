@@ -37,18 +37,26 @@ function options(overrides: Partial<GenerateOptions> = {}): GenerateOptions {
 }
 
 function envelopeOf(blocks: readonly any[]): any {
-  const resource = blocks.find(block => block.type === 'resource')
-  assert.ok(resource, 'every envelope travels as an embedded ACP resource')
-  return JSON.parse(resource.resource.text)
+  assert.equal(blocks.length, 1, 'one step is one envelope block')
+  assert.equal(blocks[0].type, 'text')
+  return JSON.parse(blocks[0].text)
 }
 
-test('a full envelope rides an ACP resource block, not JSON quoted into prose', () => {
+/**
+ * The envelope is the message, not an attachment to it.
+ *
+ * An embedded ACP `resource` was tried first and withdrawn on measurement:
+ * handed a 29-tool agent catalog, the model treated a `dsh://` resource as
+ * something to open and spent its round calling DSH's own `read` on it, then
+ * answered with a stamp it had invented. A resource is readable; a resource in
+ * front of an agent is a thing to fetch.
+ */
+test('a full envelope is the message text, with nothing to fetch', () => {
   const blocks = fullPromptBlocks(options(), identity, 'T1')
+  assert.equal(blocks.length, 1)
   assert.equal(blocks[0].type, 'text')
-  const resource = blocks[1] as any
-  assert.equal(resource.type, 'resource')
-  assert.equal(resource.resource.mimeType, 'application/json')
-  assert.equal(resource.resource.uri, 'dsh://envelope/full/T1')
+  assert.doesNotMatch(JSON.stringify(blocks), /dsh:\/\//)
+  assert.doesNotMatch(JSON.stringify(blocks), /resource/)
 })
 
 test('a full envelope carries the whole history, the catalog, and the stamp', () => {
@@ -72,7 +80,7 @@ test('a delta envelope carries only the appended messages and no catalog', () =>
 test('the prompt argument is the ACP envelope the vendor parser accepts', () => {
   const parsed = JSON.parse(promptJson(fullPromptBlocks(options(), identity, 'T1')))
   assert.equal(parsed.type, 'acp')
-  assert.deepEqual(parsed.content.map((block: any) => block.type), ['text', 'resource'])
+  assert.deepEqual(parsed.content.map((block: any) => block.type), ['text'])
 })
 
 test('a tool call is serialized under the id the vendor itself minted', () => {
@@ -133,6 +141,13 @@ test('the signature changes when the catalog, system prompt, model or effort cha
   )
   assert.equal(base, requestSignature(options({ messages: [userMessage('m9', 'other')] })),
     'appending history must not rebuild the session')
+})
+
+test('the transport rules say the envelope is inline, never an attachment', () => {
+  const rules = transportSystemPrompt(undefined)
+  assert.match(rules, /inline in the message text/)
+  assert.match(rules, /nothing to open, fetch, or read with a tool/)
+  assert.doesNotMatch(rules, /attached/)
 })
 
 test('the transport rules keep DSH\'s system prompt beneath them, and stand alone without one', () => {

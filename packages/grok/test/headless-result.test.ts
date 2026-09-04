@@ -117,6 +117,38 @@ test('a missing stop reason never settles as success', () => {
   assert.deepEqual(crashed, { kind: 'failed', category: 'process-failure' })
 })
 
+/**
+ * `cancelled` is the vendor's word for two different endings.
+ *
+ * Exhausting `--max-turns` reports `stopReason: "cancelled"` with
+ * `Error: max turns reached` on stderr -- measured on `grok 1.0.13` while
+ * diagnosing the first real DSH request. Reporting that as a cancellation
+ * tells the DSH loop the user stopped the turn, which is a lie about who ended
+ * it and hides the one condition this route can act on.
+ */
+test('an exhausted turn cap is a failure, not a cancellation', () => {
+  const result = parseHeadlessResult(JSON.stringify({ text: '', stopReason: 'cancelled' }))
+  assert.deepEqual(
+    settlement(result, 1, 'Error: max turns reached\n'),
+    { kind: 'failed', category: 'turn-cap' },
+  )
+  assert.deepEqual(settlement(result, 1, ''), { kind: 'cancelled' })
+  assert.deepEqual(settlement(result, 1), { kind: 'cancelled' })
+})
+
+test('a turn that produced no schema-bound output says so, without quoting the vendor', () => {
+  const result = parseHeadlessResult(JSON.stringify({
+    text: '',
+    stopReason: 'cancelled',
+    structuredOutput: null,
+    structuredOutputError: 'model did not produce structured output',
+  }))
+  assert.equal(result.noStructuredOutput, true)
+  assert.equal(decisionPayload(result), undefined)
+  const clean = parseHeadlessResult(JSON.stringify({ text: '', stopReason: 'end_turn' }))
+  assert.equal(clean.noStructuredOutput, false)
+})
+
 test('the error envelope settles as a vendor error and keeps its message off the result', () => {
   const result = parseHeadlessResult(JSON.stringify({
     type: 'error',

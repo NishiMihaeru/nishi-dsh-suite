@@ -38,7 +38,6 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
-import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { assertExecutableDecision, decisionSchemaFor, readDecision, type Decision } from './decision-schema.js'
 import {
   agentStdioArgv,
@@ -86,6 +85,15 @@ export interface GrokPrimaryConfig {
    * would grow its history without bound and silently.
    */
   readonly contextWindowTokens: number
+  /**
+   * Ceiling on the vendor's own agent rounds within one DSH step.
+   *
+   * DSH owns the loop, so the vendor needs very few: the round that answers,
+   * plus room for its structured-output retry when the model first answers
+   * outside the schema. It is not `1` because that was measured turning an
+   * ordinary retry into a dead step.
+   */
+  readonly vendorTurnCap: number
 }
 
 /**
@@ -198,7 +206,7 @@ export class GrokCliAdapter extends LlmAdapter {
     const { session, blocks } = this.prepareTurn(options, turn, auxiliary)
     const outcome = await this.runTurn(options, session, blocks, auxiliary)
 
-    const settled = settlement(outcome.result, outcome.exitCode)
+    const settled = settlement(outcome.result, outcome.exitCode, outcome.stderrText)
     if (settled.kind !== 'success') {
       this.forget(options, session)
       throw this.turnFailure(settled, outcome)
@@ -403,6 +411,7 @@ export class GrokCliAdapter extends LlmAdapter {
       system: transportSystemPrompt(options.system),
       sessionId: session.id,
       resume,
+      turnCap: this.config.vendorTurnCap,
     })
 
     const collected = await this.runCollected(argv, this.config.turnTimeoutMs, options.signal)
@@ -497,7 +506,11 @@ export class GrokCliAdapter extends LlmAdapter {
       },
       graceMs: this.config.disposeGraceMs,
       signal,
-      env: { ...scrubbedParentEnv(), ...invocation.env },
+      // Explicit entries only. The subprocess runtime merges them onto its own
+      // scrubbed parent base, so re-spreading that base here would turn every
+      // ambient entry into a deliberate caller opt-in -- which is the documented
+      // way a credential-shaped entry survives the scrub.
+      env: { ...invocation.env },
     })
     this.activeChildren.add(child)
     try {
