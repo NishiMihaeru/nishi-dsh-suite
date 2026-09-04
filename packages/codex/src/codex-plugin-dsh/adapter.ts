@@ -192,6 +192,20 @@ interface ActiveCodexTurn {
  * Ignore this many retrying App Server errors in a row; the next one fails the
  * turn. Any notification for this turn resets the run, so the bound is on
  * thrashing rather than on a turn's lifetime.
+ *
+ * Measured on real `codex-cli 0.150.0`, pointing `model_provider` at a dead
+ * endpoint: the vendor retries on an exponential backoff that flattens to a
+ * steady ~63 s, and **it never gives up** -- 14 `willRetry: true` errors over
+ * 660 s with no `willRetry: false` and no `turn/failed`. So without a bound
+ * here the turn really does sit for the whole `turnTimeoutMs` and bill for it,
+ * which is what this exists to stop.
+ *
+ * The backoff schedule is what makes the threshold legible rather than
+ * arbitrary. Errors arrive at +3.5 s, +11.5 s, +24.5 s, +47.6 s, +90.5 s,
+ * +153.5 s, then every ~63 s. Failing on the third consecutive error gives the
+ * vendor about **25 seconds** to reconnect; raising the bound to 3 would give
+ * ~48 s, to 4 ~91 s. Twenty-five seconds is a long transient and a short wait,
+ * so it stays -- but it is now a choice on a curve, not a number.
  */
 const MAX_CONSECUTIVE_RETRYING_ERRORS = 2
 

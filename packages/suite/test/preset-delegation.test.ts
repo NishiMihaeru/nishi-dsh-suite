@@ -60,6 +60,74 @@ test('forked delegation stays on the parent route', async () => {
   assert.equal(fork.maxDepth, 1)
 })
 
+/**
+ * Every preset row that can start a child agent, and whether the row bounds
+ * recursion. `maxDepth` is enforced by the subagent PROVIDER, from a value the
+ * calling tool passes per request: `resolveChildDepth(parent, request.maxDepth)`
+ * refuses when `parent depth + 1 > maxDepth`, and an absent cap refuses
+ * nothing. The spawn provider advertises `depthLimit` but carries no default of
+ * its own, so an uncapped caller is uncapped in fact.
+ */
+const CHILD_STARTING_ROWS: ReadonlyArray<{ id: string; capped: boolean; why: string }> = [
+  { id: 'tool-subagent', capped: true, why: 'the delegation tool children also mount' },
+  { id: 'tool-subagent-fork', capped: true, why: 'the fork tool children also mount' },
+  {
+    id: 'tool-workflow',
+    capped: false,
+    why: 'upstream `@deepseek-ai/dsh-tool-workflow` Config accepts only `toolName` and '
+      + '`maxResultChars`; it passes no `maxDepth` and offers no knob to set one',
+  },
+  {
+    id: 'tool-ralph',
+    capped: false,
+    why: 'upstream `@deepseek-ai/dsh-tool-ralph` Config accepts `subagentProvider`, `maxRounds` '
+      + 'and the char caps; it passes no `maxDepth`',
+  },
+  {
+    id: 'workflow-worker-thread',
+    capped: false,
+    why: 'the worker-thread provider row names a subagent provider and passes no `maxDepth`',
+  },
+]
+
+test('every child-starting preset row is either depth-capped or a recorded exception', async () => {
+  // The guard this file was missing. `subagent` and `subagent_fork` are capped
+  // at depth 1, which is what stops a child delegating again -- but children
+  // keep this same catalog, and `workflow`, `ralph` and the worker-thread row
+  // start children too. A future row that spawns without a cap, or an upstream
+  // package that grows a `maxDepth` knob this preset does not set, must fail
+  // here rather than widen the tree silently.
+  const rows = await delegationRows()
+  const composition = parse(await readFile(compositionUrl, 'utf8'), { logLevel: 'silent' }) as Row[]
+  const everyRow = composition.flatMap(group => (Array.isArray(group.config) ? group.config : [group]))
+
+  for (const expected of CHILD_STARTING_ROWS) {
+    const found = everyRow.find(candidate => candidate.id === expected.id)
+    assert.ok(found !== undefined, `${expected.id} must still be in the preset (${expected.why})`)
+    const rowConfig = found.config !== undefined && !Array.isArray(found.config) ? found.config : {}
+    assert.equal(
+      'maxDepth' in rowConfig,
+      expected.capped,
+      expected.capped
+        ? `${expected.id} must carry maxDepth: ${expected.why}`
+        : `${expected.id} now carries maxDepth; the recorded exception is stale: ${expected.why}`,
+    )
+  }
+
+  // No delegation row may start children without appearing above. A new row
+  // naming a subagent provider is a new recursion vector.
+  const delegationProviderRows = rows.filter(candidate => {
+    const rowConfig = candidate.config !== undefined && !Array.isArray(candidate.config) ? candidate.config : {}
+    return 'provider' in rowConfig || 'subagentProvider' in rowConfig
+  })
+  for (const candidate of delegationProviderRows) {
+    assert.ok(
+      CHILD_STARTING_ROWS.some(known => known.id === candidate.id),
+      `delegation row "${candidate.id}" starts children but is not recorded in CHILD_STARTING_ROWS`,
+    )
+  }
+})
+
 test('the preset contributes no subagent provider of its own', async () => {
   const rows = await delegationRows()
   const providers = rows

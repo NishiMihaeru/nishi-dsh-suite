@@ -52,6 +52,32 @@ Added 2026-09-04, after the 2026-09-04 bugfix cut (`e6a163b`: fail-closed native
 
 **What this run does NOT establish**, and the distinction matters because the change it followed is a recovery path: none of the seven exercises the repair turn. A stale `structured_output` cannot be provoked on demand -- it is the vendor omitting its own block -- so these suites show the change broke nothing live, not that the recovery works live. That half rests on hand probes recorded as finding 16 in `agy-cli-contract.md`, where a `repair` envelope brought the identical decision back under a new stamp in the shipping shape, twice, plus the cache measurement showing the repair reads 49,031 of its 51,573 prefix tokens from cache. A suite that could assert the path end to end needs a fake vendor, which is what the unit tests already do (`session-reuse.test.ts`, three cases).
 
+## Delegation recursion: capped on two vectors of five, and the allowlist has a hole, 2026-09-04
+
+Two claims about child agents were checked against the code rather than the commit messages.
+
+**"Subagents cannot spawn subagents" is true for the delegation tools and false for the workflow ones.** The cap is enforced by the subagent provider from a value the calling tool passes per request — `resolveChildDepth(parent, request.maxDepth)` refuses when `parent depth + 1 > maxDepth`, and an absent cap refuses nothing. The Orchestrator preset sets `maxDepth: 1` on `subagent` and `subagent_fork`, so a child (depth 1) is refused. But children keep the same catalog, and `maxDepth` appears **nowhere in the whole upstream `packages/workflow/` tree**: `tool-workflow` accepts only `toolName` and `maxResultChars`, `tool-ralph` accepts `subagentProvider`, `maxRounds` and char caps, and `workflow-worker-thread` names a provider and passes no cap. The spawn provider advertises `depthLimit` but has no default of its own. Depth still increments through those tools — only the refusal is missing — so a child can run a workflow whose children sit at depth 2 and do it again, and `workflow` describes itself as orchestrating subagents *at scale*. Not fixable from this repository, since the preset cannot pass a knob the Config does not accept. A new preset test now fails if any child-starting row gains or loses a cap, or if a new row starts children without being recorded, so the gap cannot widen unnoticed.
+
+**An empty `subagent()` bypasses the model allowlist, not merely the model choice.** With no `provider`/`model` in the call, `hasDelegationModelRequest` is false, so `requestedAgentOptions` returns the configured default (none in this preset), route preflight is skipped, and `assertAllowedModelSelection` returns before consulting the policy at all (`model-selection.ts:145`). The child inherits the parent's route. So the authorization a user grants in `subagent-model-selection` constrains only calls that name a route.
+
+Requiring a route would close that, and the consequence belongs with the proposal: the allowlist is empty by default, so a mandatory route makes delegation **unusable until the user authorizes one** — today the empty call is the only way to delegate before any authorization exists. Upstream has no `requireModelSelection` knob, and the single in-preset lever (`agentOptions` as a configured child default) would have to name a provider and model, which this deliberately provider-neutral preset must not do. Recorded for a maintainer decision and an upstream ask rather than implemented unilaterally.
+
+## The Codex retry backoff, measured 2026-09-04 — the vendor never gives up
+
+The one number left unjustified by the fail-closed cut was `MAX_CONSECUTIVE_RETRYING_ERRORS = 2`. Inducing the fault settled it. Pointing the App Server at a dead endpoint (`-c model_providers.dead={base_url="http://127.0.0.1:9/v1"} -c model_provider=dead`) makes it emit `error` with `willRetry: true` and `codexErrorInfo: responseStreamDisconnected`, on this schedule:
+
+```
++3.5s  +11.5s  +24.5s  +47.6s  +90.5s  +153.5s  then every ~63s
+```
+
+Fourteen retrying errors over **660 s**, with no `willRetry: false`, no `turn/failed`, and no sign of stopping. Repeated once with the same shape. Two things follow.
+
+**The bound is necessary.** The vendor does not self-terminate, so without one the turn sits for the whole `turnTimeoutMs` — ten minutes of a billed, dead turn. That was asserted when the cap landed; now it is measured.
+
+**The threshold is a point on a curve, not a guess.** Failing on the third consecutive error gives the vendor ~25 s to reconnect; 3 would give ~48 s, 4 ~91 s. Twenty-five seconds is a long transient and a short wait, so 2 stays — but the trade-off is now legible, and the backoff schedule is recorded so a future change argues against a number instead of a feeling.
+
+The measurement also justifies counting consecutively rather than cumulatively: a real recovery interleaves notifications between retries, which resets the run, while a genuinely stuck vendor produces exactly the uninterrupted sequence above.
+
 ## The two remaining objections to the fail-closed cut, answered 2026-09-04
 
 Reviewing `e6a163b` after fixing its regression left two things worth changing, and one worth withdrawing.
