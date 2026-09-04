@@ -15,6 +15,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type { ProviderDescriptor } from '../registry/descriptor.js'
 import { canonicalProviderId, canonicalProviderRoute } from '../registry/identity.js'
@@ -150,6 +151,25 @@ function assertCapabilityDescriptor(
   }
 }
 
+/** Keep adapter behavior intact while filtering only advertised models. */
+export function withModelVisibility(
+  adapter: LlmAdapter,
+  isVisible: (provider: string, model: string) => boolean,
+): LlmAdapter {
+  return new Proxy(adapter, {
+    get(target, property) {
+      if (property === 'listModels' && typeof target.listModels === 'function') {
+        return async (provider: string) => {
+          const models = await target.listModels(provider)
+          return models.filter((model) => isVisible(provider, model.id))
+        }
+      }
+      const value = Reflect.get(target, property, target) as unknown
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
 /**
  * The single registration path every provider goes through: validate its
  * identity and provider-owned usage contract first, construct provider-owned
@@ -230,6 +250,7 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
   let forgetRegistry: (() => void) | undefined
   let disposeRegistryEffect: (() => void | Promise<void>) | undefined
   let disposeAdapter: (() => void) | undefined
+  let rawAdapter: LlmAdapter | undefined
 
   try {
     forgetRegistry = registry.record({
@@ -246,8 +267,14 @@ export async function registerProvider<TConfig extends SharedProviderConfig>(
       `${providerId}: withdraw provider registration`,
     )
 
-    if (descriptor.model) {
-      const adapter = descriptor.model.create(ctx, config)
+    if (descriptor.model !== undefined) {
+      rawAdapter = descriptor.model.create(ctx, config)
+      if (typeof rawAdapter.listModels === 'function' && typeof registry.setModelLister === 'function') {
+        registry.setModelLister(providerId, rawAdapter.listModels.bind(rawAdapter))
+      }
+      const adapter = typeof rawAdapter.listModels === 'function'
+        ? withModelVisibility(rawAdapter, (provider, model) => registry.isModelVisible(provider, model))
+        : rawAdapter
       disposeAdapter = ctx.llm.registerAdapter(routes, adapter)
     }
 

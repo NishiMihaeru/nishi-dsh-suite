@@ -16,6 +16,13 @@ export const en = {
   moveDown: 'Move down',
   resetOrder: 'Reset to default',
   noProvidersConfigured: 'No providers registered.',
+  modelVisibilityNav: 'Model visibility',
+  modelVisibilityTitle: 'Model visibility',
+  modelVisibilitySubtitle: 'Uncheck models you do not want to see in model selection menus. The active model remains usable until you select another one.',
+  showAllModels: 'Show all',
+  loadingModels: 'Loading models...',
+  noModelsConfigured: 'No model catalogs are available.',
+  modelVisibilityError: 'Model visibility could not be updated. Your previous selection was restored.',
 }
 
 export const zh: typeof en = {
@@ -33,4 +40,11 @@ export const zh: typeof en = {
   moveDown: '下移',
   resetOrder: '恢复默认',
   noProvidersConfigured: '未注册提供商。',
+  modelVisibilityNav: '模型可见性',
+  modelVisibilityTitle: '模型可见性',
+  modelVisibilitySubtitle: '取消勾选不希望出现在模型选择菜单中的模型。当前模型在选择其他模型前仍可继续使用。',
+  showAllModels: '全部显示',
+  loadingModels: '正在加载模型...',
+  noModelsConfigured: '没有可用的模型目录。',
+  modelVisibilityError: '无法更新模型可见性，已恢复之前的选择。',
 }

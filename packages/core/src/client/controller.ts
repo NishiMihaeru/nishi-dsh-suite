@@ -52,10 +52,15 @@ export class LocalStorageUsageSidebarSettingsStorage implements UsageSidebarSett
       const hidden = Array.isArray((parsed as Record<string, unknown>).hidden)
         ? (parsed as { hidden: unknown[] }).hidden.filter((x): x is string => typeof x === 'string')
         : undefined
-      if (!order && !hidden) return undefined
+      const rawPanelHeight = (parsed as Record<string, unknown>).panelHeight
+      const panelHeight = typeof rawPanelHeight === 'number' && Number.isFinite(rawPanelHeight) && rawPanelHeight > 0
+        ? rawPanelHeight
+        : undefined
+      if (!order && !hidden && panelHeight === undefined) return undefined
       return {
         ...(order ? { order } : {}),
         ...(hidden ? { hidden } : {}),
+        ...(panelHeight === undefined ? {} : { panelHeight }),
       }
     } catch {
       return undefined
@@ -65,7 +70,7 @@ export class LocalStorageUsageSidebarSettingsStorage implements UsageSidebarSett
   save(settings: UsageSidebarSettings | undefined): void {
     if (typeof localStorage === 'undefined') return
     try {
-      if (!settings || (!settings.order?.length && !settings.hidden?.length)) {
+      if (!settings || (!settings.order?.length && !settings.hidden?.length && settings.panelHeight === undefined)) {
         localStorage.removeItem(this.key)
       } else {
         localStorage.setItem(this.key, JSON.stringify(settings))
@@ -143,6 +148,13 @@ export class UsageLimitsClientController {
     }
     this.storage.save(settings)
     this.notify()
+  }
+
+  setPanelHeight(panelHeight: number): void {
+    this.setSidebarSettings({
+      ...this.snapshot.sidebarSettings,
+      panelHeight,
+    })
   }
 
   setProviderVisible(targetId: string, visible: boolean): void {
@@ -259,10 +271,9 @@ export class UsageLimitsClientController {
           : { status: 'ready', usage }
       }
       this.snapshot = {
+        ...this.snapshot,
         phase: 'ready',
-        roster: this.snapshot.roster,
         providers: newProviders,
-        lastRefreshedAtMs: this.snapshot.lastRefreshedAtMs,
       }
     } catch {
       if (generation !== this.rosterGeneration) return

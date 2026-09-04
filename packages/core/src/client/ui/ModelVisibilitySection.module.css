@@ -1,0 +1,102 @@
+.container {
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+
+.subtitle,
+.notice,
+.error {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.groups,
+.models,
+.modelCopy {
+  display: flex;
+  flex-direction: column;
+}
+
+.groups {
+  gap: 14px;
+}
+
+.group {
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.groupTitle {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 600;
+}
+
+.models {
+  gap: 4px;
+}
+
+.modelRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.modelRow:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.modelRow input {
+  margin-top: 3px;
+}
+
+.modelCopy {
+  min-width: 0;
+  gap: 2px;
+}
+
+.modelName {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.modelId,
+.description {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.modelId {
+  font-family: var(--dsw-font-family-mono, monospace);
+  overflow-wrap: anywhere;
+}

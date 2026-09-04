@@ -3,6 +3,10 @@ import { IconRefreshOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UsageLimitsClientInjected } from '../index.js'
 import {
+  createBrowserUsageAutoRefreshScheduler,
+  startUsageAutoRefresh,
+} from '../auto-refresh.js'
+import {
   buildUsageGroupsForProvider,
   selectUsageGroupDisplayWindows,
   usageWindowDisplayLabel,
@@ -31,6 +35,7 @@ interface ResizeState {
   pointerId: number
   startY: number
   startHeight: number
+  currentHeight: number
 }
 
 const MIN_USAGE_HEIGHT = 230
@@ -66,7 +71,9 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [coords, setCoords] = useState<PopoverCoords | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
-  const [usageHeight, setUsageHeight] = useState(DEFAULT_USAGE_HEIGHT)
+  const [usageHeight, setUsageHeight] = useState(() =>
+    clampUsageHeight(snapshot.sidebarSettings?.panelHeight ?? DEFAULT_USAGE_HEIGHT),
+  )
   const [contentScale, setContentScale] = useState(1)
   const [hover, setHover] = useState<UsageHoverState | null>(null)
 
@@ -133,6 +140,11 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
     controller.ensureAllFresh().catch(() => {})
   }, [controller])
 
+  useEffect(() => startUsageAutoRefresh(
+    () => controller.refreshAll(),
+    createBrowserUsageAutoRefreshScheduler(),
+  ), [controller])
+
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 60_000)
     return () => window.clearInterval(timer)
@@ -144,6 +156,10 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
       setCoords(null)
     }
   }, [selectedGroup, selectedKey])
+
+  useEffect(() => {
+    setUsageHeight(clampUsageHeight(snapshot.sidebarSettings?.panelHeight ?? DEFAULT_USAGE_HEIGHT))
+  }, [snapshot.sidebarSettings?.panelHeight])
 
   useEffect(() => {
     const onResize = () => setUsageHeight((current) => clampUsageHeight(current))
@@ -231,6 +247,7 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
       pointerId: event.pointerId,
       startY: event.clientY,
       startHeight: usageHeight,
+      currentHeight: usageHeight,
     }
     event.currentTarget.setPointerCapture(event.pointerId)
     event.preventDefault()
@@ -239,14 +256,16 @@ export function UsageLimitsFooterAction(props: FooterActionProps): React.ReactEl
   const onResizePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     const resize = resizeRef.current
     if (!resize || resize.pointerId !== event.pointerId) return
-    const nextHeight = resize.startHeight + (resize.startY - event.clientY)
-    setUsageHeight(clampUsageHeight(nextHeight))
+    const nextHeight = clampUsageHeight(resize.startHeight + (resize.startY - event.clientY))
+    resize.currentHeight = nextHeight
+    setUsageHeight(nextHeight)
   }
 
   const onResizePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
     const resize = resizeRef.current
     if (!resize || resize.pointerId !== event.pointerId) return
     resizeRef.current = null
+    controller.setPanelHeight(resize.currentHeight)
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
     }

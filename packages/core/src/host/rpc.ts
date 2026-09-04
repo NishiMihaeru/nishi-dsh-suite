@@ -1,5 +1,7 @@
 import type { ConnectionRpcHandler } from '@deepseek-ai/dsh-client-connection'
 import type { ProviderPresentation } from '../registry/descriptor.js'
+import type { HiddenModel, ModelVisibilityGroup } from '../model-visibility.js'
+import { normalizeHiddenModels } from '../model-visibility.js'
 import { canonicalProviderId } from '../registry/identity.js'
 import {
   parsePublicProviderUsage,
@@ -11,6 +13,8 @@ export const USAGE_LIMITS_GET_ROSTER_ENDPOINT = 'get-roster'
 export const USAGE_LIMITS_GET_PROVIDERS_ENDPOINT = 'get-providers'
 export const USAGE_LIMITS_GET_PROVIDER_ENDPOINT = 'get-provider'
 export const USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT = 'refresh-provider'
+export const MODEL_VISIBILITY_GET_ENDPOINT = 'get-model-visibility'
+export const MODEL_VISIBILITY_SET_ENDPOINT = 'set-hidden-models'
 
 export type GetRosterRpcRequest = Record<string, never>
 export type GetProvidersRpcRequest = Record<string, never>
@@ -36,6 +40,11 @@ export interface ProviderRosterRow {
 }
 export interface GetProviderRpcRequest { providerId: string }
 export interface RefreshProviderRpcRequest { providerId: string; force?: boolean }
+export interface SetHiddenModelsRpcRequest { models: readonly HiddenModel[] }
+export interface ModelVisibilityRpcValue {
+  groups: readonly ModelVisibilityGroup[]
+  hidden: readonly HiddenModel[]
+}
 
 export interface UsageLimitsRpcHost {
   getRosterPublic(): ProviderRosterRow[]
@@ -43,6 +52,8 @@ export interface UsageLimitsRpcHost {
   getCachedProviderPublic(providerId: string): PublicProviderUsage | undefined
   refreshProviderPublic(providerId: string, options?: { force?: boolean }): Promise<PublicProviderUsage>
   isRegisteredProvider(providerId: string): boolean
+  getModelVisibilityPublic(): Promise<ModelVisibilityRpcValue>
+  setHiddenModelsPublic(models: readonly HiddenModel[]): readonly HiddenModel[]
 }
 
 /**
@@ -136,6 +147,18 @@ export function createUsageLimitsRpcHandler(host: UsageLimitsRpcHost): Connectio
           if (!host.isRegisteredProvider(providerId)) return createBadRequestResult()
           const refreshed = await host.refreshProviderPublic(providerId, force === undefined ? undefined : { force })
           return { ok: true, value: parsePublicProviderUsage(refreshed) }
+        }
+        case MODEL_VISIBILITY_GET_ENDPOINT: {
+          if (!isPlainObject(payload) || Object.keys(payload).length !== 0) return createBadRequestResult()
+          return { ok: true, value: await host.getModelVisibilityPublic() }
+        }
+        case MODEL_VISIBILITY_SET_ENDPOINT: {
+          if (!isPlainObject(payload) || Object.keys(payload).length !== 1 || !Array.isArray(payload.models)) {
+            return createBadRequestResult()
+          }
+          const models = normalizeHiddenModels(payload.models)
+          if (models.length !== payload.models.length) return createBadRequestResult()
+          return { ok: true, value: host.setHiddenModelsPublic(models) }
         }
         default:
           return createBadRequestResult()

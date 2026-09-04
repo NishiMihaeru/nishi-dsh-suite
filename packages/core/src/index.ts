@@ -1,5 +1,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
+import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
 import { NishiProvidersService } from './registry/service.js'
+import type { HiddenModel } from './model-visibility.js'
 import type { PublicProviderUsage, UsageLimitsPublicFacade, UsageLimitsService } from './usage/index.js'
 import {
   composeUsageLimitsHost,
@@ -14,8 +16,12 @@ import {
   USAGE_LIMITS_GET_PROVIDERS_ENDPOINT,
   USAGE_LIMITS_GET_PROVIDER_ENDPOINT,
   USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT,
+  MODEL_VISIBILITY_GET_ENDPOINT,
+  MODEL_VISIBILITY_SET_ENDPOINT,
   createUsageLimitsRpcHandler,
   type ProviderRosterRow,
+  type ModelVisibilityRpcValue,
+  type SetHiddenModelsRpcRequest,
   type GetRosterRpcRequest,
   type GetProvidersRpcRequest,
   type GetProviderRpcRequest,
@@ -29,8 +35,12 @@ export {
   USAGE_LIMITS_GET_PROVIDERS_ENDPOINT,
   USAGE_LIMITS_GET_PROVIDER_ENDPOINT,
   USAGE_LIMITS_REFRESH_PROVIDER_ENDPOINT,
+  MODEL_VISIBILITY_GET_ENDPOINT,
+  MODEL_VISIBILITY_SET_ENDPOINT,
   createUsageLimitsRpcHandler,
   type ProviderRosterRow,
+  type ModelVisibilityRpcValue,
+  type SetHiddenModelsRpcRequest,
   type GetRosterRpcRequest,
   type GetProvidersRpcRequest,
   type GetProviderRpcRequest,
@@ -47,6 +57,7 @@ export {
  * than imported across a package boundary.
  */
 export * from './usage/index.js'
+export * from './model-visibility.js'
 export { NishiProvidersService } from './registry/service.js'
 export type {
   ModelCapability,
@@ -80,6 +91,8 @@ export class UsageLimitsHostService extends Service {
     this.refreshProviderPublic = this.refreshProviderPublic.bind(this)
     this.isRegisteredProvider = this.isRegisteredProvider.bind(this)
     this.invalidateProvider = this.invalidateProvider.bind(this)
+    this.getModelVisibilityPublic = this.getModelVisibilityPublic.bind(this)
+    this.setHiddenModelsPublic = this.setHiddenModelsPublic.bind(this)
   }
 
   /**
@@ -137,6 +150,39 @@ export class UsageLimitsHostService extends Service {
       return this.#unsupportedProvider(provider.id, provider.presentation.displayName)
     }
     return this.#publicFacade.refreshProvider(providerId, options)
+  }
+
+  async getModelVisibilityPublic(): Promise<ModelVisibilityRpcValue> {
+    const groups = await Promise.all(this.#ctx.nishiProviders.all().flatMap((provider) => {
+      if (provider.descriptor.model === undefined) return []
+      return provider.routes.map(async (route) => {
+        let models: readonly LlmModelInfo[] = []
+        try {
+          models = await this.#ctx.nishiProviders.listModelsUnfiltered(provider.id, route)
+        } catch {
+          // One unavailable vendor must not hide every other provider's controls.
+        }
+        return {
+          provider: route,
+          displayName: provider.routes.length === 1
+            ? provider.presentation.displayName
+            : `${provider.presentation.displayName} · ${route}`,
+          models: models.map((model) => ({
+            provider: route,
+            id: model.id,
+            name: model.name,
+            ...(model.description === undefined ? {} : { description: model.description }),
+          })),
+        }
+      })
+    }))
+    return { groups, hidden: this.#ctx.nishiProviders.hiddenModels() }
+  }
+
+  setHiddenModelsPublic(models: readonly HiddenModel[]): readonly HiddenModel[] {
+    const changed = this.#ctx.nishiProviders.setHiddenModels(models)
+    if (changed) this.#ctx.emit('llm/adapters-updated')
+    return this.#ctx.nishiProviders.hiddenModels()
   }
 
   isRegisteredProvider(providerId: string): boolean {

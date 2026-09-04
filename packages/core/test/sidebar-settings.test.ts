@@ -346,6 +346,29 @@ test('controller integration: loadRoster preserves user sidebar settings across 
   )
 })
 
+test('controller integration: initialize and restart preserve order and panel height', async () => {
+  const storage = new MemorySidebarSettingsStorage({
+    order: ['antigravity', 'codex'],
+    panelHeight: 390,
+  })
+  const roster = [createEntry('codex'), createEntry('antigravity')]
+  const controller = new UsageLimitsClientController(createRpc(roster), storage)
+
+  await controller.initialize()
+  assert.deepEqual(controller.getSnapshot().sidebarSettings, {
+    order: ['antigravity', 'codex'],
+    panelHeight: 390,
+  })
+
+  controller.setPanelHeight(420)
+  const restarted = new UsageLimitsClientController(createRpc(roster), storage)
+  await restarted.initialize()
+  assert.deepEqual(restarted.getSnapshot().sidebarSettings, {
+    order: ['antigravity', 'codex'],
+    panelHeight: 420,
+  })
+})
+
 test('storage: LocalStorageUsageSidebarSettingsStorage safely handles invalid or missing data', () => {
   const storage = new LocalStorageUsageSidebarSettingsStorage('test-nonexistent-key')
   assert.equal(storage.load(), undefined)
@@ -371,8 +394,8 @@ test('storage: LocalStorageUsageSidebarSettingsStorage saves, loads and removes 
     assert.equal(storage.load(), undefined)
 
     // Save and load valid settings
-    storage.save({ order: ['a', 'b'], hidden: ['b'] })
-    assert.deepEqual(storage.load(), { order: ['a', 'b'], hidden: ['b'] })
+    storage.save({ order: ['a', 'b'], hidden: ['b'], panelHeight: 375 })
+    assert.deepEqual(storage.load(), { order: ['a', 'b'], hidden: ['b'], panelHeight: 375 })
 
     // Save undefined or empty settings removes key
     storage.save(undefined)

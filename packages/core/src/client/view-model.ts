@@ -114,6 +114,7 @@ export function formatWindowTooltip(win: PublicLimitWindow, nowMs?: number, loca
 export interface UsageSidebarSettings {
   readonly order?: readonly string[]
   readonly hidden?: readonly string[]
+  readonly panelHeight?: number
 }
 
 export interface OrderedRosterItem<T> {

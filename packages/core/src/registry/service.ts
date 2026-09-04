@@ -12,7 +12,9 @@
  */
 
 import { Service, type Context } from '@deepseek-ai/cordis'
+import type { LlmModelInfo } from '@deepseek-ai/dsh-llm'
 import type { RegisteredProvider } from './descriptor.js'
+import { hiddenModelKey, normalizeHiddenModels, type HiddenModel } from '../model-visibility.js'
 import { canonicalProviderId, canonicalProviderRoute } from './identity.js'
 
 declare module '@deepseek-ai/cordis' {
@@ -28,6 +30,8 @@ export class NishiProvidersService extends Service {
   readonly #byRoute = new Map<string, RegisteredProvider>()
   readonly #listeners = new Set<RegistryChangeListener>()
   readonly #invalidationListeners = new Set<(providerId: string) => void>()
+  readonly #modelListers = new Map<string, (provider: string) => Promise<readonly LlmModelInfo[]>>()
+  #hiddenModels = new Map<string, HiddenModel>()
 
   constructor(ctx: Context) {
     super(ctx, 'nishiProviders')
@@ -41,6 +45,11 @@ export class NishiProvidersService extends Service {
     this.onChange = this.onChange.bind(this)
     this.invalidate = this.invalidate.bind(this)
     this.onInvalidate = this.onInvalidate.bind(this)
+    this.setHiddenModels = this.setHiddenModels.bind(this)
+    this.hiddenModels = this.hiddenModels.bind(this)
+    this.isModelVisible = this.isModelVisible.bind(this)
+    this.setModelLister = this.setModelLister.bind(this)
+    this.listModelsUnfiltered = this.listModelsUnfiltered.bind(this)
   }
 
   /**
@@ -86,6 +95,7 @@ export class NishiProvidersService extends Service {
     return () => {
       if (this.#byId.get(id) !== entry) return
       this.#byId.delete(id)
+      this.#modelListers.delete(id)
       for (const route of routes) {
         if (this.#byRoute.get(route) === entry) this.#byRoute.delete(route)
       }
@@ -104,6 +114,39 @@ export class NishiProvidersService extends Service {
 
   all(): readonly RegisteredProvider[] {
     return [...this.#byId.values()]
+  }
+
+  /** Attach the original adapter catalog without changing the public registry row. */
+  setModelLister(providerId: string, listModels: (provider: string) => Promise<readonly LlmModelInfo[]>): void {
+    if (!this.#byId.has(providerId)) throw new Error(`nishiProviders: provider "${providerId}" is not registered`)
+    this.#modelListers.set(providerId, listModels)
+  }
+
+  async listModelsUnfiltered(providerId: string, route: string): Promise<readonly LlmModelInfo[]> {
+    const listModels = this.#modelListers.get(providerId)
+    return listModels === undefined ? [] : listModels(route)
+  }
+
+  /** Replace the complete browser-owned hidden-model set. */
+  setHiddenModels(value: unknown): boolean {
+    const next = new Map<string, HiddenModel>()
+    for (const entry of normalizeHiddenModels(value)) {
+      next.set(hiddenModelKey(entry.provider, entry.model), entry)
+    }
+    if (next.size === this.#hiddenModels.size && [...next.keys()].every((key) => this.#hiddenModels.has(key))) {
+      return false
+    }
+    this.#hiddenModels = next
+    return true
+  }
+
+  hiddenModels(): readonly HiddenModel[] {
+    return [...this.#hiddenModels.values()]
+  }
+
+  /** Selection/resolution remains valid; this controls catalog advertisement only. */
+  isModelVisible(provider: string, model: string): boolean {
+    return !this.#hiddenModels.has(hiddenModelKey(provider, model))
   }
 
   /**

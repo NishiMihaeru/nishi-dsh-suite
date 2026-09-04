@@ -15,7 +15,9 @@ import type { UsageLimitsControllerSnapshot } from './controller.js'
 import { UsageLimitsClientController } from './controller.js'
 import { en as usageEn, zh as usageZh } from './locales.js'
 import { UsageLimitsBrowserRpcClient } from './rpc-client.js'
+import { loadHiddenModels } from './model-visibility.js'
 import { UsageLimitsFooterAction } from './ui/FooterAction.js'
+import { ModelVisibilitySection } from './ui/ModelVisibilitySection.js'
 import { UsageLimitsSection } from './ui/SettingsSection.js'
 
 export const NS_USAGE = 'usage-limits'
@@ -55,6 +57,7 @@ export function apply(ctx: ClientContext): void {
 
   const connection = ctx.get('connection') as unknown as ConnectionHandle
   const usageRpcClient = new UsageLimitsBrowserRpcClient(connection.rpc)
+  const modelVisibilityReady = usageRpcClient.setHiddenModels(loadHiddenModels()).catch(() => [])
   const usageController = new UsageLimitsClientController(usageRpcClient)
   const useUsageSnapshot = bindSnapshotSelector(usageController)
   const tUsage = ctx.locale.bind(NS_USAGE)
@@ -90,8 +93,19 @@ export function apply(ctx: ClientContext): void {
       },
       UsageLimitsSection,
     )
+    const unregModelVisibility = ctx.slots.register(
+      {
+        name: 'settings.section',
+        id: 'model-visibility',
+        order: 45,
+        label: () => tUsage('modelVisibilityNav'),
+        inject: () => ({ rpc: usageRpcClient, ready: modelVisibilityReady, t: tUsage }),
+      },
+      ModelVisibilitySection,
+    )
 
     return () => {
+      unregModelVisibility()
       unregUsage()
     }
   })
@@ -104,11 +118,14 @@ export function apply(ctx: ClientContext): void {
   )
 }
 
+export * from './auto-refresh.js'
 export * from './controller.js'
 export * from './locales.js'
+export * from './model-visibility.js'
 export * from './rpc-client.js'
 export * from './usage-group-model.js'
 export * from './ui/FooterAction.js'
+export * from './ui/ModelVisibilitySection.js'
 export * from './ui/UsageBars.js'
 export * from './ui/UsageGroupBlock.js'
 export * from './ui/UsageGroupDetails.js'

@@ -2,6 +2,11 @@ import {
   parsePublicProviderUsage,
   type PublicProviderUsage,
 } from '../usage/index.js'
+import {
+  normalizeHiddenModels,
+  type HiddenModel,
+  type ModelVisibilityGroup,
+} from '../model-visibility.js'
 
 /** Provider identity as it crosses RPC: data only, never a component. */
 export interface ProviderPresentation {
@@ -43,10 +48,44 @@ function parseProviderRosterEntry(value: unknown): ProviderRosterEntry {
 }
 
 /** Used when a provider declares no colour, and by the neutral mark. */
+function parseModelVisibility(value: unknown): ModelVisibilityValue {
+  const root = (value ?? {}) as Record<string, unknown>
+  if (!Array.isArray(root.groups) || !Array.isArray(root.hidden)) throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
+  const groups: ModelVisibilityGroup[] = root.groups.map((item) => {
+    const row = (item ?? {}) as Record<string, unknown>
+    const provider = nonEmptyString(row.provider, '')
+    const displayName = nonEmptyString(row.displayName, provider)
+    if (provider === '' || !Array.isArray(row.models)) throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
+    return {
+      provider,
+      displayName,
+      models: row.models.map((item) => {
+        const model = (item ?? {}) as Record<string, unknown>
+        const id = nonEmptyString(model.id, '')
+        if (id === '') throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
+        return {
+          provider,
+          id,
+          name: nonEmptyString(model.name, id),
+          ...(typeof model.description === 'string' ? { description: model.description } : {}),
+        }
+      }),
+    }
+  })
+  return { groups, hidden: normalizeHiddenModels(root.hidden) }
+}
+
 export const NEUTRAL_BRAND_COLOR = '#7C8AA5'
 
 export const USAGE_LIMITS_RPC_CHANNEL = '/usage-limits'
 export const GENERIC_CLIENT_ERROR_MESSAGE = 'Usage data is unavailable.'
+export const MODEL_VISIBILITY_GET_ENDPOINT = 'get-model-visibility'
+export const MODEL_VISIBILITY_SET_ENDPOINT = 'set-hidden-models'
+
+export interface ModelVisibilityValue {
+  groups: readonly ModelVisibilityGroup[]
+  hidden: readonly HiddenModel[]
+}
 
 export interface ClientConnectionRpcLike {
   call(channel: string, endpoint: string, payload: unknown, signal?: AbortSignal): Promise<{ ok: boolean; value?: unknown; error?: unknown }>
@@ -64,7 +103,12 @@ export interface UsageLimitsBrowserRpc {
   refreshProvider(providerId: string, options?: { force?: boolean }): Promise<PublicProviderUsage>
 }
 
-export class UsageLimitsBrowserRpcClient implements UsageLimitsBrowserRpc {
+export interface ModelVisibilityBrowserRpc {
+  getModelVisibility(): Promise<ModelVisibilityValue>
+  setHiddenModels(models: readonly HiddenModel[]): Promise<readonly HiddenModel[]>
+}
+
+export class UsageLimitsBrowserRpcClient implements UsageLimitsBrowserRpc, ModelVisibilityBrowserRpc {
   constructor(private readonly rpc: ClientConnectionRpcLike) {}
 
   /**
@@ -111,6 +155,26 @@ export class UsageLimitsBrowserRpcClient implements UsageLimitsBrowserRpc {
       })
       if (!res?.ok) throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
       return parsePublicProviderUsage(res.value)
+    } catch {
+      throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
+    }
+  }
+
+  async getModelVisibility(): Promise<ModelVisibilityValue> {
+    try {
+      const res = await this.rpc.call(USAGE_LIMITS_RPC_CHANNEL, MODEL_VISIBILITY_GET_ENDPOINT, {})
+      if (!res?.ok) throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
+      return parseModelVisibility(res.value)
+    } catch {
+      throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
+    }
+  }
+
+  async setHiddenModels(models: readonly HiddenModel[]): Promise<readonly HiddenModel[]> {
+    try {
+      const res = await this.rpc.call(USAGE_LIMITS_RPC_CHANNEL, MODEL_VISIBILITY_SET_ENDPOINT, { models })
+      if (!res?.ok) throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
+      return normalizeHiddenModels(res.value)
     } catch {
       throw new Error(GENERIC_CLIENT_ERROR_MESSAGE)
     }
