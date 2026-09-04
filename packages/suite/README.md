@@ -1,14 +1,14 @@
 # Nishi DSH Suite
 
-`nishi-dsh-suite` is the single Market-facing bundle for the modular Nishi integrations for DeepSeek Harness.
+`nishi-dsh-suite` is the composition bundle for the modular Nishi integrations for DeepSeek Harness.
 
-The current Suite family is `0.1.0-rc.3`, Node.js 24, and remains unpublished while provider-level acceptance is completed.
+The current Suite family is `0.1.0-rc.3`, Node.js 24, and remains unpublished. Do not install it from npm; see the repository-root README install section.
 
 ## Compatibility status
 
 The only supported DeepSeek Harness generation is `0.1.2-rc.1`. `0.1.2-alpha.1` and earlier are **not supported**: no compatibility claim, no fixes, no new evidence.
 
-The dependency graph implements that policy: the Suite carries `@deepseek-ai/dsh-authorization@0.1.2-rc.1`, and the Codex, Antigravity and Claude manifests declare their provider-specific peers at the same version.
+The dependency graph implements that policy: the Suite carries `@deepseek-ai/dsh-authorization@0.1.2-rc.1`, and the Codex, Antigravity, Claude and Grok manifests declare their provider-specific peers at the same version.
 
 The provider-independent Foundation packages are broader:
 
@@ -21,15 +21,16 @@ That earlier independent validation was run against official `dsh-v0.1.2-alpha.1
 
 ## Installed rc.3 family
 
-The bundle installs five Nishi leaf packages at the same rc.3 version:
+The bundle installs six Nishi leaf packages at the same rc.3 version:
 
 - `nishi-dsh-core` — provider-independent registry/registration, shared vendor CLI runtime, routed `web_search`, normalized usage/limits, host RPC and browser surfaces;
 - `nishi-dsh-codex` — `codex` provider, `codex-app-server` primary route, native search and rate-limits source;
 - `nishi-dsh-antigravity` — `antigravity` provider, `antigravity-cli` primary route, native search and local usage visibility;
 - `nishi-dsh-claude` — usage-only provider through the installed official Claude CLI;
+- `nishi-dsh-grok` — `grok` provider, `grok-cli` primary route, native search and local usage visibility;
 - `nishi-dsh-project-memory` — root-aware project memory, context injection, memory tools and maintenance commands.
 
-Together with this bundle package, the release family contains six packages.
+Together with this bundle package, the family contains seven packages.
 
 Provider packages inject the Core registry and call the shared registration path. A provider may declare model, web-search and/or usage capabilities; capability absence is legal. A new provider should require no Core, Project Memory or browser identity edit, but it does require normal declarative Suite packaging metadata.
 
@@ -39,7 +40,7 @@ Provider packages inject the Core registry and call the shared registration path
 
 - the official `@deepseek-ai/dsh-authorization` compatibility row;
 - Project Memory;
-- Codex, Antigravity and Claude provider plugins;
+- Codex, Antigravity, Claude and Grok provider plugins;
 - `nishi-dsh-core`.
 
 Provider rows may appear before the Core row because they inject `nishiProviders`; Cordis defers them until the registry exists.
@@ -116,6 +117,7 @@ The Suite does not install vendor CLIs and does not copy, parse, migrate or repl
 - Codex uses the installed official `codex` CLI/App Server boundary.
 - Antigravity uses the installed official `agy` boundary.
 - Claude usage uses the installed official `claude` CLI.
+- Grok uses the installed official `grok` CLI.
 
 The installed Suite dependency closure must remain free of `@openai/codex*` and `@anthropic-ai/*` runtime packages.
 
@@ -137,7 +139,7 @@ d1cbac7094488ded52d9ab83891531bc01197090
 
 Accepted Foundation evidence includes Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, bidirectional atomic-write lock interoperability, and disposable exact-commit alpha.1 runtime probes.
 
-Provider packages are **not yet frozen** for the current rc.3 provider stage. Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity's provider-specific audit, catalog rewrite, vendor-diagnostic routing and live acceptance are also complete, with only its freeze declaration outstanding (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Historical provider tests, CLI smoke runs, disposable bundle installs and earlier live fixtures remain useful checkpoint evidence, but they must not be presented as final acceptance for a later changed provider tree.
+Provider packages are **not all frozen** for the current rc.3 provider stage. Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity is frozen on its documented 2026-09-04 checkpoint (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Grok is implemented but still needs product-profile acceptance. Historical provider tests, CLI smoke runs, disposable bundle installs and earlier live fixtures remain useful checkpoint evidence, but they must not be presented as final acceptance for a later changed provider tree.
 
 On the current tree, `pnpm verify:local` exits `0` on three consecutive runs; Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass. None of that is independent validation by a party that did not write the code, which remains the actual gap before any freeze claim.
 

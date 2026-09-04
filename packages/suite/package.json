@@ -1,6 +1,7 @@
 {
   "name": "nishi-dsh-suite",
   "version": "0.1.0-rc.3",
+  "private": true,
   "description": "Nishi DSH Suite bundle for DeepSeek Harness: provider-independent core, provider plugins, project memory, and Orchestrator preset bridge",
   "license": "MIT",
   "type": "module",
@@ -36,9 +37,6 @@
   "homepage": "https://github.com/NishiMihaeru/nishi-dsh-suite#readme",
   "bugs": {
     "url": "https://github.com/NishiMihaeru/nishi-dsh-suite/issues"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "dsh": {
     "bundle": {

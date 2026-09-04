@@ -1,6 +1,6 @@
 {
   "name": "nishi-dsh-suite-workspace",
-  "description": "Public modular DSH Market distribution for Nishi DSH Suite",
+  "description": "Workspace for Nishi DSH Suite; local DSH plugin install, not published to npm",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -24,9 +24,9 @@
     "verify:package-contracts": "node scripts/verify-package-contracts.mjs",
     "verify:release-family": "node scripts/verify-release-family.mjs",
     "verify:local": "pnpm verify:release-family && pnpm verify:package-contracts && pnpm test:orchestrator && pnpm build && pnpm check && pnpm test && pnpm pack:local",
-    "check:npm-names": "node scripts/check-npm-names.mjs --require-available",
     "pack:packages": "pnpm -r --if-present pack",
     "pack:local": "node scripts/pack-local.mjs",
+    "install:profile": "node scripts/install-local-profile.mjs",
     "verify:bundle-install": "node scripts/verify-bundle-install.mjs",
     "smoke:vendor-cli": "node scripts/smoke-vendor-cli.mjs"
   }

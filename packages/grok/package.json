@@ -1,6 +1,7 @@
 {
   "name": "nishi-dsh-grok",
   "version": "0.1.0-rc.3",
+  "private": true,
   "description": "Grok provider plugin for Nishi DSH Suite with Grok Build CLI routing, native web search, and local usage visibility",
   "type": "module",
   "main": "lib/index.js",

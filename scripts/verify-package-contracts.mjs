@@ -98,4 +98,4 @@ assert.equal(
   'Orchestrator must have one canonical packaged copy, not a second repository-root copy',
 )
 
-console.log(`package-contracts-ok ${packageDirs.length} publishable packages`)
+console.log(`package-contracts-ok ${packageDirs.length} family packages`)

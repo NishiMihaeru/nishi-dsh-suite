@@ -1,3 +1,5 @@
+// Deferred. rc.3 is unpublished and nishi-dsh-* must not be installed from npm.
+// Keep this probe for a later publication decision; it is not a current gate.
 const VERSION = '0.1.0-rc.3'
 const names = [
   'nishi-dsh-core',

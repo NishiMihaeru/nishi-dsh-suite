@@ -1,3 +1,10 @@
+# Mirrored project documentation
+
+Source: `README.md`
+Mode: verbatim substantive content
+
+---
+
 # Nishi DSH Suite
 
 Nishi DSH Suite is a modular extension suite for DeepSeek Harness. The current development family is `0.1.0-rc.3` on Node.js 24.
@@ -16,7 +23,7 @@ The product goal is simple: switching subscription providers should be a route c
 
 - `nishi-dsh-core` — provider registry/registration, shared vendor CLI runtime, routed `web_search`, normalized usage/limits, host RPC and browser surfaces;
 - `nishi-dsh-codex` — provider id `codex`, route `codex-app-server`, Codex App Server adapter, primary-history bridge, native search backend and rate-limits source;
-- `nishi-dsh-antigravity` — provider id `antigravity`, route `antigravity-cli`, official `agy` primary adapter with one tool transport (forced output schema), native `search_web` backend and local usage visibility;
+- `nishi-dsh-antigravity` — provider id `antigravity`, route `antigravity-cli`, official `agy` primary adapter with two tool transports (an MCP bridge by default, a forced output schema on request), native `search_web` backend and local usage visibility;
 - `nishi-dsh-claude` — provider id `claude`, usage-only through the installed official Claude CLI; no model route and no search backend;
 - `nishi-dsh-grok` — provider id `grok`, route `grok-cli`, primary adapter over the installed official Grok Build CLI: one short-lived headless process per DSH step continuing one vendor session, native `web_search` backend, and Usage & Limits from ACP `_x.ai/billing`;
 - `nishi-dsh-project-memory` — provider-agnostic project memory, context injection, `memory_read` / `memory_write` / `memory_edit`, plus `/memory` and `/consolidate`;
@@ -58,7 +65,6 @@ The Suite does not copy, broker, scrape, migrate or replay vendor credential/ses
 - Codex authentication stays in the installed official `codex` product boundary.
 - Antigravity authentication stays in official `agy`.
 - Claude authentication stays in the installed official `claude` CLI.
-- Grok authentication stays in the installed official `grok` CLI.
 
 Core has no Model Accounts surface and reads no vendor credential records; that section and the `account` capability behind it were removed. Core does not depend on `@deepseek-ai/dsh-authorization`; the Suite keeps the official authorization row only as a surrounding-profile compatibility seam.
 
@@ -93,26 +99,6 @@ dsh plugin --profile web exec nishi-dsh-suite preset status
 
 Use `preset update` after a Suite update and `preset remove` before Suite removal. The bridge refuses to overwrite/remove an unmanaged or locally edited Orchestrator directory.
 
-## Install
-
-This suite is **not** an npm package. `nishi-dsh-*` must not be installed from the registry (`dsh plugin add nishi-dsh-suite` from npm is not a supported path). The previously published `0.1.0-rc.1` family is withdrawn. The only registry install in this project is DeepSeek Harness itself (`@deepseek-ai/dsh-*` at `0.1.2-rc.1`).
-
-The git `main` line is the `0.1.0-rc.3` family.
-
-Supported install for now is a git checkout plus local tarballs:
-
-```bash
-git clone https://github.com/NishiMihaeru/nishi-dsh-suite.git
-cd nishi-dsh-suite
-pnpm install --frozen-lockfile
-pnpm build
-pnpm pack:local
-node scripts/install-local-profile.mjs --profile web
-dsh plugin --profile web exec nishi-dsh-suite preset install
-```
-
-`install-local-profile` pins the six leaf packages to `file:` tarballs in that DSH profile so the Suite tarball does not resolve `nishi-dsh-*` from the registry. It is not an npm publish.
-
 ## Current development status
 
 Core and Project Memory are **THAWED, PENDING RE-VALIDATION** — a follow-up audit found and fixed defects in both, reopening the freeze accepted on:
@@ -129,15 +115,15 @@ d1cbac7094488ded52d9ab83891531bc01197090
 
 It recorded Core `182/182`, Project Memory `64/64`, full workspace test/check/build, `pnpm verify:local`, repeated Project Memory concurrency/recovery suites, zero unexpected lock/WAL residue, and disposable official DSH `0.1.2-alpha.1` runtime probes at exact upstream commit `cd5ef8148158c3a752a658978873241fdf8e2bbc`. That evidence describes a tree this one no longer matches; see `docs/HANDOFF.md`.
 
-On the current tree, `pnpm verify:local` exits `0` on three consecutive runs. Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass, re-run in full on 2026-08-31, together with a first end-to-end cross-route delegation run. Four further live suites were added the same day and pass: the Antigravity MCP tool bridge — since removed with its transport; the record is history, not coverage of anything shipping — the vendor's enforcement of an agent tool allowlist, and — for Codex — that `thread/inject_items` actually reaches the model, alongside the existing tool-result continuation probe.
+On the current tree, `pnpm verify:local` exits `0` on three consecutive runs. Codex live acceptance (primary, the full 15-scenario suite, and both web-search suites) and Antigravity live acceptance (primary 8 scenarios, native and routed web search) all pass, re-run in full on 2026-08-31, together with a first end-to-end cross-route delegation run. Four further live suites were added the same day and pass: the Antigravity MCP tool bridge, the vendor's enforcement of an agent tool allowlist, and — for Codex — that `thread/inject_items` actually reaches the model, alongside the existing tool-result continuation probe.
 
 An adversarial review of the whole tree by two models that did not write it then reported 16 defects on a tree whose own gate was green. All 16 are closed: 15 confirmed and fixed, one rejected on the vendor's own contract, one referred to the maintainer and decided. Two were in code written that same day, one of them a local-socket exposure. `docs/verification/gemini/LATEST.md` has the method and the findings.
 
 None of that is independent validation by a party that did not write the code: those reviewers' charters, and the reading of their findings, came from the author. It is still missing, and it is what a restored freeze claim requires.
 
-Provider-specific acceptance is still open, but not equally unstarted: Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity is frozen on its documented 2026-09-04 checkpoint (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Grok is implemented but still needs product-profile acceptance. Historical provider tests/live probes are checkpoint-specific evidence only and do not by themselves freeze a provider stage.
+Provider-specific acceptance is still open, but not equally unstarted: Codex has passed its own audit and live acceptance and is re-validating alongside Core/Project Memory; Antigravity's provider-specific audit, catalog rewrite, vendor-diagnostic routing and live acceptance are likewise complete, with only its freeze declaration outstanding (`docs/ROADMAP.md` §3). Claude has not started its provider stage. Historical provider tests/live probes are checkpoint-specific evidence only and do not by themselves freeze a provider stage.
 
-`0.1.0-rc.3` is **unpublished** and **not ready to publish**. Do not install it from npm. Windows remains **NOT TESTED**. No publication, merge, tag or release is authorized without explicit maintainer approval.
+`0.1.0-rc.3` is **unpublished** and **not ready to publish**. Windows remains **NOT TESTED**. No publication, merge, tag or release is authorized without explicit maintainer approval.
 
 ## Documentation
 

@@ -2,6 +2,7 @@
   "name": "nishi-dsh-project-memory",
   "description": "Project-scoped durable memory for Nishi DSH Suite with root-aware context injection, memory tools, and maintenance commands",
   "version": "0.1.0-rc.3",
+  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

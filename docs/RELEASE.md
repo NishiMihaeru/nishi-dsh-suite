@@ -39,16 +39,17 @@ The rc.1 claim rests on the full workspace suite building, typechecking and unit
 
 ## rc.3 family
 
-Exactly six packages move together at `0.1.0-rc.3`:
+Exactly seven packages move together at `0.1.0-rc.3`:
 
 1. `nishi-dsh-core`
 2. `nishi-dsh-codex`
 3. `nishi-dsh-antigravity`
 4. `nishi-dsh-claude`
-5. `nishi-dsh-project-memory`
-6. `nishi-dsh-suite`
+5. `nishi-dsh-grok`
+6. `nishi-dsh-project-memory`
+7. `nishi-dsh-suite`
 
-`0.1.0-rc.1` remains the published npm family. rc.2 was deliberately left unpublished.
+All seven are `private`. `nishi-dsh-*` is not installed from npm. The previously published `0.1.0-rc.1` family is withdrawn; rc.2 was never published. rc.3 is the git `main` line and installs from a checkout via `pnpm pack:local` and `scripts/install-local-profile.mjs`. The only registry dependency is DeepSeek Harness (`@deepseek-ai/dsh-*` `0.1.2-rc.1`).
 
 ## Foundation state — THAWED, PENDING RE-VALIDATION
 
@@ -130,8 +131,8 @@ Run after the last implementation/dependency change:
 pnpm install --frozen-lockfile
 pnpm verify:local
 pnpm smoke:vendor-cli
-pnpm verify:bundle-install
-pnpm check:npm-names
+# local tarball install into a disposable profile; does not use the npm registry for nishi-dsh-*
+# pnpm verify:bundle-install --profile <name> --suite <suite.tgz> --local-pack-dir .artifacts/packs --dsh-home <home>
 ```
 
 Read real exit codes; do not mask failures through pipelines.
@@ -146,7 +147,7 @@ Release must continue to satisfy:
 - vendor sign-in stays inside official vendor products;
 - no silent provider fallback for routed search;
 - Project Memory path/symlink confinement remains fail-closed;
-- the bridge server's global registration in the user's own vendor configuration is an accepted exposure, narrowed by the parent-pid claim: a server no live adapter claims is served an empty catalog. It is never written by this suite;
+- the removed Antigravity MCP bridge must not be reintroduced; no Suite-owned MCP server registration belongs in the user's vendor configuration;
 - no Windows support claim before Windows acceptance.
 
 ## Orchestrator preset distribution
@@ -179,9 +180,9 @@ Current Market gates:
 - [ ] Antigravity frozen;
 - [ ] Claude frozen;
 - [ ] repository topic `dsh-plugin` added;
-- [ ] rc.3 family published consistently to npm;
+- [x] nishi-dsh-* is not an npm install; previously published `0.1.0-rc.1` is withdrawn; only DeepSeek Harness comes from the registry;
 - [ ] final deterministic/local/live release gates PASS;
-- [ ] final install/update/uninstall acceptance PASS;
+- [ ] final local-tarball install/update/uninstall acceptance PASS;
 - [ ] Windows acceptance if a Windows compatibility claim is desired;
 - [ ] Market description rechecked against the exact released install path.
 

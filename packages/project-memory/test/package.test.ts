@@ -11,7 +11,7 @@ test('project-memory package exposes the public rc.3 package boundary', async ()
 
   assert.equal(pkg.name, 'nishi-dsh-project-memory')
   assert.equal(pkg.version, '0.1.0-rc.3')
-  assert.equal(pkg.private, undefined)
+  assert.equal(pkg.private, true)
   assert.equal(pkg.type, 'module')
   assert.deepEqual(pkg.exports, {
     '.': {
@@ -37,4 +37,14 @@ test('project-memory package exposes the public rc.3 package boundary', async ()
 
   assert.equal(JSON.stringify(pkg).includes('link:'), false)
   assert.equal(JSON.stringify(pkg).includes('file:'), false)
+})
+
+// cbe59fa fixed src to use Session.eventAt after rc.1 hid the log, but the
+// published entry is lib/index.js (gitignored). Tests import src via tsx, so a
+// stale lib kept injecting on every step while the suite stayed green.
+test('published runtime reads the session log through eventAt, not session.events', async () => {
+  const runtime = await readFile(new URL('../lib/runtime.js', import.meta.url), 'utf8')
+  assert.match(runtime, /\.eventAt\(/)
+  assert.equal(runtime.includes('session.events'), false)
+  assert.equal(runtime.includes('hasVisibleProjectContext'), false)
 })

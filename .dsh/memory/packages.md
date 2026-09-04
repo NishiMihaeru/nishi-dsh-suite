@@ -1,0 +1,31 @@
+# Package documentation digest
+
+Sources covered: all seven `packages/*/README.md` files and their seven `THIRD_PARTY_NOTICES.md` files. Canonical status/order remains in `docs/HANDOFF.md` and `docs/ROADMAP.md`.
+
+## `nishi-dsh-core`
+Provider-independent registry, shared vendor CLI runtime, routed search, usage normalization/cache/invalidation, host RPC, and Usage & Limits browser surface. Host lifecycle is registry-first; providers call transactional `registerProvider()`. Core has no Model Accounts, credential backend, or vendor-specific identity branch. Raw vendor stderr must never become a public diagnostic. DSH peer family is exactly `0.1.2-rc.1`; status is thawed pending independent re-validation.
+
+## `nishi-dsh-project-memory`
+Provider-agnostic repository memory with `memory_read`, `memory_write`, `memory_edit`, context injection, `/memory`, and `/consolidate`. Topic ids are flat lowercase ASCII with digits/hyphens, maximum 64 characters; topics are capped at 256 KiB and bootstrap at 25 KiB/200 lines. POSIX confinement uses pinned directory identities, generation-safe locks, and journaled topic/map transactions. There is no `memory_delete`; retirement requires deleting the topic file and removing its map line. Windows is NOT TESTED; no `fsync` durability claim. Status is thawed pending independent re-validation.
+
+## `nishi-dsh-codex`
+Provider id `codex`; route `codex-app-server`; installed official Codex CLI/App Server; native search and rate-limit source. No vendor-specific delegation and no ownership of Project Memory. The vendored adapter derives from the reviewed MIT `wingoo/codex-plugin-dsh` snapshot `79fe7503390d641680bad8efade52782a3c31ced`; it is not an official OpenAI plugin. Runtime floor is Codex `0.150.0`; newer versions are allowed. Vendor memories/project-doc injection are disabled. Unsupported producer context blocks are projected to text only on transient requests. Ordinary vendor threads resume per DSH session and realign/rebuild from durable checkpoints/history. One completed vendor turn runs per DSH step under an output schema; auxiliary calls are isolated. Status is thawed pending independent re-validation.
+
+## `nishi-dsh-antigravity`
+Provider id `antigravity`; route `antigravity-cli`; installed official `agy`; native `search_web`; quota from published turn-free `/usage`. One session-lived `agy` child uses full/delta envelopes; reuse requires an exact delivered-prefix match. The only shipping tool transport is the forced schema: typed tool arguments, per-turn stamps, and one bounded repair restatement. The MCP bridge and its `transport` option were removed and survive only as historical verification evidence. Turn settlement is typed; failed diagnostics include a sanitized vendor build when available. Model suffixes `-low/-medium/-high` are exposed as reasoning efforts on a base model; the base defaults to high by maintainer decision. Authentication stays in `agy`; Google approval/terms compliance is not claimed. Frozen on the documented 2026-09-04 checkpoint; vendor self-updates require live-suite re-runs.
+
+## `nishi-dsh-claude`
+Provider id `claude`; usage-only through the installed official Claude CLI. It declares no model route, search backend, or vendor delegation. The collector uses a short stream-json control session and `get_usage`; missing CLI degrades to unavailable. No `@anthropic-ai/*` runtime is bundled and authentication remains vendor-owned. Claude has not completed its provider stage. Any future primary route must satisfy the terms and repository-isolation requirements in `docs/verification/claude-code-cli-contract.md`.
+
+## `nishi-dsh-grok`
+Provider id `grok`; route `grok-cli`; installed official Grok Build CLI. One short-lived headless process runs per DSH step while `--resume` continues one vendor session and preserves prefix cache. The primary route denies native web search and all vendor tools using the tested paired allow/deny form plus MCP denial; `--tools ""` is a dangerous silent no-op. Usage & Limits comes from ACP `_x.ai/billing` after `initialize`, without a session or turn. Routed native search is a separate hidden headless turn that allowlists only vendor `web_search`, pinned to `grok-4.5` at low effort. The ACP initialization catalog provides models, context capacities, and reasoning efforts. Authentication stays in `grok`; the package does not read the vendor credential store. Implemented and live-primary tested, but product-profile acceptance remains open.
+
+## `nishi-dsh-suite`
+Single Market-facing composition bundle for six leaf packages (Core, four provider packages, and Project Memory). The host patch mounts authorization as a surrounding-profile compatibility seam, Project Memory, provider plugins, and Core. The Orchestrator preset mounts routed search, memory tools, and DSH-native delegation. Explicit subagent route selection depends on the host model-selection settings singleton and a user-maintained exact provider/model allowlist; `subagent_fork` remains on the parent route. Delegation depth is capped at one. The managed preset bridge owns only its Orchestrator directory and refuses unmanaged or locally edited state; its necessity on rc.1 is still an open compatibility check. The Suite is unpublished and not ready to publish.
+
+## Third-party/runtime boundaries
+- All packages target DSH `0.1.2-rc.1` from npm and use DeepSeek Harness/Cordis APIs under their package licenses.
+- No package redistributes vendor CLIs, SDK/model runtimes, credential stores, OAuth material, cookies, API keys, or session databases.
+- Provider integrations drive user-installed official external CLIs/products; vendor authentication remains vendor-owned.
+- No OpenAI Codex runtime dependency exists in Antigravity; no `@anthropic-ai/*` runtime is bundled by Claude; Core peers share the host Cordis instance instead of installing duplicates.
+- Repository/Suite notices retain DeepSeek MIT attribution and the `wingoo/codex-plugin-dsh` MIT attribution; package-specific notices remain canonical for each package.

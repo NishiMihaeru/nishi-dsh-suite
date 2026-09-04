@@ -1,6 +1,7 @@
 {
   "name": "nishi-dsh-core",
   "version": "0.1.0-rc.3",
+  "private": true,
   "description": "Provider-independent core for Nishi DSH Suite: provider registry and registration, shared vendor runtime, routed web_search, usage/limits, host RPC, and browser surfaces",
   "type": "module",
   "main": "lib/index.js",

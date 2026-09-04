@@ -1,3 +1,10 @@
+# Mirrored project documentation
+
+Source: `SECURITY.md`
+Mode: verbatim substantive content
+
+---
+
 # Security Policy
 
 The security and integrity of user environments, credentials, project state and DSH profiles are core design requirements of Nishi DSH Suite.
@@ -8,7 +15,7 @@ This policy applies to Suite-owned provider bridges, provider-independent core/r
 
 Vendor-specific CLI delegation bridges were removed in `0.1.0-rc.3`. DSH-native child-agent delegation belongs to the harness/preset plane rather than a Suite-owned vendor subagent implementation.
 
-Vulnerabilities in DeepSeek Harness or vendor runtimes such as the Claude Code CLI, OpenAI Codex, Google Antigravity `agy`, or the Grok Build CLI should be reported to the corresponding upstream/vendor security channel when the issue is not caused by Suite-owned code.
+Vulnerabilities in DeepSeek Harness or vendor runtimes such as the Claude Code CLI, OpenAI Codex, or Google Antigravity `agy` should be reported to the corresponding upstream/vendor security channel when the issue is not caused by Suite-owned code.
 
 ## Reporting a vulnerability
 
@@ -23,7 +30,6 @@ Nishi DSH Suite does not intentionally collect, copy, store, migrate or persist 
 - Claude authentication remains owned by the installed official Claude Code CLI.
 - Codex authentication remains owned by the official Codex client/account state.
 - Antigravity authentication remains owned by official `agy` and its product/system authentication flow.
-- Grok authentication remains owned by the installed official Grok Build CLI.
 - Suite code must not copy credential stores, replace vendor homes to bridge authentication, scrape cookies/keyrings, or replay vendor tokens through custom HTTP clients.
 - Usage/quota projection must not expose raw account tokens, CSRF material, private identity data or equivalent secrets to browser-visible DTOs.
 
@@ -60,8 +66,8 @@ The managed Orchestrator preset bridge refuses to overwrite/remove an unmanaged 
 
 ## Network behavior
 
-Workspace development installs DeepSeek Harness packages from npm. This suite itself is not installed from npm: local tarball install into a DSH profile uses `file:` overrides and does not fetch `nishi-dsh-*` from the registry. Live provider use naturally performs provider network requests through official vendor runtimes and may consume quota. Deterministic default tests must not make live model calls.
+Normal installation may access npm/GitHub registries. Live provider use naturally performs provider network requests through official vendor runtimes and may consume quota. Deterministic default tests must not make live model calls.
 
-Provider-specific compatibility and security claims are accepted only after that provider's own validation stage; Foundation compatibility evidence does not automatically validate Codex, Antigravity, Claude or Grok provider seams.
+Provider-specific compatibility and security claims are accepted only after that provider's own validation stage; Foundation compatibility evidence does not automatically validate Codex, Antigravity or Claude provider seams.
 
 Windows remains **NOT TESTED** for the current rc.3 family.

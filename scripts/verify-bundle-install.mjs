@@ -22,7 +22,7 @@ Options:
   --profile-dir <path>             Verify package.json dependency + dsh.profile.bundles reconciliation.
   --closure-only                   Run only the vendor-runtime closure gate against an installed tree, then exit.
   --dsh-home <path>                Set child DSH_HOME and derive profile dir as <home>/profiles/<profile>.
-  --local-pack-dir <path>          Prepublish acceptance only: resolve Nishi leaf dependencies from local tarballs via temporary profile pnpm overrides. The Suite tarball is not rewritten.
+  --local-pack-dir <path>          Local unpublished-family install: resolve Nishi leaf dependencies from local tarballs via temporary profile pnpm overrides. The Suite tarball is not rewritten. Does not use the npm registry for nishi-dsh-*.
   --preserve <path>                Hash a path before/after each phase; may be repeated.
   --dsh-bin <path-or-command>      DSH executable (default: DSH_BIN env or dsh).
 `)
@@ -514,7 +514,7 @@ try {
   console.log('Bundle install/update/uninstall acceptance passed for the exercised profile operations.')
   console.log('Verified the installed closure contains no vendor runtime packages (@openai/codex*, @anthropic-ai/*) or foreign-platform vendor binaries.')
   if (localPackDir) {
-    console.log('Prepublish mode used temporary local-tarball overrides only for Nishi leaf resolution; the Suite tarball itself was not rewritten.')
+    console.log('Local-pack mode used temporary local-tarball overrides only for Nishi leaf resolution; the Suite tarball itself was not rewritten, and nishi-dsh-* was not fetched from npm.')
   }
   if (!args.updateSpec) {
     console.log('Note: version-to-version update was not exercised; pass --update-spec when a second prerelease tarball is available.')

@@ -2,6 +2,7 @@
   "name": "nishi-dsh-codex",
   "description": "Codex primary provider plugin for Nishi DSH Suite with App Server routing, native web search, primary history, and rate limits",
   "version": "0.1.0-rc.3",
+  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

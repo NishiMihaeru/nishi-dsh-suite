@@ -381,11 +381,14 @@ Automatic failover remains deferred.
 
 ## 7. Install/profile lifecycle
 
-- [ ] fresh disposable rc.3 tarball install;
+Supported install is a git checkout plus local tarballs (`pnpm pack:local`, `scripts/install-local-profile.mjs`). `nishi-dsh-*` is not an npm install; the previously published `0.1.0-rc.1` family is withdrawn. The only registry install is DeepSeek Harness. rc.3 packages are `private` and live on git `main`.
+
+- [ ] fresh disposable rc.3 local-tarball install;
 - [ ] same-profile reconciliation/update;
 - [ ] preserve unrelated existing links/state;
 - [ ] managed Orchestrator preset install/status/update/remove;
-- [ ] Suite removal preserves unrelated profile/session/project/vendor state.
+- [ ] Suite removal preserves unrelated profile/session/project/vendor state;
+- [ ] npm registry publication of rc.3 — **deferred**, not a current install path.
 
 ## 7a. Codex thread handling — decision taken and implemented
 
@@ -484,8 +487,8 @@ each variant being an object with an `enum`-of-one `kind`, an `enum`-of-one `nam
 - [ ] final `pnpm install --frozen-lockfile`;
 - [ ] `pnpm verify:local`;
 - [ ] `pnpm smoke:vendor-cli`;
-- [ ] `pnpm verify:bundle-install`;
-- [ ] `pnpm check:npm-names`;
+- [ ] local-tarball `pnpm verify:bundle-install` (not an npm registry install);
+- [ ] `pnpm check:npm-names` — **deferred** with npm publication of rc.3;
 - [ ] `RELEASE.md` updated with final evidence;
 - [ ] breaking changes reviewed;
 - [ ] explicit maintainer publication approval.

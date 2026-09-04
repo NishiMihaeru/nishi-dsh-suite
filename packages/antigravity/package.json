@@ -2,6 +2,7 @@
   "name": "nishi-dsh-antigravity",
   "description": "Official agy-backed Antigravity primary provider plugin for Nishi DSH Suite with native web search and local usage visibility",
   "version": "0.1.0-rc.3",
+  "private": true,
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

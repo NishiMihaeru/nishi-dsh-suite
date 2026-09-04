@@ -1,3 +1,10 @@
+# Mirrored project documentation
+
+Source: `DSH.md`
+Mode: verbatim substantive content
+
+---
+
 # DSH Project Contract
 
 This file contains stable project-specific instructions for DSH agents working on Nishi DSH Suite.
@@ -46,10 +53,5 @@ ways. Each states its reason: follow the reasoning, not just the instruction.
   and discards context you did not intend to change.
 - Prefer the specialized tools (`grep`, `glob`, `read`) over shell equivalents.
   They are cheaper and their results are structured.
-- Never search `node_modules` recursively for a bare word. On 2026-09-04 a
-  `grep -rn -i usage` over the installed runtime returned ~60 KB of minified
-  textmate grammars, truncated mid-token, and the vendor turn that had to read
-  it produced no decision at all (`docs/verification/agy-cli-contract.md`,
-  finding 21). Name the package, or the file, or the symbol.
 - Read before you write. An edit built on an assumption about a file's contents
   usually fails, and a failed edit costs more than the read would have.

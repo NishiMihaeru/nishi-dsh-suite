@@ -22,12 +22,12 @@ for (const [directory, expectedName] of packages) {
 
   assert.equal(manifest.name, expectedName, `${directory}: unexpected package name`)
   assert.equal(manifest.version, VERSION, `${expectedName}: version must stay on one prerelease train`)
-  assert.notEqual(manifest.private, true, `${expectedName}: publishable package must not be private`)
+  assert.equal(manifest.private, true, `${expectedName}: unpublished family must be private; npm install of nishi-dsh-* is not supported`)
   assert.equal(manifest.license, 'MIT', `${expectedName}: license must be MIT`)
   assert.equal(manifest.repository?.url, 'git+https://github.com/NishiMihaeru/nishi-dsh-suite.git')
 
   for (const lifecycle of ['preinstall', 'install', 'postinstall', 'prepare']) {
-    assert.equal(manifest.scripts?.[lifecycle], undefined, `${expectedName}: publishable package must not run ${lifecycle}`)
+    assert.equal(manifest.scripts?.[lifecycle], undefined, `${expectedName}: family package must not run ${lifecycle}`)
   }
 
   for (const section of ['dependencies', 'optionalDependencies']) {
@@ -47,7 +47,7 @@ assert.deepEqual(actualSuiteFamilyDeps, expectedSuiteFamilyDeps, 'suite must dep
 assert.equal(
   suite.dependencies?.['@deepseek-ai/dsh-authorization'],
   DSH_VERSION,
-  'suite must install the alpha.1 authorization service required by Usage Limits Host',
+  'suite must keep the rc.1 authorization row as a surrounding-profile compatibility seam',
 )
 assert.equal(suite.dsh?.bundle?.patch, './cordis.patch.yml', 'suite must export the DSH bundle patch')
 
@@ -76,18 +76,6 @@ assert.deepEqual(
   new Set(declaredSuitePackages),
   expectedSuiteFamilyDeps,
   'NISHI_DSH_SUITE_PACKAGES must list every Nishi leaf exactly once',
-)
-
-const nameProbeSource = await readFile(new URL('../scripts/check-npm-names.mjs', import.meta.url), 'utf8')
-assert.ok(
-  nameProbeSource.includes(`const VERSION = '${VERSION}'`),
-  'scripts/check-npm-names.mjs must probe the current family version',
-)
-const probedNames = nameProbeSource.match(/const names = \[([^\]]*)\]/)?.[1] ?? ''
-assert.deepEqual(
-  new Set([...probedNames.matchAll(/'([^']+)'/g)].map((match) => match[1])),
-  familyNames,
-  'scripts/check-npm-names.mjs must probe every family name',
 )
 
 const retiredNames = [
