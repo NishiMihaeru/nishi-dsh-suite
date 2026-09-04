@@ -30,6 +30,7 @@ import {
   BRIDGE_SCHEMA,
   BRIDGE_SCHEMA_FILE,
   bridgeSchemaFor,
+  proseDecision,
   structuredResult,
 } from './schema-transport.js'
 import { antigravityVendorFailure } from './vendor-stderr.js'
@@ -56,6 +57,7 @@ import { ANTIGRAVITY_PRIMARY_PROVIDER } from './provider-id.js'
 import {
   isEffortUnsupported,
   isEffortUnsupportedText,
+  isRetryableTurnFailure,
   resultFailure,
   settlement,
   settlementCode,
@@ -69,6 +71,10 @@ export { ANTIGRAVITY_PRIMARY_PROVIDER } from './provider-id.js'
 // the vendor even though its text now lives beside the envelopes it ships with.
 export { bridgeAgentMarkdown }
 const WINDOWS_EXECUTABLE_ENV = 'DSH_ANTIGRAVITY_CLI_EXECUTABLE'
+
+/** Appended when a step's SECOND vendor failure is the one being reported. */
+const RETRIED_TURN_NOTE = 'This step had already been retried once on a rebuilt conversation after an '
+  + 'earlier vendor failure.'
 
 export interface AntigravityPrimaryConfig {
   readonly executable: string
@@ -288,13 +294,19 @@ export class AntigravityCliAdapter extends LlmAdapter {
     const requestedTools = new Set((options.tools ?? []).map(tool => tool.name))
 
     const first = await this.runTurn(options)
-    const session = first.session
+    // Reassigned rather than fixed: a retried turn runs on a conversation
+    // this one did not have, and the vendor call-id map below belongs to
+    // whichever conversation actually produced the decision.
+    let session = first.session
     let { result, events } = first.outcome
     let turn = first.turn
     // The stale decision this step already failed on, once a repair turn has
     // been asked for. Held so the repair's own failures can report the cause
     // the step actually had rather than the repair's.
     let stale: LlmError | undefined
+    // Whether this step already spent its one retry; see
+    // {@link isRetryableTurnFailure}.
+    let retried = false
     let output: ReturnType<typeof structuredResult>
 
     for (;;) {
@@ -332,7 +344,34 @@ export class AntigravityCliAdapter extends LlmAdapter {
             'UNSUPPORTED',
           )
         }
-        throw resultFailure(result, settled, this.vendorBuildNote())
+        if (!retried && isRetryableTurnFailure(settled, result)) {
+          // Asked again from DSH's history on a fresh conversation, once. The
+          // vendor is known to report `ERROR` for a turn it then goes on to
+          // complete internally, and nothing here can read that completion
+          // once the child is gone -- so the alternative on this path is
+          // losing a step the model had already answered. Not a repair: that
+          // asks a LIVE conversation to restate a decision it made, and this
+          // conversation is already abandoned above.
+          retried = true
+          const rerun = await this.runTurn(options)
+          // A repair belongs to the conversation it was asked of, and this is
+          // a different one. Cleared so the retried attempt can ask its own
+          // (bounded the same way: one retry per step, one repair per
+          // conversation) and so a later failure cannot report a repair that
+          // happened on a conversation already thrown away.
+          stale = undefined
+          session = rerun.session
+          result = rerun.outcome.result
+          events = rerun.outcome.events
+          turn = rerun.turn
+          continue
+        }
+        throw resultFailure(
+          result,
+          settled,
+          this.vendorBuildNote(),
+          retried ? RETRIED_TURN_NOTE : undefined,
+        )
       }
 
       // Read the decision AND check it can be executed as a whole, under one
@@ -358,6 +397,16 @@ export class AntigravityCliAdapter extends LlmAdapter {
         // and asks for the decision the model already made, so no tool runs
         // twice. See {@link repairEnvelope}.
         if (stale !== undefined) {
+          // The repair has been spent. Before losing the step, take the turn's
+          // own words if that is plainly all the model produced: measured
+          // twice, on the finishing turn of an agent run, where the repair
+          // came back with the identical prose because the model had in fact
+          // answered. See {@link proseDecision}.
+          const prose = proseDecision(result)
+          if (prose !== undefined) {
+            output = prose
+            break
+          }
           throw new LlmError(
             `${error.message} A repair turn was asked for on the same live conversation and produced no `
             + 'decision for this step either.',
@@ -365,7 +414,17 @@ export class AntigravityCliAdapter extends LlmAdapter {
             { cause: stale },
           )
         }
-        if (session === undefined) throw error
+        if (session === undefined) {
+          // No conversation to ask: `runTurnBody` has already closed the
+          // throwaway child. The prose is the only alternative to losing the
+          // step, so it is read here without a repair rather than never.
+          const prose = proseDecision(result)
+          if (prose !== undefined) {
+            output = prose
+            break
+          }
+          throw error
+        }
         stale = error
         const repair = await this.repairTurn(options, session, turn, error)
         result = repair.outcome.result

@@ -46,7 +46,7 @@ An invocation maps back to `--model <base> --effort <level>`; an effort in the r
 
 ### Session-lived vendor process
 
-A DSH step is no longer a whole `agy` process. The adapter keeps one live child per DSH session, keyed by `sessionId`, and drives it with `--input-format stream-json`, which runs one turn per NDJSON line. The opening request sends a `full` bridge envelope (system prompt, history, tool catalog); each later step sends a `delta` envelope carrying only what DSH appended since the last reply.
+A DSH step is no longer a whole `agy` process. The adapter keeps one live child per DSH session, keyed by `sessionId`, and drives it with `--input-format stream-json`, which runs one turn per NDJSON line. The opening request sends a `full` bridge envelope (system prompt, history, tool catalog); each later step sends a `delta` envelope carrying only what DSH appended since the last reply. A `full` envelope that reopens a conversation which already contains this route's own replies also carries a `task` field — the current request, the suffix of `messages` after that last reply — because a rebuild otherwise packs the whole history into one JSON user message and a model given that blob has been observed to restart the opening task instead of answering the follow-up.
 
 This exists for cost and for correctness. A fresh conversation per step could never hit the vendor's prefix cache — measured on real `agy 1.1.22`, a continuation inside one child read 20418 of a 23496-token prefix from cache — and it left the model reading its own past actions as JSON quoted back at it rather than as its own turns.
 

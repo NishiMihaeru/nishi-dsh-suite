@@ -401,6 +401,47 @@ export function structuredResult(result: AgyTurnResult, expectedTurn: string | u
 }
 
 /**
+ * A turn that answered in prose, read as the message it plainly is -- the LAST
+ * resort for a step that would otherwise be lost, never the first.
+ *
+ * The measured case, twice on 2026-09-04 and both times on the final turn of
+ * an agent run (`docs/verification/agy-cli-contract.md`, finding 22): the
+ * model finished its work, wrote its report as ordinary markdown, and
+ * appended no JSON block at all. `structured_output` therefore still held the
+ * previous turn's object, the stamp check refused it correctly -- and the step
+ * died, throwing away an answer that was sitting in `response` in full. The
+ * repair turn asked the same conversation to say the turn again and got the
+ * identical prose back, verbatim, because from the model's side it HAD
+ * answered.
+ *
+ * This is not a relaxation of the stamp. The stamp exists to stop a stale
+ * `tool_calls` being executed a second time, and nothing here can produce a
+ * tool call. `response` is per-turn where `structured_output` is not -- the
+ * point of finding 1 is that on a stale turn the response held this turn's
+ * own words -- so the text is fresh by construction.
+ *
+ * Ordering is the load-bearing part, and it is why this is not read inside
+ * {@link structuredResult}: the repair turn comes FIRST, because a model that
+ * meant to call a tool and wrote prose does restate the call when asked
+ * (finding 16), and reading its prose instead would end an agent run early
+ * with a plausible paragraph. Only once the repair has also produced no
+ * decision -- or when the turn ran on a throwaway child with no conversation
+ * to ask -- is the prose taken.
+ *
+ * Bounded further to a turn that never ATTEMPTED the envelope. If the response
+ * mentions `"kind"` or `"tool_calls"`, the model was answering in the bridge's
+ * shape and something about it did not parse or did not match this turn -- a
+ * real protocol failure, which stays loud. Empty output is not prose either.
+ */
+export function proseDecision(result: AgyTurnResult): BridgeOutput | undefined {
+  if (typeof result.response !== 'string') return undefined
+  const text = result.response.trim()
+  if (text.length === 0) return undefined
+  if (text.includes('"kind"') || text.includes('"tool_calls"')) return undefined
+  return { kind: 'message', text, tool_calls: [] }
+}
+
+/**
  * Refuse a decision DSH cannot execute as a whole, BEFORE any of it is
  * yielded.
  *

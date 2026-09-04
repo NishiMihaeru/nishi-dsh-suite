@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream'
 import test from 'node:test'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import { AntigravityCliAdapter } from '../src/antigravity-primary.ts'
+import { bridgeAgentMarkdown } from '../src/bridge-envelope.ts'
 import { stamped, TURN_PLACEHOLDER } from './turn-stamp.ts'
 import { isVersionSpawn, versionChild } from './fake-vendor.ts'
 
@@ -186,6 +187,16 @@ function assistantToolCall(id: string, name: string, args: string) {
   } as any
 }
 
+function assistantText(text: string) {
+  messageSeq += 1
+  return {
+    id: `m${messageSeq}`,
+    role: 'assistant',
+    source: { kind: 'model', provider: 'antigravity-cli', model: 'gemini-3.7-flash-low' },
+    content: [{ type: 'text', text }],
+  } as any
+}
+
 function toolResult(callId: string, text: string) {
   messageSeq += 1
   return {
@@ -242,7 +253,9 @@ test('a second step on one session continues the live child instead of spawning 
     const envelopes = child.envelopes()
     assert.equal(envelopes.length, 2)
     assert.equal(envelopes[0].kind, 'full')
+    assert.equal(envelopes[0].task, undefined, 'a cold open has no earlier task to surface')
     assert.equal(envelopes[1].kind, 'delta')
+    assert.equal(envelopes[1].task, undefined, 'a delta is the current request; it does not also name it')
   } finally { await adapter.dispose() }
 })
 
@@ -326,9 +339,57 @@ test('a reply stamped for an earlier turn is repaired rather than executed again
   } finally { await adapter.dispose() }
 })
 
-test('the repair is asked for once, and a second stale reply fails the step without killing the child', async () => {
+/**
+ * The same envelope, except the model was plainly ANSWERING IN THE BRIDGE'S
+ * SHAPE and the stamp is another turn's. That is a protocol failure rather
+ * than prose, so it must stay loud: reading it as a message would hand DSH a
+ * paragraph of JSON as if the model had written it for the user.
+ */
+const STALE_TURN_ATTEMPTED = {
+  conversation_id: 'c1',
+  status: 'SUCCESS',
+  response: JSON.stringify({ kind: 'message', text: 'an older answer', turn: 'stale-01', tool_calls: [] }),
+  structured_output: { kind: 'tool_calls', text: '', turn: 'stale-01', tool_calls: [{ id: 'call_1', name: 'read_file', arguments: { path: 'a.ts' } }] },
+}
+
+/**
+ * With the repair spent, the turn's own prose is taken rather than the step
+ * lost.
+ *
+ * Measured twice on 2026-09-04, both times on the LAST turn of an agent run:
+ * the model finished, wrote its report as markdown, appended no block, and the
+ * repair turn returned the identical prose because from its side it had
+ * answered (`agy-cli-contract.md`, finding 22). The ordering is the point --
+ * the repair is still asked for first, because a model that meant to call a
+ * tool does restate the call when asked, and reading its prose instead would
+ * end an agent run early with a plausible paragraph.
+ */
+test('with the repair spent, a prose-only turn is delivered as its own message instead of failing', async () => {
   const { ctx, children, spawns } = multiHarness([
     [toolCallReply('call_1', 'read_file', { path: 'a.ts' }), STALE_TURN, STALE_TURN, messageReply('later')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const continued = await upToStaleTurn(adapter)
+
+    const step2 = await collect(adapter.stream(request({ messages: continued })))
+    // `banana` is STALE_TURN's own `response`; the stale `tool_calls` it also
+    // carried must not appear, which is the whole reason the stamp exists.
+    assert.equal(textOf(step2), 'banana')
+    assert.deepEqual(toolCallIds(step2), [])
+    assert.equal(children[0].envelopes().length, 3, 'exactly one repair, never two')
+    assert.equal(spawns.length, 1, 'a stale decision must not kill a healthy child')
+  } finally { await adapter.dispose() }
+})
+
+test('a second stale reply that ATTEMPTED a decision still fails the step, without killing the child', async () => {
+  const { ctx, children, spawns } = multiHarness([
+    [
+      toolCallReply('call_1', 'read_file', { path: 'a.ts' }),
+      STALE_TURN_ATTEMPTED,
+      STALE_TURN_ATTEMPTED,
+      messageReply('later'),
+    ],
   ])
   const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   try {
@@ -353,12 +414,41 @@ test('the repair is asked for once, and a second stale reply fails the step with
   } finally { await adapter.dispose() }
 })
 
-test('a request with no session of its own fails on a stale reply instead of repairing', async () => {
+test('a request with no session of its own takes the prose rather than losing the step', async () => {
   const { ctx, children, spawns } = multiHarness([[STALE_TURN, messageReply('unreachable')]])
   const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
   try {
     // No `sessionId`: the child is a throwaway and `runTurnBody` has already
-    // closed it by the time the decision is read, so there is nothing to ask.
+    // closed it by the time the decision is read, so there is nothing to ask
+    // -- which makes the prose the only alternative to losing the step.
+    const chunks = await collect(adapter.stream(request({ messages: [userText('hi')], sessionId: undefined })))
+    assert.equal(textOf(chunks), 'banana')
+    assert.deepEqual(toolCallIds(chunks), [])
+    assert.equal(spawns.length, 1)
+    assert.equal(children[0].envelopes().length, 1, 'no repair line on a throwaway child')
+  } finally { await adapter.dispose() }
+})
+
+test('an empty response is not prose: a stale reply with nothing in it still fails', async () => {
+  const empty = { ...STALE_TURN, response: '   \n' }
+  const { ctx } = multiHarness([[empty, messageReply('unreachable')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    await assert.rejects(
+      collect(adapter.stream(request({ messages: [userText('hi')], sessionId: undefined }))),
+      (error: unknown) => {
+        assert.ok(error instanceof LlmError)
+        assert.equal(error.code, 'ANTIGRAVITY_STALE_DECISION')
+        return true
+      },
+    )
+  } finally { await adapter.dispose() }
+})
+
+test('a request with no session and no prose still fails on a stale reply', async () => {
+  const { ctx, children } = multiHarness([[STALE_TURN_ATTEMPTED, messageReply('unreachable')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
     await assert.rejects(
       collect(adapter.stream(request({ messages: [userText('hi')], sessionId: undefined }))),
       (error: unknown) => {
@@ -368,7 +458,6 @@ test('a request with no session of its own fails on a stale reply instead of rep
         return true
       },
     )
-    assert.equal(spawns.length, 1)
     assert.equal(children[0].envelopes().length, 1, 'no repair line on a throwaway child')
   } finally { await adapter.dispose() }
 })
@@ -491,6 +580,53 @@ test('a changed tool catalog rebuilds, because the catalog is prefix a delta can
     })))
 
     assert.equal(spawns.length, 2)
+  } finally { await adapter.dispose() }
+})
+
+test('a rebuilt full envelope names the current request as task, not the opening question', async () => {
+  const { ctx, children } = multiHarness([[messageReply('one')], [messageReply('two')]])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('how do I show grok usage')
+    await collect(adapter.stream(request({ messages: [first] })))
+    const followUp = userText('can we parse the TUI instead')
+    await collect(adapter.stream(request({
+      messages: [first, assistantText('here is the usage report'), followUp],
+      system: 'be different',
+    })))
+
+    assert.equal(children[0].envelopes()[0].task, undefined)
+    const rebuilt = children[1].envelopes()[0]
+    assert.equal(rebuilt.kind, 'full')
+    const task = rebuilt.task as any[]
+    assert.equal(task.length, 1, 'task is the follow-up, not the whole history')
+    assert.equal(task[0].content[0].text, 'can we parse the TUI instead')
+    const history = rebuilt.messages as any[]
+    assert.equal(history.length, 3, 'messages still carries the whole conversation')
+    assert.equal(history[0].content[0].text, 'how do I show grok usage')
+    assert.match(bridgeAgentMarkdown(), /`task` field/, 'the model has to be told the field exists')
+  } finally { await adapter.dispose() }
+})
+
+test('a rebuilt continuation names the tool result as task, not the original user question', async () => {
+  const { ctx, children } = multiHarness([
+    [toolCallReply('call_1', 'read_file', { path: 'a.ts' })],
+    [messageReply('rebuilt')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('read a.ts')
+    const step1 = await collect(adapter.stream(request({ messages: [first] })))
+    const callId = toolCallIds(step1)[0]
+    await collect(adapter.stream(request({
+      messages: [first, assistantToolCall(callId, 'read_file', '{"path":"a.ts"}'), toolResult(callId, 'file body')],
+      system: 'be different',
+    })))
+
+    const task = children[1].envelopes()[0].task as any[]
+    assert.equal(task.length, 1)
+    assert.equal(task[0].role, 'user')
+    assert.equal(task[0].content[0].type, 'tool-result')
   } finally { await adapter.dispose() }
 })
 
@@ -964,7 +1100,18 @@ test('a turn rejected for unknown DSH tool abandons the conversation so the next
   } finally { await adapter.dispose() }
 })
 
-test('a non-SUCCESS turn result abandons the conversation so the next request reopens a new child', async () => {
+/**
+ * A failed turn abandons its conversation and is asked for once more.
+ *
+ * The retry is not optimism: on real `agy 1.1.26` a turn whose model call was
+ * shed with a 503 came back `ERROR`, after which the vendor recovered on its
+ * own, injected "The stream was interrupted. Please continue the task you were
+ * working on." and recorded a valid decision for that same turn in its own
+ * conversation store -- one DSH never saw, because it had read the `ERROR` and
+ * killed the child (`docs/verification/agy-cli-contract.md`, finding 18).
+ * Retrying costs one turn and the prefix cache; not retrying costs the step.
+ */
+test('a failed turn is retried once on a rebuilt conversation, and the step survives', async () => {
   const failure = {
     conversation_id: 'c1',
     status: 'ERROR',
@@ -980,15 +1127,44 @@ test('a non-SUCCESS turn result abandons the conversation so the next request re
     await collect(adapter.stream(request({ messages: [first] })))
     const continued = [first, userText('two')]
 
+    const step2 = await collect(adapter.stream(request({ messages: continued })))
+    assert.equal(textOf(step2), 'rebuilt', 'the step carries the retry\'s decision')
+    assert.equal(spawns.length, 2, 'the failed conversation is abandoned, not continued')
+    // Rebuilt from DSH's history rather than resumed with a delta the new
+    // conversation could not place.
+    assert.equal(children[1].envelopes()[0].kind, 'full')
+  } finally { await adapter.dispose() }
+})
+
+test('the retry is asked for once: a second failure fails the step and says a retry was spent', async () => {
+  const failure = {
+    conversation_id: 'c1',
+    status: 'ERROR',
+    error: 'vendor model error',
+  }
+  const { ctx, children, spawns } = multiHarness([
+    [messageReply('first'), failure],
+    [failure],
+    [messageReply('third request')],
+  ])
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    const first = userText('one')
+    await collect(adapter.stream(request({ messages: [first] })))
+    const continued = [first, userText('two')]
+
     await assert.rejects(collect(adapter.stream(request({ messages: continued }))), (error: unknown) => {
       assert.ok(error instanceof LlmError)
       assert.equal(error.code, 'ANTIGRAVITY_CLI')
+      assert.match(error.message, /already been retried once/)
       return true
     })
+    assert.equal(spawns.length, 2, 'exactly one retry, never two')
 
+    // And the second failure abandons its conversation the way the first did.
     await collect(adapter.stream(request({ messages: [...continued, userText('three')] })))
-    assert.equal(spawns.length, 2, 'a failed turn must abandon the conversation')
-    assert.equal(children[1].envelopes()[0].kind, 'full')
+    assert.equal(spawns.length, 3)
+    assert.equal(children[2].envelopes()[0].kind, 'full')
   } finally { await adapter.dispose() }
 })
 

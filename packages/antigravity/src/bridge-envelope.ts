@@ -24,8 +24,11 @@ export const AGENT_NAME = 'dsh-primary'
  * does not. Bumped again to `v3` with the per-turn stamp: a `v2` reader
  * answered without echoing {@link BRIDGE_TURN_FIELD}, and every such reply is
  * now discarded, so the two are not interchangeable in either direction.
+ * Bumped to `v5` with `task` on a rebuilt `full` envelope: a `v4` reader was
+ * told only that `messages` is the history so far, and a model given that
+ * history as one JSON blob has been observed to restart the opening task.
  */
-const BRIDGE_PROTOCOL = 'dsh-antigravity-primary-v4'
+const BRIDGE_PROTOCOL = 'dsh-antigravity-primary-v5'
 /**
  * The agent definition every turn on this route runs under.
  *
@@ -60,6 +63,9 @@ export function bridgeAgentMarkdown(): string {
     '- A `full` envelope opens the conversation: its `system` field is the authoritative DSH',
     '  system instruction, its `messages` field is the DSH conversation history so far, and its',
     '  `tools` field is the DSH tool catalog.',
+    '- If a `full` envelope also carries a `task` field, that is the current request -- the',
+    '  suffix of `messages` after your last reply in this history. Answer `task`. Earlier user',
+    '  questions in `messages` are context you have already handled; do not restart them.',
     '- A `delta` envelope carries only what DSH appended since your previous reply. The system',
     '  instruction and tool catalog from the `full` envelope stay in force; they are not repeated.',
     '  Your own earlier replies are your own turns in this conversation -- read them there.',
@@ -155,6 +161,12 @@ export function fullEnvelope(
   includeTools = true,
   turn?: string,
 ): string {
+  // `task` is the current request, placed ahead of `messages` so a rebuild
+  // does not bury it under the history it also has to carry. Omitted when
+  // it would equal `messages` (a cold open: there is no earlier task to
+  // restart) and when it would be empty (nothing new to answer).
+  const task = currentTask(options.messages)
+  const includeTask = task.length > 0 && task.length < options.messages.length
   return `${JSON.stringify({
     event: 'user',
     message: {
@@ -162,6 +174,7 @@ export function fullEnvelope(
         protocol: BRIDGE_PROTOCOL,
         kind: 'full',
         ...turn === undefined ? {} : { [BRIDGE_TURN_FIELD]: turn },
+        ...includeTask ? { task: task.map(message => serializeMessage(message, view)) } : {},
         system: options.system ?? '',
         messages: options.messages.map(message => serializeMessage(message, view)),
         ...includeTools
@@ -176,6 +189,28 @@ export function fullEnvelope(
       }),
     },
   })}\n`
+}
+
+/**
+ * The suffix of `messages` after this route's last own reply: the current
+ * request a rebuilt conversation must answer.
+ *
+ * A `full` envelope packs the whole DSH history into one JSON user message.
+ * Measured on a real session (`session-8801c50c`, 2026-09-04): after the live
+ * child was gone, a follow-up of 62 characters arrived as the last entry of a
+ * 62 k-token `messages` array whose opening entry was the original task, and
+ * the model restarted that task -- ran its tests, restated its report --
+ * instead of answering the follow-up. The next send of the same question
+ * worked, because by then it appeared twice. A `delta` does not have this
+ * problem: the follow-up is the whole user message. See {@link fullEnvelope}.
+ */
+export function currentTask(messages: readonly Message[]): Message[] {
+  let lastOwn = -1
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    if (message !== undefined && isOwnReply(message)) lastOwn = index
+  }
+  return messages.slice(lastOwn + 1)
 }
 
 /** The envelope continuing a vendor conversation: only what DSH appended since the last reply. */

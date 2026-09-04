@@ -209,16 +209,108 @@ test('a cancelled turn does not leak the vendor error text it carries', async ()
  * vendor is holding a turn DSH refused, `sentDigests` already recorded it,
  * and a delta on top would ask the model to continue an exchange only one
  * side believes in.
+ *
+ * `spawnsPerRequest` is where the retry shows up: `ERROR` is the one
+ * settlement the vendor is known to report for a turn it then completes
+ * internally, so a request that fails on it spends a second child asking
+ * again before giving up (`isRetryableTurnFailure`). A cancellation and an
+ * unsettled turn are not retried at all, so they still cost one child each.
  */
-for (const status of ['ERROR', 'CANCELED', 'WAITING'] as const) {
-  test(`a ${status} turn abandons the live conversation`, async () => {
-    const { ctx, spawns } = ctxFor({ conversation_id: 'c1', status })
+for (const settled of [
+  { status: 'ERROR', spawnsPerRequest: 2 },
+  { status: 'CANCELED', spawnsPerRequest: 1 },
+  { status: 'WAITING', spawnsPerRequest: 1 },
+] as const) {
+  test(`a ${settled.status} turn abandons the live conversation`, async () => {
+    const { ctx, spawns } = ctxFor({ conversation_id: 'c1', status: settled.status })
     const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
     try {
       await assert.rejects(drain(adapter.stream(request())))
-      assert.equal(spawns.length, 1)
+      assert.equal(spawns.length, settled.spawnsPerRequest)
       await assert.rejects(drain(adapter.stream(request())))
-      assert.equal(spawns.length, 2, `expected the ${status} turn to abandon its conversation`)
+      assert.equal(
+        spawns.length,
+        settled.spawnsPerRequest * 2,
+        `expected the ${settled.status} turn to abandon its conversation`,
+      )
     } finally { await adapter.dispose() }
   })
 }
+
+/**
+ * The retry's own boundaries, in one place, because each exclusion is there
+ * for a different measured reason and a change to any of them should have to
+ * argue with a test.
+ */
+for (const arm of [
+  { label: 'a plain ERROR', result: { status: 'ERROR' }, retried: true },
+  {
+    label: 'an ERROR that is the vendor cancelling its own finished turn',
+    result: { status: 'ERROR', error: 'context canceled' },
+    retried: true,
+  },
+  {
+    // A retry here buys a second full `turnTimeoutMs` wait for the same slow
+    // answer -- and this is the `failed` wording this route measures most.
+    label: 'a turn timeout',
+    result: { status: 'ERROR', error: 'timeout waiting for response' },
+    retried: false,
+  },
+  {
+    label: 'a rejected model selection',
+    result: { status: 'ERROR', error: 'invalid model selection' },
+    retried: false,
+  },
+  // The vendor's own word for input it will reject just as fast next time.
+  { label: 'an INVALID turn', result: { status: 'INVALID' }, retried: false },
+  { label: 'an unsettled turn', result: { status: 'RUNNING' }, retried: false },
+  { label: 'a cancellation', result: { status: 'CANCELED' }, retried: false },
+] as const) {
+  test(`${arm.label} is ${arm.retried ? 'retried once' : 'not retried'}`, async () => {
+    const { ctx, spawns } = ctxFor({ conversation_id: 'c1', ...arm.result })
+    const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+    try {
+      await assert.rejects(drain(adapter.stream(request())), (error: unknown) => {
+        assert.ok(error instanceof LlmError)
+        if (arm.retried) assert.match(error.message, /already been retried once/)
+        else assert.doesNotMatch(error.message, /already been retried once/)
+        return true
+      })
+      assert.equal(spawns.length, arm.retried ? 2 : 1)
+    } finally { await adapter.dispose() }
+  })
+}
+
+/**
+ * The vendor's conversation id is where its own words for a failure survive:
+ * it keys the log at `~/.gemini/antigravity-cli/log/cli-*.log` and the store
+ * at `~/.gemini/antigravity-cli/conversations/<id>.db`, and `result.error` is
+ * sanitised away here by contract. Only the canonical UUID shape is admitted,
+ * which is what makes printing it safe -- a value of that shape cannot carry
+ * a path, a token, or a sentence of vendor text.
+ */
+test('a failed turn names the vendor conversation when the envelope carried a UUID', async () => {
+  const { ctx } = ctxFor({ conversation_id: 'd8e3443e-fcce-410f-ab76-b7fbcf45987c', status: 'INVALID' })
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    await assert.rejects(drain(adapter.stream(request())), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.match(error.message, /Vendor conversation d8e3443e-fcce-410f-ab76-b7fbcf45987c\./)
+      return true
+    })
+  } finally { await adapter.dispose() }
+})
+
+test('an unparseable conversation id is left out rather than printed', async () => {
+  const marker = '/home/secret-user/conversations token=agy_fake_sk_0011'
+  const { ctx } = ctxFor({ conversation_id: marker, status: 'INVALID' })
+  const adapter = new AntigravityCliAdapter(ctx, primaryConfig)
+  try {
+    await assert.rejects(drain(adapter.stream(request())), (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.ok(!error.message.includes(marker), 'a non-UUID id is vendor text like any other')
+      assert.doesNotMatch(error.message, /Vendor conversation/)
+      return true
+    })
+  } finally { await adapter.dispose() }
+})

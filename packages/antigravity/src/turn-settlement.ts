@@ -107,6 +107,85 @@ export function settlementCode(settled: UnusableSettlement): string {
 }
 
 /**
+ * Whether a settled-but-failed turn is worth asking for again on a rebuilt
+ * conversation.
+ *
+ * This exists because an `ERROR` result on this route is **not always
+ * terminal**, which was established from the vendor's own conversation store
+ * rather than reasoned about. On 2026-09-04 a real turn (`agy 1.1.26`,
+ * `gemini-3.8-flash` high) came back `ERROR` after its model call was shed
+ * with `UNAVAILABLE (code 503)`; the vendor then injected its own recovery
+ * message -- "The stream was interrupted. Please continue the task you were
+ * working on." -- retried, and **recorded a valid, correctly stamped decision
+ * for that same turn**, which DSH never saw because it had already read the
+ * `ERROR` and killed the child. See `docs/verification/agy-cli-contract.md`,
+ * finding 18.
+ *
+ * Retrying is safe on THIS route for a reason that is structural rather than
+ * hopeful: the vendor executes nothing on DSH's behalf (the bridge agent is
+ * `finish`-only, and every tool call is a proposal delivered to DSH), and a
+ * failed turn has yielded nothing to DSH, because the decision is read
+ * atomically after the result. So a repeated turn cannot repeat a side
+ * effect. What it does cost is one vendor turn and the prefix cache, which is
+ * why it happens once per step rather than in a loop.
+ *
+ * Narrow on purpose:
+ *
+ * - only `failed`, and within it only the vendor's own `ERROR`. `CANCELED` and
+ *   `INTERRUPTED` are somebody's decision to stop, `WAITING`/`RUNNING` are a
+ *   protocol violation, and `INVALID` is the vendor's word for input it will
+ *   reject exactly as fast the second time;
+ * - never on `turn-timeout`, the one `failed` category this route measures
+ *   most often (`--print-timeout` expiry, finding 13): a retry there buys a
+ *   second full `turnTimeoutMs` wait for the same slow answer;
+ * - never on `model-unsupported` or an unsupported effort, both deterministic
+ *   in the request rather than in the weather.
+ *
+ * Everything else -- including the unattributed category the 503 arrived as --
+ * is retried, and deliberately without matching on the vendor's wording:
+ * `result.error` is discarded before it reaches here, so a recogniser for the
+ * 503 text would be a guess at a string this tree has never captured from an
+ * envelope. The package's standing rule is that a recogniser needs a captured
+ * string, so this decides on what IS known: the status, and the categories
+ * already measured.
+ */
+const NON_RETRYABLE_TURN_CATEGORIES: ReadonlySet<string> = new Set(['turn-timeout', 'model-unsupported'])
+
+export function isRetryableTurnFailure(settled: UnusableSettlement, result: AgyTurnResult): boolean {
+  if (settled.kind !== 'failed' || settled.status !== 'ERROR') return false
+  if (isEffortUnsupported(result)) return false
+  const { category } = antigravityVendorFailure({
+    stage: 'turn',
+    stderrText: typeof result.error === 'string' ? result.error : undefined,
+  })
+  return !NON_RETRYABLE_TURN_CATEGORIES.has(category)
+}
+
+/**
+ * The vendor's own conversation id for a failed turn, as a diagnostic clause.
+ *
+ * Named because the vendor keeps its side of every turn on disk -- a log at
+ * `~/.gemini/antigravity-cli/log/cli-*.log` and a conversation store at
+ * `~/.gemini/antigravity-cli/conversations/<id>.db`, whose `steps` table
+ * carries the model's own block and the vendor's `error_details` -- and that
+ * is the only place the vendor's own words for a failure survive, now that
+ * `result.error` is sanitised away here by contract. Without this clause the
+ * store has to be matched by wall-clock timestamp, which is ambiguous the
+ * moment two DSH sessions run at once; finding 18 was diagnosed that way and
+ * nearly attributed to the wrong process.
+ *
+ * Accepted only in canonical UUID form, which is what makes it safe to print
+ * under the same rule that lets an exit code through: a value of that shape
+ * cannot carry a path, a token or a sentence of vendor text.
+ */
+export function conversationNote(result: AgyTurnResult): string {
+  const id = result.conversation_id
+  if (typeof id !== 'string') return ''
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return ''
+  return ` Vendor conversation ${id}.`
+}
+
+/**
  * result.error is vendor-authored free text like any other vendor output, so
  * it is sanitised here rather than forwarded -- this is the last of the five
  * sites in this package where a failed vendor process could otherwise leak
@@ -118,13 +197,26 @@ export function settlementCode(settled: UnusableSettlement): string {
  * an unrecognized category instead of the vendor's own words. Safe and
  * uninformative beats informative and leaking.
  */
-export function resultFailure(result: AgyTurnResult, settled: UnusableSettlement, buildNote: string): LlmError {
+export function resultFailure(
+  result: AgyTurnResult,
+  settled: UnusableSettlement,
+  buildNote: string,
+  /**
+   * One caller-authored sentence appended after the sanitised failure, for a
+   * fact about DSH's own handling rather than about the vendor -- currently
+   * only that the step had already been retried. Kept as a parameter rather
+   * than wrapped by the caller so the `VendorFailure` stays the `cause`: the
+   * whole suite asserts on that, and a wrapper would put an `LlmError` there.
+   */
+  note?: string,
+): LlmError {
   const failure = antigravityVendorFailure({
     stage: 'turn',
     stderrText: typeof result.error === 'string' ? result.error : undefined,
   })
   return new LlmError(
-    `Antigravity CLI turn ${settlementPhrase(settled)} (status ${settled.status}).${buildNote} ${failure.message}`,
+    `Antigravity CLI turn ${settlementPhrase(settled)} (status ${settled.status}).${buildNote}`
+    + `${conversationNote(result)} ${failure.message}${note === undefined ? '' : ` ${note}`}`,
     settlementCode(settled),
     { cause: failure },
   )
