@@ -27,11 +27,22 @@ export function optionalString(value: unknown): string | undefined {
 }
 
 /**
- * Absent means empty. Present-but-not-an-object is a protocol error.
- * Isolation uses this so a shapeless `mcp_servers`/`apps` cannot silently
- * disable nothing and leave vendor tools on.
+ * Unset means empty. Present-but-shapeless is a protocol error. Isolation uses
+ * this so a `mcp_servers`/`apps` of the wrong shape cannot silently disable
+ * nothing and leave vendor tools on.
+ *
+ * `null` is unset, not shapeless. Real `codex-cli 0.150.0` answers `config/read`
+ * with `apps: null` on a machine that has none -- the key is present and the
+ * value is `null` -- and the same file spells every other unset option that way
+ * (`review_model: null`, `model_context_window: null`). Rejecting it took the
+ * whole provider out: `test:live:primary` failed with `invalid config/read apps`
+ * before the first turn could start, while every unit test passed because each
+ * fixture supplied an object or omitted the key.
+ *
+ * A string, number, or array still fails: those carry a shape this code would
+ * misread, which is what failing closed is for.
  */
 export function optionalObject(value: unknown, label: string): Record<string, unknown> {
-  if (value === undefined) return {}
+  if (value === undefined || value === null) return {}
   return object(value, label)
 }

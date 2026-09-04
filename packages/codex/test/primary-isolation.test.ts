@@ -253,6 +253,53 @@ test('primary App Server isolation treats absent mcp_servers and apps as empty',
   assert.deepEqual(isolation.apps, { _default: { enabled: false } })
 })
 
+test('primary App Server isolation accepts the null the real vendor sends for an unset map', async () => {
+  // Real `codex-cli 0.150.0` answers `config/read` with `apps: null` on a
+  // machine that has none -- present key, null value -- and spells every other
+  // unset option the same way (`review_model: null`,
+  // `model_context_window: null`). Treating null as shapeless took the whole
+  // provider out: `test:live:primary` failed with `invalid config/read apps`
+  // before the first turn could start, and no unit test saw it because every
+  // fixture either supplied an object or omitted the key.
+  const signal = AbortSignal.timeout(5_000)
+  const connection = {
+    async request(method: string) {
+      if (method === 'config/read') return { config: { apps: null, mcp_servers: null } }
+      if (method === 'skills/list') {
+        return { data: [{ cwd: '/workspace', skills: [], errors: [] }] }
+      }
+      throw new Error(`unexpected method ${method}`)
+    },
+  }
+
+  const adapter = new CodexAppServerAdapter({} as any, config)
+  const isolation = await (adapter as any).isolationConfig(connection, '/workspace', signal)
+  assert.deepEqual(isolation.mcp_servers, {})
+  assert.deepEqual(isolation.apps, { _default: { enabled: false } })
+})
+
+test('primary App Server isolation still fails closed on a shaped-but-wrong map', async () => {
+  // The narrowing above must not become "accept anything falsy". A value that
+  // carries a shape this code would misread -- an array, a number, a string --
+  // is still a protocol error, because failing closed there is what keeps a
+  // vendor capability from staying on while isolation reports success.
+  const signal = AbortSignal.timeout(5_000)
+  for (const apps of [[], ['calendar'], 0, 42, '', 'calendar', false]) {
+    const connection = {
+      async request(method: string) {
+        if (method === 'config/read') return { config: { apps } }
+        throw new Error(`unexpected method ${method}`)
+      },
+    }
+    const adapter = new CodexAppServerAdapter({} as any, config)
+    await assert.rejects(
+      (adapter as any).isolationConfig(connection, '/workspace', signal),
+      /invalid config\/read apps/,
+      `apps ${JSON.stringify(apps)} must still fail closed`,
+    )
+  }
+})
+
 test('primary App Server isolation fails closed when Codex skill discovery reports an error', async () => {
   const signal = AbortSignal.timeout(5_000)
   const connection = {

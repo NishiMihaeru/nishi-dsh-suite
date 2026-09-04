@@ -52,6 +52,24 @@ Added 2026-09-04, after the 2026-09-04 bugfix cut (`e6a163b`: fail-closed native
 
 **What this run does NOT establish**, and the distinction matters because the change it followed is a recovery path: none of the seven exercises the repair turn. A stale `structured_output` cannot be provoked on demand -- it is the vendor omitting its own block -- so these suites show the change broke nothing live, not that the recovery works live. That half rests on hand probes recorded as finding 16 in `agy-cli-contract.md`, where a `repair` envelope brought the identical decision back under a new stamp in the shipping shape, twice, plus the cache measurement showing the repair reads 49,031 of its 51,573 prefix tokens from cache. A suite that could assert the path end to end needs a fake vendor, which is what the unit tests already do (`session-reuse.test.ts`, three cases).
 
+## Codex live suites re-run after the fail-closed cut, 2026-09-04 — one blocking regression
+
+`e6a163b` reworked the Codex adapter (retry cap, a referenced turn-timeout timer, fail-closed isolation, history projection moved inside `stream()`) and states plainly that no live suite was re-run, because neither vendor CLI was on PATH in that environment. Re-run here against real `codex-cli 0.150.0`, the first suite **failed before a turn could start**:
+
+```
+Error: codex-plugin-dsh: App Server returned invalid config/read apps
+    at optionalObject (codex-plugin-dsh/validation.ts:36)
+    at CodexAppServerAdapter.isolationConfig (adapter.ts:1228)
+```
+
+`optionalObject` treated only `undefined` as unset, and real 0.150.0 answers `config/read` with **`apps: null`** — key present, value null — which is how that config spells every unset option (`review_model: null`, `model_context_window: null`, both observed in the same response). The provider was out entirely: no primary turn could open. Every unit test passed, because each fixture either supplied an object or omitted the key; the shape that fails is the one only the vendor produces.
+
+Fixed by reading `null` as unset alongside `undefined`, which leaves the fail-closed intent intact — a string, number, array or boolean still rejects, since those carry a shape this code would misread. Two tests pin it: one asserting the vendor's real `{apps: null, mcp_servers: null}`, one sweeping seven shaped-but-wrong values that must still reject. Codex 160 -> 162.
+
+All six suites then pass against real `codex-cli 0.150.0`: `primary` 1/1 (reporting `{"contextWindow":258400}`), `acceptance` 9/9 across all 15 scenarios, `inject-items` 1/1, `tool-result-continuation` 1/1, `web-search` 1/1, `web-search-routed` 1/1. Workspace build, check and tests exit 0.
+
+The general point is the one this ledger keeps re-learning: a change that hardens a vendor boundary cannot be validated by fixtures written from the same assumption that produced the change.
+
 ## Product-level acceptance in the real `web` profile, 2026-09-03
 
 One session, driven through the browser UI of `dsh --profile web` (`@deepseek-ai/dsh-base` + `@deepseek-ai/dsh-web-app`, the Orchestrator preset, both provider packages linked from this working tree). Evidence throughout is the durable session log — `request/header`, `request/context`, `tool/call`, `tool/result` — not the model's own account of what it did, and a marker was planted so the memory claim could not be satisfied by a plausible sentence.
